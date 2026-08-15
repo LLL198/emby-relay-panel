@@ -19,6 +19,10 @@ data/
 .env.*
 !.env.example
 .cloudflare-token
+acme-account.conf
+acme-template.tgz
+*.tgz
+*.secret
 secrets/
 keys/
 *.pem
