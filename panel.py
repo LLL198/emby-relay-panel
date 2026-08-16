@@ -1896,7 +1896,15 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
         try:
             with urlopen(request, timeout=25) as response:
                 result = json.loads(response.read().decode())
-        except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as exc:
+        except HTTPError as exc:
+            try:
+                detail = json.loads(exc.read().decode())
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                detail = {}
+            codes = ",".join(str(item.get("code", "")) for item in detail.get("errors", []))
+            suffix = f"（HTTP {exc.code}{'; code ' + codes if codes else ''}）"
+            raise PanelError("DNS 自动配置失败" + suffix) from exc
+        except (URLError, TimeoutError, json.JSONDecodeError) as exc:
             raise PanelError("DNS 自动配置请求失败") from exc
         if not result.get("success"):
             codes = ",".join(str(item.get("code", "")) for item in result.get("errors", []))
@@ -1949,6 +1957,10 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
             try:
                 self._cloudflare_api("DELETE", f"/zones/{zone_id}/dns_records/{record_id}")
             except Exception as exc:
+                # Cloudflare 81044 means the record is already absent. Treat
+                # deletion as idempotent so interrupted cleanup can complete.
+                if "81044" in str(exc) or "HTTP 404" in str(exc):
+                    continue
                 failures.append(f"{record_id}: {exc}")
         if failures:
             raise PanelError("DNS 记录删除失败：" + "; ".join(failures[:3]))

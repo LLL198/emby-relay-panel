@@ -71,6 +71,12 @@ class PanelSecurityIntegrationTests(unittest.TestCase):
              patch.object(self.panel, "_run", return_value="0\nWarning: Permanently added host key"):
             self.panel._wait_for_root_ssh({})
 
+    def test_missing_dns_records_are_idempotent(self):
+        missing = PanelError("DNS 自动配置失败（HTTP 404; code 81044）")
+        with patch.object(self.panel, "_cloudflare_zone_id", return_value="zone"), \
+             patch.object(self.panel, "_cloudflare_api", side_effect=missing):
+            self.panel._delete_node_dns(["4065a91c4aa064a56671a91b248f4976"])
+
     def test_existing_nginx_port_prefers_ssl_and_ignores_http(self):
         config = """
         listen 80 default_server;
