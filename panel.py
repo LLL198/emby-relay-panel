@@ -2308,7 +2308,6 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                 f"printf %s {shlex.quote(encoded_egress)} | base64 -d > {shlex.quote(root_dir + '/egress.nft')}; if ! nft list table inet uniproxy_egress >/dev/null 2>&1; then nft -c -f {shlex.quote(root_dir + '/egress.nft')}; nft -f {shlex.quote(root_dir + '/egress.nft')}; fi",
                 f"printf %s {shlex.quote(encoded_logrotate)} | base64 -d > /etc/logrotate.d/uniproxy",
                 f"{shlex.quote(controller_path)} reload",
-                f"curl --fail --silent --show-error --connect-timeout 5 --max-time 10 --resolve {shlex.quote(node['domain_suffix'] + ':443:127.0.0.1')} {shlex.quote('https://' + node['domain_suffix'] + '/__health')} | grep -qx ok",
                 "if command -v crontab >/dev/null 2>&1; then (crontab -l 2>/dev/null | grep -v 'uniproxy-nginx' || true; echo '@reboot /usr/local/sbin/uniproxy-nginx start >/dev/null 2>&1') | crontab -; fi",
                 f"if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then printf %s {shlex.quote(encoded_unit)} | base64 -d > /etc/systemd/system/uniproxy-nginx.service; systemctl daemon-reload; systemctl enable uniproxy-nginx >/dev/null; fi",
                 "if command -v rc-service >/dev/null 2>&1; then rc-update add dcron default >/dev/null 2>&1 || rc-update add crond default >/dev/null 2>&1 || true; rc-service dcron start >/dev/null 2>&1 || rc-service crond start >/dev/null 2>&1 || true;",
