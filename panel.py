@@ -2921,15 +2921,22 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                 detected_internal_port = await asyncio.to_thread(self._detect_existing_nginx_port, candidate)
                 if detected_internal_port is not None:
                     candidate["internal_https_port"] = detected_internal_port
-                port_notice = (
-                    f"已检测到远端 Nginx 监听端口 {int(candidate['internal_https_port'])}，已忽略表单中的内部端口；"
-                    if detected_internal_port is not None else ""
-                )
                 country_name, country_code, country_flag = await self._lookup_node_location(address)
                 dns_records = []
                 try:
                     public_port, dns_records = await asyncio.to_thread(self._provision_auto_node, candidate)
                     candidate["public_https_port"] = public_port
+                    effective_internal_port = int(candidate["internal_https_port"])
+                    if detected_internal_port is not None:
+                        port_notice = (
+                            f"最终采用端口：公网 HTTPS {int(public_port)} → 节点内部 {effective_internal_port}；"
+                            f"已检测到远端 Nginx 端口并忽略表单中的内部端口。请确认服务商映射到内部 {effective_internal_port}。"
+                        )
+                    else:
+                        port_notice = (
+                            f"最终采用端口：公网 HTTPS {int(public_port)} → 节点内部 {effective_internal_port}；"
+                            f"使用表单填写的内部端口，请确认服务商映射正确。"
+                        )
                     with self._connect() as db:
                         db.execute(
                             "INSERT INTO nodes (name,kind,ssh_host,ssh_port,ssh_user,ssh_identity,ssh_password,ssh_password_ciphertext,domain_suffix,tls_cert_file,tls_key_file,caddy_config,generated_dir,public_https_port,internal_https_port,country_name,country_code,country_flag,network_mode,auto_managed,ssh_host_key,ssh_host_fingerprint,host_key_verified_at,dns_record_ids_json,cert_mode,state,security_policy_version,created_at,updated_at) "
