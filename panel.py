@@ -2841,7 +2841,9 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                     "caddy_config": "/etc/uniproxy-nginx/nginx.conf",
                     "generated_dir": "/etc/uniproxy-nginx/conf.d", "auto_managed": 1,
                     "network_mode": network_mode, "public_https_port": public_port,
-                    "ssh_host_fingerprint": "",
+                    # Kept as empty compatibility fields for the legacy schema;
+                    # host-key pinning was intentionally removed from the form.
+                    "ssh_host_key": "", "ssh_host_fingerprint": "", "host_key_verified_at": "",
                 }
                 country_name, country_code, country_flag = await self._lookup_node_location(address)
                 dns_records = []
