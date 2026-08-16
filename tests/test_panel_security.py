@@ -81,7 +81,7 @@ class PanelSecurityIntegrationTests(unittest.TestCase):
         """
         self.assertEqual(self.panel._select_existing_nginx_port(config), 443)
         self.assertEqual(self.panel._select_existing_nginx_port("listen 80;\nlisten 8443;"), 8443)
-        self.assertIsNone(self.panel._select_existing_nginx_port("listen 80;"))
+        self.assertEqual(self.panel._select_existing_nginx_port("listen 80;"), 80)
 
     def test_host_cookie_names_have_no_domain_scope(self):
         response = web.Response()

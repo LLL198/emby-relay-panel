@@ -1566,6 +1566,8 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
 <section><h2>新增线路</h2><p class='muted'>创建后会自动下发 Nginx，并从公网访问新地址确认链路；验证结果会直接显示。</p><form method='post' action='{ADMIN_PREFIX}/routes'><div class='grid'><label>线路名称（小写英文、数字、连字符）<input required name='name' pattern='[a-z0-9][a-z0-9-]{{1,31}}' placeholder='emby-a'></label><label>源站地址<input required name='origin' placeholder='https://emby.example.com'></label><label>部署节点<select name='node_id'>{node_options}</select></label></div><p><input type='hidden' name='csrf' value='{self._csrf('route-create')}'><button>创建、下发并验证</button></p></form></section>
 <section><h2>节点</h2><table><thead><tr><th>名称</th><th>类型</th><th>地区</th><th>域名后缀</th><th>状态 / 代理用量</th><th>操作</th></tr></thead><tbody>{node_rows}</tbody></table></section>
 <section><h2>新增节点</h2><p class='muted'>公网 HTTPS 端口是用户访问时使用的端口，内部 HTTPS 端口是节点 Nginx 实际监听的端口，默认都是 443；两者可以独立填写。若远端已安装 Nginx，系统会自动读取它的 HTTPS 监听端口并优先使用，忽略你填写的内部端口。NAT 机需要让服务商把公网端口映射到内部端口。</p><form method='post' enctype='multipart/form-data' action='{ADMIN_PREFIX}/nodes'><div class='grid'><label>节点名称<input required name='name' placeholder='海创'></label><label>网络类型<select required name='network_mode' id='network-mode'><option value='vps'>普通 VPS（独立公网 IP）</option><option value='nat'>NAT 机（端口映射）</option></select></label><label>服务器公网 IP<input required name='ssh_host' inputmode='decimal' placeholder='162.141.136.85'></label><label>SSH 端口<input required name='ssh_port' value='22' inputmode='numeric'></label><label>公网 HTTPS 端口<input required id='public-port' name='public_https_port' value='443' inputmode='numeric'><span class='muted'>NAT 默认可填服务商分配的端口，例如 30004</span></label><label>内部 HTTPS 端口<input required name='internal_https_port' value='443' inputmode='numeric'><span class='muted'>Nginx 监听端口，不能使用 80；远端已有 Nginx 时自动识别</span></label><label>SSH 密码（与私钥二选一）<input type='password' name='ssh_password' autocomplete='new-password'></label><label>SSH 私钥文件（与密码二选一）<input type='file' name='ssh_private_key' accept='.pem,.key,text/plain,application/x-pem-file'></label></div><p><input type='hidden' name='csrf' value='{self._csrf('node-create')}'><button>自动部署并添加</button></p></form><script nonce='__CSP_NONCE__'>(()=>{{const mode=document.getElementById('network-mode'),publicPort=document.getElementById('public-port');const sync=()=>{{if(mode.value==='nat'&&publicPort.value==='443')publicPort.value='30004';if(mode.value==='vps'&&publicPort.value==='30004')publicPort.value='443';}};mode.addEventListener('change',sync);}})();</script></section>"""
+        content = content.replace("自动读取它的 HTTPS 监听端口", "自动读取它的监听端口")
+        content = content.replace("Nginx 监听端口，不能使用 80；远端已有 Nginx 时自动识别", "Nginx 监听端口；远端已有 Nginx 时自动识别")
         return self._page(content, notice, error)
 
     @staticmethod
@@ -1837,8 +1839,6 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
             raise PanelError("端口必须是数字") from exc
         if not (1 <= ssh_port <= 65535 and 1 <= public_port <= 65535 and 1 <= internal_port <= 65535):
             raise PanelError("端口超出范围")
-        if internal_port == 80:
-            raise PanelError("内部 HTTPS 端口不能使用 80（该端口用于 HTTP 跳转）")
         host = str(data.get("ssh_host", "")).strip().lower()
         user = str(data.get("ssh_user", "")).strip()
         identity = str(data.get("ssh_identity", "")).strip()
@@ -2153,11 +2153,12 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
 
     @staticmethod
     def _select_existing_nginx_port(output: str) -> int | None:
-        """Choose an existing Nginx listener suitable for HTTPS takeover.
+        """Choose an existing Nginx listener for the isolated HTTPS service.
 
         The remote probe is deliberately limited to ``listen`` directives;
-        it never trusts an arbitrary process port.  Prefer an explicit SSL
-        listener, then prefer 443, and never select the HTTP redirect port.
+        it never trusts an arbitrary process port. Prefer an explicit SSL
+        listener, then prefer 443. Port 80 is valid when the NAT mapping
+        points the public HTTPS port to the node's port 80.
         """
         ssl_ports: set[int] = set()
         other_ports: set[int] = set()
@@ -2177,7 +2178,7 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
             if not port_text.isdigit():
                 continue
             port = int(port_text)
-            if not 1 <= port <= 65535 or port == 80:
+            if not 1 <= port <= 65535:
                 continue
             if any(token.lower() == "ssl" for token in tokens[1:]):
                 ssl_ports.add(port)
@@ -2186,7 +2187,9 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
         if ssl_ports:
             return min(ssl_ports, key=lambda port: (port != 443, port))
         if other_ports:
-            return min(other_ports, key=lambda port: (port != 443, port))
+            non_http_ports = {port for port in other_ports if port != 80}
+            candidates = non_http_ports or other_ports
+            return min(candidates, key=lambda port: (port != 443, port))
         return None
 
     def _detect_existing_nginx_port(self, node) -> int | None:
@@ -2918,10 +2921,8 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                 detected_internal_port = await asyncio.to_thread(self._detect_existing_nginx_port, candidate)
                 if detected_internal_port is not None:
                     candidate["internal_https_port"] = detected_internal_port
-                if int(candidate["internal_https_port"]) == 80:
-                    raise PanelError("内部 HTTPS 端口不能使用 80（该端口用于 HTTP 跳转）")
                 port_notice = (
-                    f"已检测到远端 Nginx HTTPS 端口 {int(candidate['internal_https_port'])}，已忽略表单中的内部端口；"
+                    f"已检测到远端 Nginx 监听端口 {int(candidate['internal_https_port'])}，已忽略表单中的内部端口；"
                     if detected_internal_port is not None else ""
                 )
                 country_name, country_code, country_flag = await self._lookup_node_location(address)
