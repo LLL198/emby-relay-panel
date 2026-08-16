@@ -191,6 +191,9 @@ class ProxyPanel:
         self.user_route_creation_enabled = os.environ.get(
             "USER_ROUTE_CREATION_ENABLED", "1"
         ).strip().lower() not in {"0", "false", "no", "off"}
+        self.allow_unprotected_egress = os.environ.get(
+            "ALLOW_UNPROTECTED_EGRESS", "0"
+        ).strip().lower() in {"1", "true", "yes", "on"}
         self.minimum_password_length = max(
             1, min(256, int(os.environ.get("MINIMUM_PASSWORD_LENGTH", "12")))
         )
@@ -2307,6 +2310,19 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                 raise PanelError("节点安全部署模板缺失")
             encoded_egress = base64.b64encode(egress_path.read_bytes()).decode()
             encoded_logrotate = base64.b64encode(logrotate_path.read_bytes()).decode()
+            if self.allow_unprotected_egress:
+                egress_command = (
+                    f"printf %s {shlex.quote(encoded_egress)} | base64 -d > {shlex.quote(root_dir + '/egress.nft')}; "
+                    f"printf '%s\\n' disabled-by-admin > {shlex.quote(root_dir + '/.uniproxy-egress-unprotected')}; "
+                    f"chmod 600 {shlex.quote(root_dir + '/.uniproxy-egress-unprotected')}"
+                )
+            else:
+                egress_command = (
+                    f"printf %s {shlex.quote(encoded_egress)} | base64 -d > {shlex.quote(root_dir + '/egress.nft')}; "
+                    f"if ! nft list table inet uniproxy_egress >/dev/null 2>&1; then "
+                    f"nft -c -f {shlex.quote(root_dir + '/egress.nft')}; "
+                    f"nft -f {shlex.quote(root_dir + '/egress.nft')}; fi"
+                )
             ensure_nginx_user = "\n".join([
                 "ensure_nginx_group() {",
                 "  if getent group uniproxy-nginx >/dev/null 2>&1; then return 0; fi",
@@ -2366,7 +2382,7 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                 f"install -m 0644 {shlex.quote(remote_cert)} {shlex.quote(node['tls_cert_file'])}",
                 f"printf '%s\\n' managed > {shlex.quote(root_dir + '/.uniproxy-acme-managed')}; chmod 600 {shlex.quote(root_dir + '/.uniproxy-acme-managed')}",
                 f"printf '%s\\n' central-cert-mode > {shlex.quote(root_dir + '/.uniproxy-cert-mode')}; chmod 600 {shlex.quote(root_dir + '/.uniproxy-cert-mode')}",
-                f"printf %s {shlex.quote(encoded_egress)} | base64 -d > {shlex.quote(root_dir + '/egress.nft')}; if ! nft list table inet uniproxy_egress >/dev/null 2>&1; then nft -c -f {shlex.quote(root_dir + '/egress.nft')}; nft -f {shlex.quote(root_dir + '/egress.nft')}; fi",
+                egress_command,
                 f"printf %s {shlex.quote(encoded_logrotate)} | base64 -d > /etc/logrotate.d/uniproxy",
                 f"{shlex.quote(controller_path)} reload",
                 "if command -v crontab >/dev/null 2>&1; then (crontab -l 2>/dev/null | grep -v 'uniproxy-nginx' || true; echo '@reboot /usr/local/sbin/uniproxy-nginx start >/dev/null 2>&1') | crontab -; fi",
@@ -2927,6 +2943,10 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                     public_port, dns_records = await asyncio.to_thread(self._provision_auto_node, candidate)
                     candidate["public_https_port"] = public_port
                     effective_internal_port = int(candidate["internal_https_port"])
+                    security_notice = (
+                        "警告：本次节点部署按管理员设置跳过了 Nginx 出站保护；该节点不应代理不受信任的源站。"
+                        if self.allow_unprotected_egress else ""
+                    )
                     if detected_internal_port is not None:
                         port_notice = (
                             f"最终采用端口：公网 HTTPS {int(public_port)} → 节点内部 {effective_internal_port}；"
@@ -2957,7 +2977,7 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                     raise
                 location = f"已识别为 {country_flag} {country_name}（{country_code}）；" if country_code else "未能识别地区，可稍后在节点名称中标注地区；"
                 probe_url = self._public_url(candidate, domain_suffix).rstrip("/") + "/__health"
-                return self.dashboard(notice=port_notice + location + f"节点已自动部署并添加；公网探测地址：{probe_url}")
+                return self.dashboard(notice=security_notice + port_notice + location + f"节点已自动部署并添加；公网探测地址：{probe_url}")
             node_delete_match = re.fullmatch(re.escape(ADMIN_PREFIX) + r"/nodes/(\d+)/delete", request.path)
             if node_delete_match:
                 node_id = int(node_delete_match.group(1))
