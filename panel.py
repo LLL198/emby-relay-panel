@@ -574,6 +574,18 @@ class ProxyPanel:
             origin = self._canonical_http_origin(raw_origin)
             if origin and hmac.compare_digest(origin, expected):
                 return
+            if allow_missing:
+                # The panel may be reached through an explicitly exposed
+                # HTTPS port or a TLS-terminating compatibility proxy.  The
+                # per-action HMAC CSRF token below remains mandatory, so a
+                # same-host origin variant is safe to accept here.
+                try:
+                    expected_host = urlsplit(expected).hostname
+                    supplied = urlsplit(raw_origin)
+                    if supplied.hostname and supplied.hostname.lower().rstrip(".") == expected_host:
+                        return
+                except ValueError:
+                    pass
             raise web.HTTPForbidden(text="invalid request origin")
         # Some same-origin form POSTs omit Origin.  A same-origin Referer is
         # an equivalent browser signal; still require the exact configured

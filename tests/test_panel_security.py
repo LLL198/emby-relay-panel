@@ -84,6 +84,10 @@ class PanelSecurityIntegrationTests(unittest.TestCase):
         self.panel._check_request_origin(valid)
         default_port = make_mocked_request("POST", "/login", headers={"Origin": "https://sh.996878.xyz:443"})
         self.panel._check_request_origin(default_port)
+        same_host_port = make_mocked_request("POST", "/login", headers={"Origin": "https://sh.996878.xyz:8443"})
+        self.panel._check_request_origin(same_host_port, allow_missing=True)
+        same_host_http = make_mocked_request("POST", "/login", headers={"Origin": "http://sh.996878.xyz"})
+        self.panel._check_request_origin(same_host_http, allow_missing=True)
         referer_fallback = make_mocked_request(
             "POST", "/login", headers={"Referer": "https://sh.996878.xyz/_admin/nodes"}
         )
