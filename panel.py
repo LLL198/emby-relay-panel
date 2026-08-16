@@ -541,7 +541,7 @@ class ProxyPanel:
             db.execute("UPDATE users SET last_login_at=?,last_login_ip=?,updated_at=? WHERE id=?", (now(), client_ip[:64], now(), user["id"]))
             return db.execute("SELECT * FROM users WHERE id=?", (user["id"],)).fetchone()
 
-    def _register_user(self, invite_code: str, username: str, password: str):
+    def _register_user(self, invite_code: str, username: str, password: str, client_ip: str):
         normalized = self._normalize_username(username)
         password_hash = self._password_hash(password)
         code_hash = hashlib.sha256(invite_code.strip().encode("utf-8")).hexdigest()
@@ -570,7 +570,14 @@ class ProxyPanel:
                 "INSERT INTO invite_redemptions (invite_id,user_id,username,redeemed_at) VALUES (?,?,?,?)",
                 (invite["id"], cursor.lastrowid, username.strip(), now()),
             )
-            return int(cursor.lastrowid)
+            user_id = int(cursor.lastrowid)
+            login_at = now()
+            self._record_login_event(db, user_id, True, client_ip)
+            db.execute(
+                "UPDATE users SET last_login_at=?,last_login_ip=?,updated_at=? WHERE id=?",
+                (login_at, client_ip[:64], login_at, user_id),
+            )
+            return user_id
 
     def _invalidate_user_sessions(self, user_id: int) -> None:
         with self._connect() as db:
@@ -1037,7 +1044,13 @@ class ProxyPanel:
                     await self._record_user_auth_failure(request)
                     return self.register_page(request, error="两次输入的密码不一致")
                 try:
-                    user_id = await asyncio.to_thread(self._register_user, str(data.get("invite_code", "")), str(data.get("username", "")), password)
+                    user_id = await asyncio.to_thread(
+                        self._register_user,
+                        str(data.get("invite_code", "")),
+                        str(data.get("username", "")),
+                        password,
+                        self._client_ip(request),
+                    )
                 except PanelError as exc:
                     await self._record_user_auth_failure(request)
                     return self.register_page(request, error=str(exc))
