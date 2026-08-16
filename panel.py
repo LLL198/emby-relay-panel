@@ -58,7 +58,7 @@ USER_CSRF_COOKIE = "__Host-uniproxy-csrf"
 LEGACY_USER_SESSION_COOKIE = "_uniproxy_user_session"
 LEGACY_USER_CSRF_COOKIE = "_uniproxy_user_csrf"
 USER_SESSION_SECONDS = 24 * 60 * 60
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 ADMIN_ROUTE_PAGE_SIZE = 5
 TRAFFIC_FORMAT_NAME = "uniproxy_traffic"
 TRAFFIC_CONFIG_NAME = "00-uniproxy-traffic.conf"
@@ -267,7 +267,7 @@ class ProxyPanel:
                 "ssh_host TEXT, ssh_port INTEGER NOT NULL DEFAULT 22, ssh_user TEXT, ssh_identity TEXT, ssh_password TEXT, "
                 "domain_suffix TEXT NOT NULL, tls_cert_file TEXT NOT NULL, tls_key_file TEXT NOT NULL, "
                 "caddy_config TEXT NOT NULL, generated_dir TEXT NOT NULL, "
-                "public_https_port INTEGER NOT NULL DEFAULT 443, agent_id TEXT UNIQUE, last_seen TEXT, "
+                "public_https_port INTEGER NOT NULL DEFAULT 443, internal_https_port INTEGER NOT NULL DEFAULT 443, agent_id TEXT UNIQUE, last_seen TEXT, "
                 "health_json TEXT NOT NULL DEFAULT '', traffic_rx INTEGER NOT NULL DEFAULT 0, "
                 "traffic_tx INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL);"
                 "CREATE TABLE IF NOT EXISTS routes ("
@@ -349,6 +349,7 @@ class ProxyPanel:
                 "security_policy_version": "INTEGER NOT NULL DEFAULT 1",
                 "updated_at": "TEXT NOT NULL DEFAULT ''",
                 "ca_bundle_path": "TEXT NOT NULL DEFAULT '/etc/uniproxy-nginx/ca-bundle.pem'",
+                "internal_https_port": "INTEGER NOT NULL DEFAULT 443",
             }
             for name, definition in migrations.items():
                 if name not in columns:
@@ -1527,7 +1528,7 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
             kind = "本机" if node["kind"] == "local" else "SSH"
             if node["kind"] == "ssh":
                 mode = "普通 VPS" if node["network_mode"] == "vps" else "NAT"
-                kind += f"<br><span class='muted'>{mode} · HTTPS {int(node['public_https_port'])}</span>"
+                kind += f"<br><span class='muted'>{mode} · 公网 HTTPS {int(node['public_https_port'])} → 内部 {int(node['internal_https_port'])}</span>"
             health = self._health_summary(node)
             traffic = self._format_traffic_usage(node_usage.get(node_id))
             location = " ".join(filter(None, (node["country_flag"], node["country_name"], node["country_code"]))) or "未识别"
@@ -1564,7 +1565,7 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
 <section><h2>线路</h2><table><thead><tr><th>名称</th><th>源站</th><th>公开地址</th><th>节点</th><th>状态</th><th>操作</th></tr></thead><tbody>{route_rows}</tbody></table>{route_pagination}</section>
 <section><h2>新增线路</h2><p class='muted'>创建后会自动下发 Nginx，并从公网访问新地址确认链路；验证结果会直接显示。</p><form method='post' action='{ADMIN_PREFIX}/routes'><div class='grid'><label>线路名称（小写英文、数字、连字符）<input required name='name' pattern='[a-z0-9][a-z0-9-]{{1,31}}' placeholder='emby-a'></label><label>源站地址<input required name='origin' placeholder='https://emby.example.com'></label><label>部署节点<select name='node_id'>{node_options}</select></label></div><p><input type='hidden' name='csrf' value='{self._csrf('route-create')}'><button>创建、下发并验证</button></p></form></section>
 <section><h2>节点</h2><table><thead><tr><th>名称</th><th>类型</th><th>地区</th><th>域名后缀</th><th>状态 / 代理用量</th><th>操作</th></tr></thead><tbody>{node_rows}</tbody></table></section>
-<section><h2>新增节点</h2><p class='muted'>普通 VPS 直接使用公网 443；NAT 机需要填写服务商映射到内部 TCP 443 的公网 HTTPS 端口。首次连接会自动记录 SSH 主机密钥；如果已记录的密钥发生变化，连接会被拒绝。</p><form method='post' enctype='multipart/form-data' action='{ADMIN_PREFIX}/nodes'><div class='grid'><label>节点名称<input required name='name' placeholder='海创'></label><label>网络类型<select required name='network_mode' id='network-mode'><option value='vps'>普通 VPS（独立公网 IP）</option><option value='nat'>NAT 机（端口映射）</option></select></label><label>服务器公网 IP<input required name='ssh_host' inputmode='decimal' placeholder='162.141.136.85'></label><label>SSH 端口<input required name='ssh_port' value='22' inputmode='numeric'></label><label id='nat-port-field' hidden>NAT 公网 HTTPS 端口<input name='nat_https_port' value='30004' inputmode='numeric'><span class='muted'>服务商需将此 TCP 端口映射到机器内部 443</span></label><label>SSH 密码（与私钥二选一）<input type='password' name='ssh_password' autocomplete='new-password'></label><label>SSH 私钥文件（与密码二选一）<input type='file' name='ssh_private_key' accept='.pem,.key,text/plain,application/x-pem-file'></label></div><p><input type='hidden' name='csrf' value='{self._csrf('node-create')}'><button>自动部署并添加</button></p></form><script nonce='__CSP_NONCE__'>(()=>{{const mode=document.getElementById('network-mode'),field=document.getElementById('nat-port-field');const sync=()=>field.hidden=mode.value!=='nat';mode.addEventListener('change',sync);sync();}})();</script></section>"""
+<section><h2>新增节点</h2><p class='muted'>公网 HTTPS 端口是用户访问时使用的端口，内部 HTTPS 端口是节点 Nginx 实际监听的端口，默认都是 443；两者可以独立填写。NAT 机需要让服务商把公网端口映射到内部端口。</p><form method='post' enctype='multipart/form-data' action='{ADMIN_PREFIX}/nodes'><div class='grid'><label>节点名称<input required name='name' placeholder='海创'></label><label>网络类型<select required name='network_mode' id='network-mode'><option value='vps'>普通 VPS（独立公网 IP）</option><option value='nat'>NAT 机（端口映射）</option></select></label><label>服务器公网 IP<input required name='ssh_host' inputmode='decimal' placeholder='162.141.136.85'></label><label>SSH 端口<input required name='ssh_port' value='22' inputmode='numeric'></label><label>公网 HTTPS 端口<input required id='public-port' name='public_https_port' value='443' inputmode='numeric'><span class='muted'>NAT 默认可填服务商分配的端口，例如 30004</span></label><label>内部 HTTPS 端口<input required name='internal_https_port' value='443' inputmode='numeric'><span class='muted'>Nginx 监听端口，不能使用 80</span></label><label>SSH 密码（与私钥二选一）<input type='password' name='ssh_password' autocomplete='new-password'></label><label>SSH 私钥文件（与密码二选一）<input type='file' name='ssh_private_key' accept='.pem,.key,text/plain,application/x-pem-file'></label></div><p><input type='hidden' name='csrf' value='{self._csrf('node-create')}'><button>自动部署并添加</button></p></form><script nonce='__CSP_NONCE__'>(()=>{{const mode=document.getElementById('network-mode'),publicPort=document.getElementById('public-port');const sync=()=>{{if(mode.value==='nat'&&publicPort.value==='443')publicPort.value='30004';if(mode.value==='vps'&&publicPort.value==='30004')publicPort.value='443';}};mode.addEventListener('change',sync);}})();</script></section>"""
         return self._page(content, notice, error)
 
     @staticmethod
@@ -1831,10 +1832,13 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
         try:
             ssh_port = int(str(data.get("ssh_port", "22")))
             public_port = int(str(data.get("public_https_port", "443")))
+            internal_port = int(str(data.get("internal_https_port", "443")))
         except ValueError as exc:
             raise PanelError("端口必须是数字") from exc
-        if not (1 <= ssh_port <= 65535 and 1 <= public_port <= 65535):
+        if not (1 <= ssh_port <= 65535 and 1 <= public_port <= 65535 and 1 <= internal_port <= 65535):
             raise PanelError("端口超出范围")
+        if internal_port == 80:
+            raise PanelError("内部 HTTPS 端口不能使用 80（该端口用于 HTTP 跳转）")
         host = str(data.get("ssh_host", "")).strip().lower()
         user = str(data.get("ssh_user", "")).strip()
         identity = str(data.get("ssh_identity", "")).strip()
@@ -1853,7 +1857,7 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
             self._valid_path(str(data.get("tls_cert_file", "")), "TLS 证书文件"),
             self._valid_path(str(data.get("tls_key_file", "")), "TLS 私钥文件"),
             self._valid_path(str(data.get("caddy_config", "")), "Nginx 配置"),
-            self._valid_path(str(data.get("generated_dir", "")), "线路生成目录"), public_port,
+            self._valid_path(str(data.get("generated_dir", "")), "线路生成目录"), public_port, internal_port,
         )
 
     async def _lookup_node_location(self, host: str = "") -> tuple[str, str, str]:
@@ -2140,9 +2144,12 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
         if node["network_mode"] == "nat":
             raise PanelError(
                 f"节点内部配置已完成，但连续探测后公网 TCP {port} 仍无法访问；"
-                f"请确认服务商已将公网 TCP {port} 映射到机器内部 TCP 443"
+                f"请确认服务商已将公网 TCP {port} 映射到机器内部 TCP {int(node['internal_https_port'])}"
             )
-        raise PanelError("节点内部配置已完成，但连续探测后公网 TCP 443 仍无法访问；请检查云平台安全组是否允许入站 TCP 443")
+        raise PanelError(
+            f"节点内部配置已完成，但连续探测后公网 TCP {port} 仍无法访问；"
+            f"请检查云平台安全组，并确认服务监听内部 TCP {int(node['internal_https_port'])}"
+        )
 
     def _provision_auto_node(self, node) -> tuple[int, list[str]]:
         self._wait_for_root_ssh(node)
@@ -2219,7 +2226,7 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
             base_config = "\n".join([
                 "# generated by uniproxy automatic node provisioning",
                 "server {",
-                "    listen 443 ssl;",
+                f"    listen {int(node['internal_https_port'])} ssl;",
                 f"    server_name {node['domain_suffix']};",
                 f"    ssl_certificate {node['tls_cert_file']};",
                 f"    ssl_certificate_key {node['tls_key_file']};",
@@ -2388,6 +2395,7 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                 tls_cert_file=str(node["tls_cert_file"]),
                 tls_key_file=str(node["tls_key_file"]),
                 public_https_port=int(node["public_https_port"]),
+                internal_https_port=int(node["internal_https_port"]),
                 ca_bundle=str(node["ca_bundle_path"]),
                 allow_insecure_http=allow_insecure_http,
                 # The generated configuration is consumed on the remote Linux
@@ -2809,15 +2817,25 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                 try:
                     parsed_address = ipaddress.ip_address(address)
                     ssh_port = int(str(data.get("ssh_port", "22")))
-                    public_port = 443 if network_mode == "vps" else int(str(data.get("nat_https_port", "")))
+                    public_value = str(data.get("public_https_port", "")).strip()
+                    if not public_value and network_mode == "nat":
+                        # Accept the field name used by the previous NAT form
+                        # while browsers still have a cached copy of it.
+                        public_value = str(data.get("nat_https_port", "")).strip()
+                    public_port = int(public_value or "443")
+                    internal_port = int(str(data.get("internal_https_port", "443")))
                 except ValueError as exc:
-                    raise PanelError("服务器 IP、SSH 端口或 NAT 公网端口格式不正确") from exc
+                    raise PanelError("服务器 IP、SSH 端口、公网端口或内部 HTTPS 端口格式不正确") from exc
                 if parsed_address.version != 4 or not parsed_address.is_global:
                     raise PanelError("服务器 IP 必须是公网 IPv4 地址")
                 if not 1 <= ssh_port <= 65535:
                     raise PanelError("SSH 端口超出范围")
                 if not 1 <= public_port <= 65535:
-                    raise PanelError("NAT 公网 HTTPS 端口超出范围")
+                    raise PanelError("公网 HTTPS 端口超出范围")
+                if not 1 <= internal_port <= 65535:
+                    raise PanelError("内部 HTTPS 端口超出范围")
+                if internal_port == 80:
+                    raise PanelError("内部 HTTPS 端口不能使用 80（该端口用于 HTTP 跳转）")
                 password = str(data.get("ssh_password", ""))
                 if len(password) > 512:
                     raise PanelError("SSH 密码过长")
@@ -2841,6 +2859,7 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                     "caddy_config": "/etc/uniproxy-nginx/nginx.conf",
                     "generated_dir": "/etc/uniproxy-nginx/conf.d", "auto_managed": 1,
                     "network_mode": network_mode, "public_https_port": public_port,
+                    "internal_https_port": internal_port,
                     # Kept as empty compatibility fields for the legacy schema;
                     # host-key pinning was intentionally removed from the form.
                     "ssh_host_key": "", "ssh_host_fingerprint": "", "host_key_verified_at": "",
@@ -2852,13 +2871,13 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                     candidate["public_https_port"] = public_port
                     with self._connect() as db:
                         db.execute(
-                            "INSERT INTO nodes (name,kind,ssh_host,ssh_port,ssh_user,ssh_identity,ssh_password,ssh_password_ciphertext,domain_suffix,tls_cert_file,tls_key_file,caddy_config,generated_dir,public_https_port,country_name,country_code,country_flag,network_mode,auto_managed,ssh_host_key,ssh_host_fingerprint,host_key_verified_at,dns_record_ids_json,cert_mode,state,security_policy_version,created_at,updated_at) "
-                            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?,1,?,?,?,?,'central','active',2,?,?)",
+                            "INSERT INTO nodes (name,kind,ssh_host,ssh_port,ssh_user,ssh_identity,ssh_password,ssh_password_ciphertext,domain_suffix,tls_cert_file,tls_key_file,caddy_config,generated_dir,public_https_port,internal_https_port,country_name,country_code,country_flag,network_mode,auto_managed,ssh_host_key,ssh_host_fingerprint,host_key_verified_at,dns_record_ids_json,cert_mode,state,security_policy_version,created_at,updated_at) "
+                            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?,1,?,?,?,?,'central','active',2,?,?)",
                             (candidate["name"], candidate["kind"], candidate["ssh_host"], candidate["ssh_port"],
                              candidate["ssh_user"], candidate["ssh_identity"], "",
                              self.node_credential_cipher.encrypt(candidate["ssh_password"].encode()).decode() if candidate["ssh_password"] and self.node_credential_cipher else candidate["ssh_password"],
                              candidate["domain_suffix"], candidate["tls_cert_file"], candidate["tls_key_file"],
-                             candidate["caddy_config"], candidate["generated_dir"], candidate["public_https_port"],
+                             candidate["caddy_config"], candidate["generated_dir"], candidate["public_https_port"], candidate["internal_https_port"],
                              country_name, country_code, country_flag, candidate["network_mode"],
                              candidate["ssh_host_key"], candidate["ssh_host_fingerprint"], candidate["host_key_verified_at"],
                              json.dumps(dns_records, separators=(",", ":")), now(), now()),

@@ -63,6 +63,7 @@ class PanelSecurityIntegrationTests(unittest.TestCase):
         self.assertIn("resolved_ips_json", route_columns)
         self.assertIn("redirect_token", route_columns)
         self.assertIn("ssh_host_fingerprint", node_columns)
+        self.assertIn("internal_https_port", node_columns)
         self.panel.setup()
 
     def test_host_cookie_names_have_no_domain_scope(self):

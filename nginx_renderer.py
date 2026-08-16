@@ -19,7 +19,7 @@ from typing import Iterable
 from urllib.parse import urlsplit
 
 
-RENDERER_VERSION = 2
+RENDERER_VERSION = 3
 DEFAULT_CA_BUNDLE = "/etc/ssl/certs/ca-certificates.crt"
 
 _DNS_LABEL = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
@@ -83,6 +83,7 @@ class RouteSpec:
     tls_cert_file: str
     tls_key_file: str
     public_https_port: int = 443
+    internal_https_port: int = 443
     ca_bundle: str = DEFAULT_CA_BUNDLE
     allow_insecure_http: bool = False
     traffic_log_path: str | None = None
@@ -316,6 +317,9 @@ def render_route(spec: RouteSpec) -> str:
     origin = parse_origin(spec.origin, allow_insecure_http=spec.allow_insecure_http)
     public_host = normalize_public_host(spec.public_host)
     public_port = _validated_port(spec.public_https_port, "public HTTPS port")
+    internal_port = _validated_port(spec.internal_https_port, "internal HTTPS port")
+    if internal_port == 80:
+        raise RendererError("internal HTTPS port cannot be 80 because HTTP redirect uses that listener")
     cert_file = _validated_path(spec.tls_cert_file, "TLS certificate")
     key_file = _validated_path(spec.tls_key_file, "TLS private key")
     ca_bundle = _validated_path(spec.ca_bundle, "CA bundle")
@@ -404,8 +408,8 @@ def render_route(spec: RouteSpec) -> str:
         "}",
         "",
         "server {",
-        "    listen 443 ssl;",
-        "    listen [::]:443 ssl;",
+        f"    listen {internal_port} ssl;",
+        f"    listen [::]:{internal_port} ssl;",
         f"    server_name {public_host};",
         f"    ssl_certificate {_nginx_string(cert_file)};",
         f"    ssl_certificate_key {_nginx_string(key_file)};",

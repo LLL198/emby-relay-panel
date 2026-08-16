@@ -29,6 +29,7 @@ def main() -> None:
     parser.add_argument("--cert", required=True)
     parser.add_argument("--key", required=True)
     parser.add_argument("--public-port", required=True, type=int)
+    parser.add_argument("--internal-port", default=443, type=int)
     parser.add_argument("--ca-bundle", default=DEFAULT_CA_BUNDLE)
     parser.add_argument(
         "--allow-insecure-http",
@@ -42,6 +43,8 @@ def main() -> None:
         raise SystemExit("invalid domain suffix") from exc
     if not 1 <= args.public_port <= 65535:
         raise SystemExit("invalid public port")
+    if not 1 <= args.internal_port <= 65535 or args.internal_port == 80:
+        raise SystemExit("invalid internal HTTPS port")
     args.output.mkdir(parents=True, exist_ok=True)
     converted = 0
     for source in sorted(args.source.glob("*.caddy")):
@@ -68,6 +71,7 @@ def main() -> None:
                 tls_cert_file=args.cert,
                 tls_key_file=args.key,
                 public_https_port=args.public_port,
+                internal_https_port=args.internal_port,
                 ca_bundle=args.ca_bundle,
                 allow_insecure_http=args.allow_insecure_http,
             ))

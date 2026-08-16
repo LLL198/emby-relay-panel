@@ -133,6 +133,17 @@ class RendererTests(unittest.TestCase):
         self.assertIn("listen 443 ssl;", rendered)
         self.assertNotIn("listen 12172 ssl;", rendered)
 
+    def test_custom_internal_port_changes_listener_only(self):
+        rendered = render_route(self.spec(public_https_port=12172, internal_https_port=8443))
+        self.assertIn("https://media.node.example.net:12172", rendered)
+        self.assertIn("listen 8443 ssl;", rendered)
+        self.assertIn("listen [::]:8443 ssl;", rendered)
+        self.assertNotIn("listen 443 ssl;", rendered)
+
+    def test_internal_http_port_is_rejected(self):
+        with self.assertRaisesRegex(RendererError, "cannot be 80"):
+            render_route(self.spec(internal_https_port=80))
+
     def test_private_pinned_address_is_rejected(self):
         with self.assertRaisesRegex(RendererError, "not globally routable"):
             render_route(self.spec(upstream_ips=("169.254.169.254",)))
