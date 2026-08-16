@@ -1354,7 +1354,13 @@ class ProxyPanel:
     async def handle_user(self, request: web.Request) -> web.StreamResponse:
         path = request.path
         if request.method == "POST":
-            self._check_request_origin(request)
+            # Some embedded browsers omit Origin and Referer on the initial
+            # login/register POST.  The anonymous __Host- CSRF cookie is
+            # still checked by the individual handlers below; state-changing
+            # requests after login keep the strict origin requirement.
+            self._check_request_origin(
+                request, allow_missing=path in {"/login", "/register"}
+            )
         if path == "/login":
             if request.method == "GET":
                 if self._session_user(request):
