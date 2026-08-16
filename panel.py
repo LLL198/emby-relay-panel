@@ -2243,6 +2243,17 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                 raise PanelError("节点安全部署模板缺失")
             encoded_egress = base64.b64encode(egress_path.read_bytes()).decode()
             encoded_logrotate = base64.b64encode(logrotate_path.read_bytes()).decode()
+            ensure_nginx_user = "\n".join([
+                "if ! id -u uniproxy-nginx >/dev/null 2>&1; then",
+                "  if command -v useradd >/dev/null 2>&1; then",
+                "    if ! getent group uniproxy-nginx >/dev/null 2>&1; then (groupadd --system uniproxy-nginx >/dev/null 2>&1 || addgroup -S uniproxy-nginx >/dev/null 2>&1 || true); fi",
+                "    useradd --system --no-create-home --shell /sbin/nologin --gid uniproxy-nginx uniproxy-nginx >/dev/null 2>&1 || useradd -S -D -H -s /sbin/nologin -G uniproxy-nginx uniproxy-nginx >/dev/null 2>&1",
+                "  elif command -v adduser >/dev/null 2>&1; then",
+                "    addgroup -S uniproxy-nginx >/dev/null 2>&1 || true; adduser -S -D -H -s /sbin/nologin -G uniproxy-nginx uniproxy-nginx >/dev/null 2>&1 || adduser --system --no-create-home --disabled-login --ingroup uniproxy-nginx uniproxy-nginx >/dev/null 2>&1",
+                "  else echo '系统缺少 useradd/adduser，无法创建 Nginx 运行用户' >&2; exit 1; fi",
+                "fi",
+                "id -u uniproxy-nginx >/dev/null 2>&1; id -g uniproxy-nginx >/dev/null 2>&1",
+            ])
             script = "\n".join([
                 "set -eu", "export DEBIAN_FRONTEND=noninteractive",
                 f"cleanup() {{ rm -rf {shlex.quote(remote_stage)}; }}", "trap cleanup EXIT",
@@ -2257,7 +2268,7 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                 "elif command -v service >/dev/null 2>&1; then service nginx stop >/dev/null 2>&1 || true; fi",
                 "if [ -s /run/nginx.pid ]; then old_pid=$(cat /run/nginx.pid 2>/dev/null || true); if [ -n \"$old_pid\" ] && kill -0 \"$old_pid\" 2>/dev/null; then kill -QUIT \"$old_pid\" 2>/dev/null || true; sleep 1; fi; fi",
                 f"mkdir -p {shlex.quote(root_dir)} {shlex.quote(node['generated_dir'])} {shlex.quote(root_dir + '/certs')} /usr/local/sbin",
-                "if ! id -u uniproxy-nginx >/dev/null 2>&1; then if command -v adduser >/dev/null 2>&1; then adduser --system --no-create-home --disabled-login --group uniproxy-nginx >/dev/null 2>&1 || adduser -S -D -H -s /sbin/nologin uniproxy-nginx; else useradd --system --no-create-home --shell /usr/sbin/nologin uniproxy-nginx; fi; fi",
+                ensure_nginx_user,
                 "ca_source=/etc/ssl/certs/ca-certificates.crt; if [ ! -r \"$ca_source\" ]; then ca_source=/etc/pki/tls/certs/ca-bundle.crt; fi; test -r \"$ca_source\"; install -m 0644 \"$ca_source\" /etc/uniproxy-nginx/ca-bundle.pem",
                 f"printf %s {shlex.quote(encoded_controller)} | base64 -d > {shlex.quote(controller_path)}",
                 f"chmod 755 {shlex.quote(controller_path)}",
