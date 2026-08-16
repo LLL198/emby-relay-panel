@@ -571,6 +571,10 @@ class ProxyPanel:
         expected = self._canonical_http_origin(self.panel_public_origin)
         raw_origin = request.headers.get("Origin", "").strip()
         if raw_origin:
+            if allow_missing and raw_origin.lower() == "null":
+                # Opaque-origin WebViews send Origin: null.  Admin actions
+                # still require Basic auth and the per-action HMAC CSRF token.
+                return
             origin = self._canonical_http_origin(raw_origin)
             if origin and hmac.compare_digest(origin, expected):
                 return
