@@ -205,6 +205,7 @@ class ProxyPanel:
         self.auth_throttle: PersistentAuthThrottle | None = None
         self._route_creation_locks: dict[int, threading.Lock] = {}
         self._route_creation_locks_guard = threading.Lock()
+        self._cert_issue_lock = threading.Lock()
         self.protected_proxy_ips = tuple(
             item.strip() for item in os.environ.get("PROTECTED_PROXY_IPS", "").split(",")
             if item.strip()
@@ -1993,6 +1994,69 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                 failures.append(f"{record_id}: {exc}")
         if failures:
             raise PanelError("DNS 记录删除失败：" + "; ".join(failures[:3]))
+
+    def _issue_central_certificate(self, node) -> tuple[str, str]:
+        """Issue a node certificate on the control plane and return local paths."""
+        domain = str(node["domain_suffix"] or "").lower().strip(".")
+        if not SAFE_HOST.fullmatch(domain):
+            raise PanelError("节点域名不合法，无法申请证书")
+        acme_home = Path(os.environ.get("ACME_HOME", "/root/.acme.sh")).resolve()
+        acme_bin = Path(os.environ.get("ACME_SH_BIN", str(acme_home / "acme.sh"))).resolve()
+        if acme_bin.is_symlink() or not acme_bin.is_file() or not os.access(acme_bin, os.X_OK):
+            raise PanelError("主控机缺少可执行的 acme.sh，无法申请节点证书")
+        token = self._acme_account_value("SAVED_CF_Token")
+        cert_root = Path(os.environ.get("CENTRAL_CERT_DIR", "/var/lib/uniproxy/certs")).resolve()
+        cert_dir = cert_root / hashlib.sha256(domain.encode("utf-8")).hexdigest()[:32]
+        cert_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        os.chmod(cert_root, 0o700)
+        os.chmod(cert_dir, 0o700)
+        source_dir = acme_home / (domain + "_ecc")
+        fullchain_source = source_dir / "fullchain.cer"
+        key_source = source_dir / (domain + ".key")
+        with self._cert_issue_lock:
+            env = os.environ.copy()
+            env["CF_Token"] = token
+            args = [
+                str(acme_bin), "--issue", "--dns", "dns_cf",
+                "-d", domain, "-d", "*." + domain,
+                "--keylength", "ec-256", "--server", "letsencrypt",
+                "--home", str(acme_home), "--dnssleep", "30",
+            ]
+            account_conf = acme_home / "account.conf"
+            if account_conf.is_file() and not account_conf.is_symlink():
+                args.extend(["--accountconf", str(account_conf)])
+            try:
+                result = subprocess.run(
+                    args, env=env, text=True, capture_output=True,
+                    timeout=max(120, min(900, int(os.environ.get("ACME_ISSUE_TIMEOUT", "600")))),
+                    check=False,
+                )
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                raise PanelError("中央证书申请超时或无法启动 acme.sh") from exc
+            finally:
+                env.pop("CF_Token", None)
+            if result.returncode != 0:
+                detail = (result.stderr or result.stdout or "").strip().replace("\x00", "")
+                detail = detail.replace(token, "[redacted]")
+                raise PanelError("中央证书申请失败：" + detail[-600:])
+            if not fullchain_source.is_file() or not key_source.is_file():
+                raise PanelError("acme.sh 已返回成功，但证书文件不完整")
+            try:
+                fullchain = fullchain_source.read_bytes()
+                private_key = key_source.read_bytes()
+                if not fullchain or not private_key:
+                    raise ValueError("empty certificate")
+                cert_tmp = cert_dir / "fullchain.pem.new"
+                key_tmp = cert_dir / "key.pem.new"
+                cert_tmp.write_bytes(fullchain)
+                key_tmp.write_bytes(private_key)
+                os.chmod(cert_tmp, 0o644)
+                os.chmod(key_tmp, 0o600)
+                os.replace(cert_tmp, cert_dir / "fullchain.pem")
+                os.replace(key_tmp, cert_dir / "key.pem")
+            except (OSError, ValueError) as exc:
+                raise PanelError("中央证书文件安装失败") from exc
+        return str(cert_dir / "fullchain.pem"), str(cert_dir / "key.pem")
 
     @staticmethod
     def _node_dns_record_ids(node) -> list[str]:
