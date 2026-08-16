@@ -8,7 +8,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 from aiohttp import web
-from aiohttp.test_utils import make_mocked_request
 
 from origin_security import SafeOriginResolution
 from panel import PanelError, ProxyPanel, SCHEMA_VERSION, USER_CSRF_COOKIE, USER_SESSION_COOKIE
@@ -96,35 +95,6 @@ class PanelSecurityIntegrationTests(unittest.TestCase):
         self.assertFalse(session["domain"])
         self.assertTrue(csrf["secure"])
         self.assertFalse(csrf["domain"])
-
-    def test_control_plane_origin_is_exact_not_same_site(self):
-        valid = make_mocked_request("POST", "/login", headers={"Origin": "https://sh.996878.xyz"})
-        self.panel._check_request_origin(valid)
-        default_port = make_mocked_request("POST", "/login", headers={"Origin": "https://sh.996878.xyz:443"})
-        self.panel._check_request_origin(default_port)
-        same_host_port = make_mocked_request("POST", "/login", headers={"Origin": "https://sh.996878.xyz:8443"})
-        self.panel._check_request_origin(same_host_port, allow_missing=True)
-        same_host_http = make_mocked_request("POST", "/login", headers={"Origin": "http://sh.996878.xyz"})
-        self.panel._check_request_origin(same_host_http, allow_missing=True)
-        opaque_origin = make_mocked_request("POST", "/login", headers={"Origin": "null"})
-        self.panel._check_request_origin(opaque_origin, allow_missing=True)
-        referer_fallback = make_mocked_request(
-            "POST", "/login", headers={"Referer": "https://sh.996878.xyz/_admin/nodes"}
-        )
-        self.panel._check_request_origin(referer_fallback)
-        sibling = make_mocked_request("POST", "/login", headers={"Origin": "https://evil.996878.xyz"})
-        with self.assertRaises(web.HTTPForbidden):
-            self.panel._check_request_origin(sibling)
-        missing = make_mocked_request("POST", "/login")
-        with self.assertRaises(web.HTTPForbidden):
-            self.panel._check_request_origin(missing)
-        self.panel._check_request_origin(missing, allow_missing=True)
-        invalid_with_valid_referer = make_mocked_request(
-            "POST", "/login",
-            headers={"Origin": "https://evil.example", "Referer": "https://sh.996878.xyz/_admin/nodes"},
-        )
-        with self.assertRaises(web.HTTPForbidden):
-            self.panel._check_request_origin(invalid_with_valid_referer, allow_missing=True)
 
     def test_remote_ssh_uses_tofu_and_rejects_changed_keys(self):
         node = {

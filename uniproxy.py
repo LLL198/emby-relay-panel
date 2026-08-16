@@ -45,7 +45,6 @@ async def generator_response(request: web.Request):
     raw_url = ""
     raw_route_note = ""
     if request.method == "POST":
-        panel._check_request_origin(request)
         data = await request.post()
         panel._check_user_csrf(user, data)
         raw_url = str(data.get("url", "")).strip()

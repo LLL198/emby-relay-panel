@@ -185,9 +185,6 @@ class ProxyPanel:
         self.acme_template = Path(os.environ.get("ACME_TEMPLATE_ARCHIVE", "/opt/uniproxy/acme-template.tgz"))
         self.acme_account = Path(os.environ.get("ACME_ACCOUNT_FILE", "/opt/uniproxy/acme-account.conf"))
         self.invite_key = os.environ.get("INVITE_CODE_ENCRYPTION_KEY", "").strip()
-        self.panel_public_origin = os.environ.get(
-            "PANEL_PUBLIC_ORIGIN", f"https://{self.default_domain}"
-        ).rstrip("/")
         self.user_route_creation_enabled = os.environ.get(
             "USER_ROUTE_CREATION_ENABLED", "1"
         ).strip().lower() not in {"0", "false", "no", "off"}
@@ -553,58 +550,6 @@ class ProxyPanel:
     def _check_csrf(self, action: str, data) -> None:
         if not hmac.compare_digest(str(data.get("csrf", "")), self._csrf(action)):
             raise web.HTTPForbidden(text="invalid form token")
-
-    @staticmethod
-    def _canonical_http_origin(value: str, *, allow_path: bool = False) -> str:
-        """Normalise an Origin/Referer origin without changing its host."""
-        try:
-            parsed = urlsplit(str(value).strip())
-            if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
-                return ""
-            if parsed.username or parsed.password or (not allow_path and parsed.path not in {"", "/"}):
-                return ""
-            hostname = parsed.hostname.lower().rstrip(".")
-            port = parsed.port
-            default_port = 443 if parsed.scheme.lower() == "https" else 80
-            suffix = f":{port}" if port and port != default_port else ""
-            return f"{parsed.scheme.lower()}://{hostname}{suffix}"
-        except (TypeError, ValueError):
-            return ""
-
-    def _check_request_origin(self, request: web.Request, *, allow_missing: bool = False) -> None:
-        """Reject browser state changes originating outside the control host."""
-        expected = self._canonical_http_origin(self.panel_public_origin)
-        raw_origin = request.headers.get("Origin", "").strip()
-        if raw_origin:
-            if allow_missing and raw_origin.lower() == "null":
-                # Opaque-origin WebViews send Origin: null.  Admin actions
-                # still require Basic auth and the per-action HMAC CSRF token.
-                return
-            origin = self._canonical_http_origin(raw_origin)
-            if origin and hmac.compare_digest(origin, expected):
-                return
-            if allow_missing:
-                # The panel may be reached through an explicitly exposed
-                # HTTPS port or a TLS-terminating compatibility proxy.  The
-                # per-action HMAC CSRF token below remains mandatory, so a
-                # same-host origin variant is safe to accept here.
-                try:
-                    expected_host = urlsplit(expected).hostname
-                    supplied = urlsplit(raw_origin)
-                    if supplied.hostname and supplied.hostname.lower().rstrip(".") == expected_host:
-                        return
-                except ValueError:
-                    pass
-            raise web.HTTPForbidden(text="invalid request origin")
-        # Some same-origin form POSTs omit Origin.  A same-origin Referer is
-        # an equivalent browser signal; still require the exact configured
-        # scheme/host/port and never accept a sibling subdomain.
-        referer = self._canonical_http_origin(request.headers.get("Referer", ""), allow_path=True)
-        if referer and hmac.compare_digest(referer, expected):
-            return
-        if allow_missing and not request.headers.get("Referer", "").strip():
-            return
-        raise web.HTTPForbidden(text="invalid request origin")
 
     @staticmethod
     def _normalize_username(value: str) -> str:
@@ -1353,14 +1298,6 @@ class ProxyPanel:
 
     async def handle_user(self, request: web.Request) -> web.StreamResponse:
         path = request.path
-        if request.method == "POST":
-            # Some embedded browsers omit Origin and Referer on the initial
-            # login/register POST.  The anonymous __Host- CSRF cookie is
-            # still checked by the individual handlers below; state-changing
-            # requests after login keep the strict origin requirement.
-            self._check_request_origin(
-                request, allow_missing=path in {"/login", "/register"}
-            )
         if path == "/login":
             if request.method == "GET":
                 if self._session_user(request):
@@ -2816,11 +2753,6 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
         if not self.enabled:
             raise web.HTTPNotFound()
         await self.require_authorized(request)
-        if request.method == "POST":
-            # Every admin action still requires its per-action HMAC form token.
-            # Some browsers omit both Origin and Referer for same-origin forms
-            # (the site also intentionally sends Referrer-Policy: no-referrer).
-            self._check_request_origin(request, allow_missing=True)
         try:
             route_page = max(1, int(request.query.get("page", "1")))
         except ValueError:
