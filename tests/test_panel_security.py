@@ -94,6 +94,13 @@ class PanelSecurityIntegrationTests(unittest.TestCase):
         missing = make_mocked_request("POST", "/login")
         with self.assertRaises(web.HTTPForbidden):
             self.panel._check_request_origin(missing)
+        self.panel._check_request_origin(missing, allow_missing=True)
+        invalid_with_valid_referer = make_mocked_request(
+            "POST", "/login",
+            headers={"Origin": "https://evil.example", "Referer": "https://sh.996878.xyz/_admin/nodes"},
+        )
+        with self.assertRaises(web.HTTPForbidden):
+            self.panel._check_request_origin(invalid_with_valid_referer, allow_missing=True)
 
     def test_remote_ssh_uses_tofu_and_rejects_changed_keys(self):
         node = {

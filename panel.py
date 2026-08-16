@@ -566,17 +566,22 @@ class ProxyPanel:
         except (TypeError, ValueError):
             return ""
 
-    def _check_request_origin(self, request: web.Request) -> None:
+    def _check_request_origin(self, request: web.Request, *, allow_missing: bool = False) -> None:
         """Reject browser state changes originating outside the control host."""
         expected = self._canonical_http_origin(self.panel_public_origin)
-        origin = self._canonical_http_origin(request.headers.get("Origin", ""))
-        if origin and hmac.compare_digest(origin, expected):
-            return
+        raw_origin = request.headers.get("Origin", "").strip()
+        if raw_origin:
+            origin = self._canonical_http_origin(raw_origin)
+            if origin and hmac.compare_digest(origin, expected):
+                return
+            raise web.HTTPForbidden(text="invalid request origin")
         # Some same-origin form POSTs omit Origin.  A same-origin Referer is
         # an equivalent browser signal; still require the exact configured
         # scheme/host/port and never accept a sibling subdomain.
         referer = self._canonical_http_origin(request.headers.get("Referer", ""), allow_path=True)
         if referer and hmac.compare_digest(referer, expected):
+            return
+        if allow_missing and not request.headers.get("Referer", "").strip():
             return
         raise web.HTTPForbidden(text="invalid request origin")
 
@@ -2608,7 +2613,10 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
             raise web.HTTPNotFound()
         await self.require_authorized(request)
         if request.method == "POST":
-            self._check_request_origin(request)
+            # Every admin action still requires its per-action HMAC form token.
+            # Some browsers omit both Origin and Referer for same-origin forms
+            # (the site also intentionally sends Referrer-Policy: no-referrer).
+            self._check_request_origin(request, allow_missing=True)
         try:
             route_page = max(1, int(request.query.get("page", "1")))
         except ValueError:
