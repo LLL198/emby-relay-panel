@@ -1,0 +1,35 @@
+# The traffic counter log contains no client IP, path or UA.  The legacy access
+# log is included here for bounded retention and should be disabled by the
+# hardened Nginx renderer once all nodes have migrated.
+# copytruncate is used for compatibility with the current offset collector;
+# the planned inode-aware collector can later switch to rename + USR1 reopen.
+
+/var/log/uniproxy-traffic.log
+/var/log/uniproxy-nginx-access.log
+/var/log/uniproxy-nginx-error.log
+/var/log/uniproxy-route-error.log {
+    daily
+    maxsize 100M
+    rotate 7
+    maxage 14
+    missingok
+    notifempty
+    compress
+    delaycompress
+    dateext
+    copytruncate
+    sharedscripts
+    su root root
+
+    postrotate
+        for log in \
+            /var/log/uniproxy-traffic.log \
+            /var/log/uniproxy-nginx-access.log \
+            /var/log/uniproxy-nginx-error.log \
+            /var/log/uniproxy-route-error.log
+        do
+            [ ! -e "$log" ] || chmod 0640 "$log" 2>/dev/null || true
+            [ ! -e "$log" ] || chgrp uniproxy-agent "$log" 2>/dev/null || true
+        done
+    endscript
+}

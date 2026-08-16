@@ -19,17 +19,19 @@ UniRelay 分为三部分：
 1. 一个主站域名，例如 `panel.example.com`。
 2. 主站域名的 HTTPS 证书和私钥。
 3. 主站服务器的 80、443 端口已放行，8787 只监听本机。
-4. 如需自动添加节点，准备 Cloudflare API Token 和节点的 root SSH 登录方式。
+4. 如需自动添加节点，准备 Cloudflare API Token、主控机的 acme.sh，以及节点的 root SSH 登录方式。
 
 ### Cloudflare Token 权限
 
-自动添加节点时，面板会创建节点域名和通配符 DNS 记录，并通过 DNS-01 申请证书。Token 至少需要：
+自动添加节点时，面板会创建节点域名和通配符 DNS 记录，并由主控机通过 DNS-01 申请证书，再只把证书下发到节点。Cloudflare Token 只留在主控机，不会复制到节点。Token 至少需要：
 
 - `Zone / DNS / Edit`
 - `Zone / Zone / Read`
 - 区域资源选择实际管理的域名，例如 `example.com`
 
-Token 不要写进源码、截图、Git 或聊天记录。当前项目的自动部署会从 `/opt/uniproxy/acme-account.conf` 读取 `SAVED_CF_Token`，该文件应设置为 `600` 权限。
+Token 不要写进源码、截图、Git 或聊天记录。主控机的 `/opt/uniproxy/acme-account.conf` 只允许 root 读取，权限必须为 `600`；节点不应出现该文件或 `SAVED_CF_Token`。
+
+新增节点时无需填写 SSH 指纹。面板会在首次连接时自动记录主机密钥，后续密钥发生变化会被 OpenSSH 拒绝；如节点重装系统导致密钥变化，需要清理主控机对应的 `known_hosts` 条目后再连接。
 
 ## 3. 安装系统依赖
 
@@ -37,8 +39,9 @@ Token 不要写进源码、截图、Git 或聊天记录。当前项目的自动�
 
 ```bash
 sudo apt update
-sudo apt install -y python3 python3-pip nginx openssl curl sshpass
+sudo apt install -y python3 python3-pip nginx openssl curl openssh-client sshpass
 python3 -m pip install --break-system-packages aiohttp cryptography
+# 主控机需要已安装 /root/.acme.sh/acme.sh（用于集中签发节点证书）
 ```
 
 如果系统不支持 `--break-system-packages`，可以使用虚拟环境安装 Python 依赖，再把 `uniproxy.service` 中的 Python 路径改为虚拟环境里的路径。
@@ -74,9 +77,9 @@ python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().
 ```dotenv
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=请替换为管理后台密码
-PROXY_TOKEN=请填入第一条命令生成的随机值
 AGENT_TOKEN=请再生成一个随机值
 INVITE_CODE_ENCRYPTION_KEY=请填入第二条命令生成的Fernet密钥
+NODE_CREDENTIAL_ENCRYPTION_KEY=请再生成一条Fernet密钥，用于加密节点 SSH 密码
 
 # 可选：不填时使用默认路径
 PANEL_DB_PATH=/var/lib/uniproxy/panel.db
@@ -91,7 +94,7 @@ sudo chmod 600 /root/.secrets/uniproxy-panel.env
 说明：
 
 - `ADMIN_USERNAME` 和 `ADMIN_PASSWORD` 用于管理后台的 Basic Auth。
-- `PROXY_TOKEN` 是内部代理签名密钥，泄露后应立即更换。
+- `AGENT_TOKEN` 用于本机健康/流量采集接口，泄露后应立即更换。
 - `INVITE_CODE_ENCRYPTION_KEY` 用来加密长期邀请码。项目运行后不要随意更换，否则旧邀请码无法解密显示。
 
 ## 6. 配置主站域名和证书
@@ -146,10 +149,10 @@ sudo systemctl reload nginx
 
 ### 8.1 添加节点
 
-进入“节点面板”，填写节点名称、网络类型、服务器公网 IP、SSH 端口和 SSH 密码/私钥二选一。
+进入“节点面板”，填写节点名称、网络类型、服务器公网 IP、SSH 端口、公网 HTTPS 端口、内部 HTTPS 端口和 SSH 密码/私钥二选一。内部 HTTPS 端口是节点 Nginx 实际监听的端口，默认 `443`，`80` 保留给 HTTP 跳转不能使用；如果远端已经安装 Nginx，系统会自动读取它的 HTTPS 监听端口并优先使用。
 
-- **普通 VPS**：选择“普通 VPS”，公网 HTTPS 端口使用 `443`。
-- **NAT 机**：选择“NAT 机”，填写服务商映射的公网 HTTPS 端口，并确认该端口转发到节点内部 `443`。
+- **普通 VPS**：选择“普通 VPS”，公网和内部端口通常都填 `443`；如果机器自行做了端口转发，也可以填成不同值。
+- **NAT 机**：选择“NAT 机”，分别填写服务商映射的公网 HTTPS 端口和节点内部 HTTPS 端口。例如公网 `12172` → 内部 `8443`。
 
 自动部署需要：
 
