@@ -2035,11 +2035,14 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                 raise PanelError("中央证书申请超时或无法启动 acme.sh") from exc
             finally:
                 env.pop("CF_Token", None)
-            if result.returncode != 0:
-                detail = (result.stderr or result.stdout or "").strip().replace("\x00", "")
+            output = (result.stdout or "") + "\n" + (result.stderr or "")
+            has_existing_cert = fullchain_source.is_file() and key_source.is_file()
+            skipped_unchanged = "domains not changed" in output.lower() and "skipping" in output.lower()
+            if result.returncode != 0 and not (skipped_unchanged and has_existing_cert):
+                detail = output.strip().replace("\x00", "")
                 detail = detail.replace(token, "[redacted]")
                 raise PanelError("中央证书申请失败：" + detail[-600:])
-            if not fullchain_source.is_file() or not key_source.is_file():
+            if not has_existing_cert:
                 raise PanelError("acme.sh 已返回成功，但证书文件不完整")
             try:
                 fullchain = fullchain_source.read_bytes()
