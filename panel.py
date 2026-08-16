@@ -15,8 +15,11 @@ import secrets
 import shlex
 import socket
 import sqlite3
+import stat
 import subprocess
+import shutil
 import tempfile
+import threading
 import time
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -28,6 +31,21 @@ from urllib.request import Request, urlopen
 from aiohttp import ClientSession, ClientTimeout, web
 from cryptography.fernet import Fernet, InvalidToken
 
+from auth_security import (
+    HashWorkLimitExceeded,
+    HashWorkLimiter,
+    PasswordPolicy,
+    PasswordPolicyViolation,
+    PersistentAuthThrottle,
+)
+from nginx_renderer import RedirectSpec, RendererError, RouteSpec, render_route
+from origin_security import (
+    OriginSecurityError,
+    OriginSecurityPolicy,
+    SafeOriginResolution,
+    resolve_origin_safely,
+)
+
 
 ADMIN_PREFIX = "/_admin"
 SAFE_HOST = re.compile(r"^[a-z0-9][a-z0-9.-]{0,252}$")
@@ -36,9 +54,12 @@ SAFE_SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{1,31}$")
 SAFE_PATH = re.compile(r"^/[A-Za-z0-9._/@+:-]+(?:/[A-Za-z0-9._/@+:-]+)*$")
 SAFE_AGENT_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{1,63}$")
 SAFE_USERNAME = re.compile(r"^[A-Za-z0-9._-]+$")
-USER_SESSION_COOKIE = "_uniproxy_user_session"
-USER_CSRF_COOKIE = "_uniproxy_user_csrf"
+USER_SESSION_COOKIE = "__Host-uniproxy-session"
+USER_CSRF_COOKIE = "__Host-uniproxy-csrf"
+LEGACY_USER_SESSION_COOKIE = "_uniproxy_user_session"
+LEGACY_USER_CSRF_COOKIE = "_uniproxy_user_csrf"
 USER_SESSION_SECONDS = 24 * 60 * 60
+SCHEMA_VERSION = 2
 ADMIN_ROUTE_PAGE_SIZE = 5
 TRAFFIC_FORMAT_NAME = "uniproxy_traffic"
 TRAFFIC_CONFIG_NAME = "00-uniproxy-traffic.conf"
@@ -165,10 +186,49 @@ class ProxyPanel:
         self.acme_template = Path(os.environ.get("ACME_TEMPLATE_ARCHIVE", "/opt/uniproxy/acme-template.tgz"))
         self.acme_account = Path(os.environ.get("ACME_ACCOUNT_FILE", "/opt/uniproxy/acme-account.conf"))
         self.invite_key = os.environ.get("INVITE_CODE_ENCRYPTION_KEY", "").strip()
+        self.panel_public_origin = os.environ.get(
+            "PANEL_PUBLIC_ORIGIN", f"https://{self.default_domain}"
+        ).rstrip("/")
+        self.user_route_creation_enabled = os.environ.get(
+            "USER_ROUTE_CREATION_ENABLED", "1"
+        ).strip().lower() not in {"0", "false", "no", "off"}
+        self.minimum_password_length = max(
+            1, min(256, int(os.environ.get("MINIMUM_PASSWORD_LENGTH", "12")))
+        )
+        self.password_policy = PasswordPolicy(
+            min_characters=self.minimum_password_length, max_bytes=1024
+        )
+        self.hash_limiter = HashWorkLimiter(
+            max_concurrent=max(1, min(8, int(os.environ.get("PASSWORD_HASH_CONCURRENCY", "2")))),
+            acquire_timeout=2.0,
+            max_waiters=max(0, min(256, int(os.environ.get("PASSWORD_HASH_MAX_WAITERS", "32")))),
+        )
+        self.auth_throttle: PersistentAuthThrottle | None = None
+        self._route_creation_locks: dict[int, threading.Lock] = {}
+        self._route_creation_locks_guard = threading.Lock()
+        self.protected_proxy_ips = tuple(
+            item.strip() for item in os.environ.get("PROTECTED_PROXY_IPS", "").split(",")
+            if item.strip()
+        )
+        try:
+            self.user_origin_ports = frozenset(
+                int(item.strip())
+                for item in os.environ.get("USER_ORIGIN_ALLOWED_PORTS", "443,8443,8920,12172").split(",")
+                if item.strip()
+            )
+        except ValueError as exc:
+            raise RuntimeError("USER_ORIGIN_ALLOWED_PORTS contains a non-numeric port") from exc
+        if not self.user_origin_ports or any(not 1 <= port <= 65535 for port in self.user_origin_ports):
+            raise RuntimeError("USER_ORIGIN_ALLOWED_PORTS must contain ports in 1-65535")
         try:
             self.invite_cipher = Fernet(self.invite_key.encode("ascii")) if self.invite_key else None
         except (ValueError, UnicodeError):
             self.invite_cipher = None
+        credential_key = os.environ.get("NODE_CREDENTIAL_ENCRYPTION_KEY", "").strip()
+        try:
+            self.node_credential_cipher = Fernet(credential_key.encode("ascii")) if credential_key else None
+        except (ValueError, UnicodeError):
+            raise RuntimeError("NODE_CREDENTIAL_ENCRYPTION_KEY must be a Fernet key")
         self._auth_failures: dict[str, list[float]] = {}
         self._user_auth_failures: dict[str, list[float]] = {}
 
@@ -182,9 +242,10 @@ class ProxyPanel:
 
     @contextmanager
     def _connect(self):
-        db = sqlite3.connect(self.db_path)
+        db = sqlite3.connect(self.db_path, timeout=5)
         db.row_factory = sqlite3.Row
         db.execute("PRAGMA foreign_keys = ON")
+        db.execute("PRAGMA busy_timeout = 5000")
         try:
             yield db
             db.commit()
@@ -246,7 +307,22 @@ class ProxyPanel:
                 "day TEXT NOT NULL, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, "
                 "rx_bytes INTEGER NOT NULL DEFAULT 0, tx_bytes INTEGER NOT NULL DEFAULT 0, "
                 "PRIMARY KEY(day,user_id));"
+                "CREATE TABLE IF NOT EXISTS deployment_jobs ("
+                "id INTEGER PRIMARY KEY, route_id INTEGER REFERENCES routes(id) ON DELETE CASCADE, "
+                "node_id INTEGER NOT NULL REFERENCES nodes(id) ON DELETE RESTRICT, "
+                "action TEXT NOT NULL CHECK(action IN ('deploy','delete','probe','decommission','refresh-origin')), "
+                "state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','running','succeeded','failed','cancelled')), "
+                "idempotency_key TEXT NOT NULL UNIQUE, attempts INTEGER NOT NULL DEFAULT 0, "
+                "last_error TEXT NOT NULL DEFAULT '', available_at TEXT NOT NULL, started_at TEXT, finished_at TEXT, "
+                "created_at TEXT NOT NULL, updated_at TEXT NOT NULL);"
             )
+            schema_row = db.execute(
+                "SELECT value FROM settings WHERE key='schema_version'"
+            ).fetchone()
+            try:
+                previous_schema_version = int(schema_row["value"]) if schema_row else 1
+            except (TypeError, ValueError):
+                previous_schema_version = 1
             columns = {row["name"] for row in db.execute("PRAGMA table_info(nodes)")}
             migrations = {
                 "agent_id": "TEXT",
@@ -258,21 +334,46 @@ class ProxyPanel:
                 "country_code": "TEXT NOT NULL DEFAULT ''",
                 "country_flag": "TEXT NOT NULL DEFAULT ''",
                 "ssh_password": "TEXT",
+                "ssh_password_ciphertext": "TEXT NOT NULL DEFAULT ''",
                 "auto_managed": "INTEGER NOT NULL DEFAULT 0",
                 "network_mode": "TEXT NOT NULL DEFAULT 'legacy'",
+                "state": "TEXT NOT NULL DEFAULT 'active'",
+                "state_step": "TEXT NOT NULL DEFAULT ''",
+                "last_error": "TEXT NOT NULL DEFAULT ''",
+                "dns_record_ids_json": "TEXT NOT NULL DEFAULT '[]'",
+                "ssh_host_key": "TEXT NOT NULL DEFAULT ''",
+                "ssh_host_fingerprint": "TEXT NOT NULL DEFAULT ''",
+                "host_key_verified_at": "TEXT",
+                "auth_mode": "TEXT NOT NULL DEFAULT 'root-bootstrap'",
+                "cert_mode": "TEXT NOT NULL DEFAULT 'node-acme'",
+                "security_policy_version": "INTEGER NOT NULL DEFAULT 1",
+                "updated_at": "TEXT NOT NULL DEFAULT ''",
+                "ca_bundle_path": "TEXT NOT NULL DEFAULT '/etc/uniproxy-nginx/ca-bundle.pem'",
             }
             for name, definition in migrations.items():
                 if name not in columns:
                     db.execute(f"ALTER TABLE nodes ADD COLUMN {name} {definition}")
             route_columns = {row["name"] for row in db.execute("PRAGMA table_info(routes)")}
+            route_state_added = "state" not in route_columns
             route_migrations = {
                 "owner_user_id": "INTEGER REFERENCES users(id) ON DELETE RESTRICT",
                 "suspended_by_owner": "INTEGER NOT NULL DEFAULT 0",
                 "notes": "TEXT NOT NULL DEFAULT ''",
+                "state": "TEXT NOT NULL DEFAULT 'pending'",
+                "resolved_ips_json": "TEXT NOT NULL DEFAULT '[]'",
+                "resolved_at": "TEXT",
+                "upstream_security_status": "TEXT NOT NULL DEFAULT ''",
+                "security_policy_version": "INTEGER NOT NULL DEFAULT 1",
+                "redirect_token": "TEXT NOT NULL DEFAULT ''",
+                "allow_insecure_http": "INTEGER NOT NULL DEFAULT 0",
             }
             for name, definition in route_migrations.items():
                 if name not in route_columns:
                     db.execute(f"ALTER TABLE routes ADD COLUMN {name} {definition}")
+            if route_state_added:
+                db.execute(
+                    "UPDATE routes SET state=CASE WHEN deployed=1 THEN 'deployed' ELSE 'failed' END"
+                )
             invite_columns = {row["name"] for row in db.execute("PRAGMA table_info(invites)")}
             if "code_ciphertext" not in invite_columns:
                 db.execute("ALTER TABLE invites ADD COLUMN code_ciphertext TEXT NOT NULL DEFAULT ''")
@@ -282,6 +383,23 @@ class ProxyPanel:
             db.execute("CREATE INDEX IF NOT EXISTS user_sessions_expires_index ON user_sessions(expires_at)")
             db.execute("CREATE INDEX IF NOT EXISTS login_events_user_created_index ON login_events(user_id, created_at DESC)")
             db.execute("CREATE INDEX IF NOT EXISTS invite_redemptions_invite_index ON invite_redemptions(invite_id, id)")
+            db.execute("CREATE INDEX IF NOT EXISTS deployment_jobs_state_available_index ON deployment_jobs(state, available_at, id)")
+            db.execute("CREATE INDEX IF NOT EXISTS deployment_jobs_node_state_index ON deployment_jobs(node_id, state, id)")
+            for route in db.execute("SELECT id FROM routes WHERE redirect_token = ''"):
+                db.execute(
+                    "UPDATE routes SET redirect_token=? WHERE id=?",
+                    (secrets.token_urlsafe(24), route["id"]),
+                )
+            db.execute(
+                "INSERT INTO settings (key,value) VALUES ('schema_version',?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (str(SCHEMA_VERSION),),
+            )
+            if previous_schema_version < 2:
+                # Cookie names changed to the __Host- form.  Invalidate old
+                # server-side sessions once so a legacy token cannot be
+                # carried into the new authentication boundary.
+                db.execute("DELETE FROM user_sessions")
             db.execute(
                 "INSERT INTO invite_redemptions (invite_id,user_id,username,redeemed_at) "
                 "SELECT users.invite_id,users.id,users.username,users.created_at FROM users "
@@ -292,6 +410,20 @@ class ProxyPanel:
             db.execute(
                 "UPDATE nodes SET network_mode = CASE WHEN public_https_port = 443 THEN 'vps' ELSE 'nat' END "
                 "WHERE network_mode NOT IN ('vps','nat')"
+            )
+            if self.node_credential_cipher:
+                for legacy in db.execute("SELECT id,ssh_password FROM nodes WHERE COALESCE(ssh_password,'')!=''"):
+                    ciphertext = self.node_credential_cipher.encrypt(str(legacy["ssh_password"]).encode()).decode()
+                    db.execute(
+                        "UPDATE nodes SET ssh_password='',ssh_password_ciphertext=? WHERE id=?",
+                        (ciphertext, legacy["id"]),
+                    )
+            db.execute(
+                "UPDATE nodes SET ca_bundle_path='/etc/ssl/certs/ca-certificates.crt' WHERE kind='local'"
+            )
+            db.execute(
+                "UPDATE nodes SET state='legacy-ssh-unverified',state_step='host-key-required' "
+                "WHERE kind!='local' AND COALESCE(ssh_host_fingerprint,'')='' AND state='active'"
             )
             local = db.execute("SELECT id FROM nodes WHERE kind = 'local' LIMIT 1").fetchone()
             local_disabled = db.execute("SELECT value FROM settings WHERE key = 'local_node_disabled'").fetchone()
@@ -311,6 +443,32 @@ class ProxyPanel:
             if local_id is not None:
                 self._import_local_routes(db, local_id)
         os.chmod(self.db_path, 0o600)
+        throttle_secret = os.environ.get("AUTH_THROTTLE_SECRET", "").strip()
+        if not throttle_secret:
+            with self._connect() as db:
+                row = db.execute(
+                    "SELECT value FROM settings WHERE key='auth_throttle_secret'"
+                ).fetchone()
+                if row:
+                    throttle_secret = str(row["value"])
+                else:
+                    throttle_secret = secrets.token_urlsafe(32)
+                    db.execute(
+                        "INSERT INTO settings (key,value) VALUES ('auth_throttle_secret',?)",
+                        (throttle_secret,),
+                    )
+        self.auth_throttle = PersistentAuthThrottle(self.db_path, throttle_secret)
+
+    def _node_password(self, node) -> str:
+        ciphertext = str(node["ssh_password_ciphertext"] or "") if "ssh_password_ciphertext" in node.keys() else ""
+        if ciphertext:
+            if not self.node_credential_cipher:
+                raise PanelError("缺少 NODE_CREDENTIAL_ENCRYPTION_KEY，无法读取节点凭据")
+            try:
+                return self.node_credential_cipher.decrypt(ciphertext.encode()).decode()
+            except Exception as exc:
+                raise PanelError("节点 SSH 凭据解密失败") from exc
+        return str(node["ssh_password"] or "")
 
     def _import_local_routes(self, db, node_id: int) -> None:
         directory = Path(self.default_generated)
@@ -389,6 +547,12 @@ class ProxyPanel:
         if not hmac.compare_digest(str(data.get("csrf", "")), self._csrf(action)):
             raise web.HTTPForbidden(text="invalid form token")
 
+    def _check_request_origin(self, request: web.Request) -> None:
+        """Reject browser state changes originating outside the control host."""
+        origin = request.headers.get("Origin", "").rstrip("/")
+        if not origin or not hmac.compare_digest(origin, self.panel_public_origin):
+            raise web.HTTPForbidden(text="invalid request origin")
+
     @staticmethod
     def _normalize_username(value: str) -> str:
         username = value.strip()
@@ -407,6 +571,16 @@ class ProxyPanel:
         salt = secrets.token_bytes(16)
         digest = hashlib.scrypt(password.encode("utf-8"), salt=salt, n=2**14, r=8, p=1, dklen=32)
         return "scrypt$16384$8$1$" + base64.urlsafe_b64encode(salt).decode() + "$" + base64.urlsafe_b64encode(digest).decode()
+
+    def _validate_new_password(self, username: str, password: str) -> None:
+        try:
+            self.password_policy.require(password, username=username)
+        except PasswordPolicyViolation as exc:
+            if "too_short" in exc.violations:
+                raise PanelError(f"密码至少需要 {self.minimum_password_length} 个字符") from exc
+            if "too_long" in exc.violations:
+                raise PanelError("密码内容过长") from exc
+            raise PanelError("密码过于常见，请换一个更难猜的密码") from exc
 
     @staticmethod
     def _password_matches(password: str, stored: str) -> bool:
@@ -483,36 +657,57 @@ class ProxyPanel:
             raise web.HTTPFound("/login")
         return user
 
-    @staticmethod
-    def _set_user_session(response: web.StreamResponse, token: str, csrf_secret: str) -> None:
+    def _clear_legacy_user_cookies(self, response: web.StreamResponse) -> None:
+        for name in (LEGACY_USER_SESSION_COOKIE, LEGACY_USER_CSRF_COOKIE):
+            response.del_cookie(name, path="/", secure=True)
+            if self.auto_zone:
+                response.del_cookie(name, domain=self.auto_zone, path="/", secure=True)
+
+    def _set_user_session(self, response: web.StreamResponse, token: str, csrf_secret: str) -> None:
+        self._clear_legacy_user_cookies(response)
         response.set_cookie(USER_SESSION_COOKIE, token, secure=True, httponly=True, samesite="Strict", max_age=USER_SESSION_SECONDS, path="/")
         response.set_cookie(USER_CSRF_COOKIE, csrf_secret, secure=True, httponly=False, samesite="Strict", max_age=USER_SESSION_SECONDS, path="/")
 
-    @staticmethod
-    def _clear_user_session(response: web.StreamResponse) -> None:
-        response.del_cookie(USER_SESSION_COOKIE, path="/")
-        response.del_cookie(USER_CSRF_COOKIE, path="/")
+    def _clear_user_session(self, response: web.StreamResponse) -> None:
+        response.del_cookie(USER_SESSION_COOKIE, path="/", secure=True, httponly=True, samesite="Strict")
+        response.del_cookie(USER_CSRF_COOKIE, path="/", secure=True, httponly=False, samesite="Strict")
+        self._clear_legacy_user_cookies(response)
 
     def _check_user_csrf(self, user, data) -> None:
         token = str(data.get("csrf", ""))
         if not token or not hmac.compare_digest(token, str(user["csrf_secret"])):
             raise web.HTTPForbidden(text="invalid form token")
 
-    async def _record_user_auth_failure(self, request: web.Request) -> None:
-        client_ip = self._client_ip(request)
-        current = time.monotonic()
-        failures = [stamp for stamp in self._user_auth_failures.get(client_ip, []) if current - stamp < 600]
-        if len(failures) >= 8:
-            self._user_auth_failures[client_ip] = failures
-            raise web.HTTPTooManyRequests(text="too many authentication failures", headers={"Retry-After": "600"})
-        failures.append(current)
-        self._user_auth_failures[client_ip] = failures
-        if len(self._user_auth_failures) > 4096:
-            self._user_auth_failures = {ip: stamps for ip, stamps in self._user_auth_failures.items() if stamps and current - stamps[-1] < 600}
-        await asyncio.sleep(min(1.5, 0.15 * len(failures)))
+    async def _enforce_user_auth_limit(self, request: web.Request, username: str) -> None:
+        if self.auth_throttle is None:
+            raise web.HTTPServiceUnavailable(text="authentication protection is unavailable")
+        decision = await asyncio.to_thread(
+            self.auth_throttle.precheck, self._client_ip(request), username
+        )
+        if not decision.allowed:
+            raise web.HTTPTooManyRequests(
+                text="too many authentication failures",
+                headers={"Retry-After": str(decision.retry_after)},
+            )
 
-    def _clear_user_auth_failures(self, request: web.Request) -> None:
-        self._user_auth_failures.pop(self._client_ip(request), None)
+    async def _record_user_auth_failure(self, request: web.Request, username: str) -> None:
+        if self.auth_throttle is None:
+            raise web.HTTPServiceUnavailable(text="authentication protection is unavailable")
+        decision = await asyncio.to_thread(
+            self.auth_throttle.record_failure, self._client_ip(request), username
+        )
+        await asyncio.sleep(0.2)
+        if not decision.allowed:
+            raise web.HTTPTooManyRequests(
+                text="too many authentication failures",
+                headers={"Retry-After": str(decision.retry_after)},
+            )
+
+    async def _record_user_auth_success(self, request: web.Request, username: str) -> None:
+        if self.auth_throttle is not None:
+            await asyncio.to_thread(
+                self.auth_throttle.record_success, self._client_ip(request), username
+            )
 
     def _record_login_event(self, db, user_id: int, success: bool, client_ip: str) -> None:
         db.execute("INSERT INTO login_events (user_id,success,ip,created_at) VALUES (?,?,?,?)", (user_id, int(success), client_ip[:64], now()))
@@ -543,10 +738,18 @@ class ProxyPanel:
 
     def _register_user(self, invite_code: str, username: str, password: str, client_ip: str):
         normalized = self._normalize_username(username)
-        password_hash = self._password_hash(password)
         code_hash = hashlib.sha256(invite_code.strip().encode("utf-8")).hexdigest()
-        if not re.fullmatch(r"[0-9a-f]{64}", code_hash):
+        with self._connect() as db:
+            invite = db.execute("SELECT * FROM invites WHERE code_hash=?", (code_hash,)).fetchone()
+            username_taken = db.execute(
+                "SELECT 1 FROM users WHERE username_norm=?", (normalized,)
+            ).fetchone()
+        if not invite or invite["revoked_at"] or invite["expires_at"] <= now() or int(invite["used_count"]) >= int(invite["max_uses"]):
             raise PanelError("邀请码无效或已失效")
+        if username_taken:
+            raise PanelError("用户名已被使用")
+        self._validate_new_password(username, password)
+        password_hash = self._password_hash(password)
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             invite = db.execute("SELECT * FROM invites WHERE code_hash=?", (code_hash,)).fetchone()
@@ -831,6 +1034,55 @@ class ProxyPanel:
             slug = "emby-" + slug
         return slug[:24].strip("-") or "emby"
 
+    def _origin_security_policy(self, *, allow_insecure_http: bool = False) -> OriginSecurityPolicy:
+        node_addresses: list[str] = []
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT ssh_host FROM nodes WHERE ssh_host IS NOT NULL AND ssh_host != ''"
+            ).fetchall()
+        for row in rows:
+            try:
+                node_addresses.append(str(ipaddress.ip_address(str(row["ssh_host"]))))
+            except ValueError:
+                continue
+        try:
+            protected = tuple(str(ipaddress.ip_address(item)) for item in self.protected_proxy_ips)
+        except ValueError as exc:
+            raise PanelError("PROTECTED_PROXY_IPS 配置包含无效 IP") from exc
+        owned_domains = tuple(
+            dict.fromkeys(domain for domain in (self.auto_zone, self.default_domain) if domain)
+        )
+        return OriginSecurityPolicy(
+            owned_domains=owned_domains,
+            node_addresses=tuple(node_addresses),
+            proxy_addresses=protected,
+            allowed_schemes=("https", "http") if allow_insecure_http else ("https",),
+            max_addresses=8,
+        )
+
+    def _resolve_route_origin(
+        self, origin: str, *, allow_insecure_http: bool = False, enforce_user_ports: bool = True
+    ) -> SafeOriginResolution:
+        try:
+            resolved = resolve_origin_safely(
+                origin,
+                policy=self._origin_security_policy(allow_insecure_http=allow_insecure_http),
+            )
+        except OriginSecurityError as exc:
+            messages = {
+                "scheme-not-allowed": "普通用户线路只允许使用 HTTPS 源站",
+                "owned-origin": "源站不能指向本面板、节点或其他反代线路",
+                "proxy-loop": "源站解析到了本项目节点，已拒绝代理环路",
+                "mixed-address-space": "源站同时解析到公网和内网地址，已拒绝",
+                "non-global-address": "源站解析到了非公网地址",
+                "resolution-failed": "源站域名解析失败",
+            }
+            raise PanelError(messages.get(exc.code, "源站地址未通过安全检查")) from exc
+        if enforce_user_ports and resolved.port not in self.user_origin_ports:
+            allowed = "、".join(str(port) for port in sorted(self.user_origin_ports))
+            raise PanelError(f"普通用户源站端口仅允许：{allowed}")
+        return resolved
+
     @staticmethod
     def _public_url(node, host: str) -> str:
         port = int(node["public_https_port"])
@@ -872,11 +1124,28 @@ class ProxyPanel:
         return nodes
 
     def create_frontend_route(self, origin: str, node_id: int, user_id: int, notes: str = "") -> tuple[str, str]:
+        with self._route_creation_locks_guard:
+            lock = self._route_creation_locks.setdefault(int(user_id), threading.Lock())
+        if not lock.acquire(timeout=2):
+            raise PanelError("线路创建正在处理中，请稍后重试")
+        try:
+            return self._create_frontend_route_locked(origin, node_id, user_id, notes)
+        finally:
+            lock.release()
+
+    def _create_frontend_route_locked(self, origin: str, node_id: int, user_id: int, notes: str = "") -> tuple[str, str]:
         """Allocate an address owned by one user; never share it across accounts."""
+        if not self.user_route_creation_enabled:
+            raise PanelError("线路创建暂时关闭，管理员正在进行安全升级")
+        resolution = self._resolve_route_origin(origin)
+        origin = resolution.origin
+        resolved_json = json.dumps(resolution.addresses, separators=(",", ":"))
+        resolved_at = now()
         notes = notes.strip()
         if len(notes) > 500:
             raise PanelError("线路备注不能超过 500 个字符")
         with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
             user = db.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
             if not self._is_user_active(user):
                 raise PanelError("账号已停用或已到期")
@@ -889,6 +1158,11 @@ class ProxyPanel:
             ).fetchone()
             if existing:
                 route = existing
+                db.execute(
+                    "UPDATE routes SET resolved_ips_json=?,resolved_at=?,upstream_security_status='verified',updated_at=? WHERE id=?",
+                    (resolved_json, resolved_at, now(), route["id"]),
+                )
+                route = db.execute("SELECT * FROM routes WHERE id=?", (route["id"],)).fetchone()
             else:
                 used = int(db.execute("SELECT COUNT(*) FROM routes WHERE owner_user_id=?", (user_id,)).fetchone()[0])
                 if used >= int(user["route_quota"]):
@@ -900,17 +1174,15 @@ class ProxyPanel:
                     host = f"{name}.{node['domain_suffix']}"
                     if not db.execute("SELECT 1 FROM routes WHERE public_host = ?", (host,)).fetchone():
                         cursor = db.execute(
-                            "INSERT INTO routes (node_id,name,origin,public_host,deployed,owner_user_id,suspended_by_owner,notes,created_at,updated_at) "
-                            "VALUES (?,?,?,?,0,?,0,?,?,?)",
-                            (node_id, name, origin, host, user_id, notes, now(), now()),
+                            "INSERT INTO routes (node_id,name,origin,public_host,deployed,owner_user_id,suspended_by_owner,notes,state,resolved_ips_json,resolved_at,upstream_security_status,security_policy_version,redirect_token,created_at,updated_at) "
+                            "VALUES (?,?,?,?,0,?,0,?,'pending',?,?,'verified',2,?,?,?)",
+                            (node_id, name, origin, host, user_id, notes, resolved_json, resolved_at, secrets.token_urlsafe(24), now(), now()),
                         )
                         route = db.execute("SELECT * FROM routes WHERE id = ?", (cursor.lastrowid,)).fetchone()
                         break
                 if route is None:
                     raise PanelError("无法分配线路地址")
-        if route["deployed"]:
-            self._probe_route(node, route)
-        else:
+        if not route["deployed"]:
             self._deploy_and_verify(node, route)
         return route["public_host"], self._public_url(node, route["public_host"])
 
@@ -984,6 +1256,7 @@ class ProxyPanel:
             "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY",
             "Referrer-Policy": "no-referrer", "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
         })
+        self._clear_legacy_user_cookies(response)
         if csrf_token:
             response.set_cookie(USER_CSRF_COOKIE, csrf_token, secure=True, httponly=False, samesite="Strict", max_age=USER_SESSION_SECONDS, path="/")
         return response
@@ -1006,16 +1279,29 @@ class ProxyPanel:
         return self._user_page("账号安全", content, error=error, notice=notice)
 
     def _change_user_password(self, user_id: int, current_password: str, new_password: str) -> None:
-        new_hash = self._password_hash(new_password)
         with self._connect() as db:
             user = db.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
             if not user or not self._password_matches(current_password, user["password_hash"]):
                 raise PanelError("当前密码不正确")
-            db.execute("UPDATE users SET password_hash=?,must_change_password=0,updated_at=? WHERE id=?", (new_hash, now(), user_id))
+            old_hash = str(user["password_hash"])
+            username = str(user["username"])
+        self._validate_new_password(username, new_password)
+        new_hash = self._password_hash(new_password)
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            changed = db.execute(
+                "UPDATE users SET password_hash=?,must_change_password=0,updated_at=? "
+                "WHERE id=? AND password_hash=?",
+                (new_hash, now(), user_id, old_hash),
+            ).rowcount
+            if changed != 1:
+                raise PanelError("密码已被其他操作修改，请重新登录后再试")
             db.execute("DELETE FROM user_sessions WHERE user_id=?", (user_id,))
 
     async def handle_user(self, request: web.Request) -> web.StreamResponse:
         path = request.path
+        if request.method == "POST":
+            self._check_request_origin(request)
         if path == "/login":
             if request.method == "GET":
                 if self._session_user(request):
@@ -1024,11 +1310,23 @@ class ProxyPanel:
             if request.method == "POST":
                 data = await request.post()
                 self._check_anonymous_csrf(request, data)
-                user = await asyncio.to_thread(self._authenticate_user, str(data.get("username", "")), str(data.get("password", "")), self._client_ip(request))
+                username = str(data.get("username", ""))
+                await self._enforce_user_auth_limit(request, username)
+                try:
+                    user = await self.hash_limiter.run(
+                        self._authenticate_user,
+                        username,
+                        str(data.get("password", "")),
+                        self._client_ip(request),
+                    )
+                except HashWorkLimitExceeded as exc:
+                    raise web.HTTPServiceUnavailable(
+                        text="password service is busy", headers={"Retry-After": "3"}
+                    ) from exc
                 if not user:
-                    await self._record_user_auth_failure(request)
+                    await self._record_user_auth_failure(request, username)
                     return self.login_page(request, error="用户名或密码错误，或账号已停用/到期")
-                self._clear_user_auth_failures(request)
+                await self._record_user_auth_success(request, username)
                 token, csrf_secret = await asyncio.to_thread(self._create_user_session, int(user["id"]))
                 response = web.HTTPFound("/account" if user["must_change_password"] else "/")
                 self._set_user_session(response, token, csrf_secret)
@@ -1039,22 +1337,28 @@ class ProxyPanel:
             if request.method == "POST":
                 data = await request.post()
                 self._check_anonymous_csrf(request, data)
+                username = str(data.get("username", ""))
+                await self._enforce_user_auth_limit(request, username)
                 password = str(data.get("password", ""))
                 if password != str(data.get("confirm_password", "")):
-                    await self._record_user_auth_failure(request)
+                    await self._record_user_auth_failure(request, username)
                     return self.register_page(request, error="两次输入的密码不一致")
                 try:
-                    user_id = await asyncio.to_thread(
+                    user_id = await self.hash_limiter.run(
                         self._register_user,
                         str(data.get("invite_code", "")),
-                        str(data.get("username", "")),
+                        username,
                         password,
                         self._client_ip(request),
                     )
+                except HashWorkLimitExceeded as exc:
+                    raise web.HTTPServiceUnavailable(
+                        text="password service is busy", headers={"Retry-After": "3"}
+                    ) from exc
                 except PanelError as exc:
-                    await self._record_user_auth_failure(request)
+                    await self._record_user_auth_failure(request, username)
                     return self.register_page(request, error=str(exc))
-                self._clear_user_auth_failures(request)
+                await self._record_user_auth_success(request, username)
                 token, csrf_secret = await asyncio.to_thread(self._create_user_session, user_id)
                 response = web.HTTPFound("/")
                 self._set_user_session(response, token, csrf_secret)
@@ -1075,12 +1379,24 @@ class ProxyPanel:
             user = self.require_user(request)
             data = await request.post()
             self._check_user_csrf(user, data)
+            await self._enforce_user_auth_limit(request, str(user["username"]))
             if str(data.get("new_password", "")) != str(data.get("confirm_password", "")):
                 return self.account_page(request, user, error="两次输入的新密码不一致")
             try:
-                await asyncio.to_thread(self._change_user_password, int(user["id"]), str(data.get("current_password", "")), str(data.get("new_password", "")))
+                await self.hash_limiter.run(
+                    self._change_user_password,
+                    int(user["id"]),
+                    str(data.get("current_password", "")),
+                    str(data.get("new_password", "")),
+                )
+            except HashWorkLimitExceeded as exc:
+                raise web.HTTPServiceUnavailable(
+                    text="password service is busy", headers={"Retry-After": "3"}
+                ) from exc
             except PanelError as exc:
+                await self._record_user_auth_failure(request, str(user["username"]))
                 return self.account_page(request, user, error=str(exc))
+            await self._record_user_auth_success(request, str(user["username"]))
             token, csrf_secret = await asyncio.to_thread(self._create_user_session, int(user["id"]))
             response = web.HTTPFound("/")
             self._set_user_session(response, token, csrf_secret)
@@ -1167,9 +1483,13 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
             traffic = self._format_traffic_usage(node_usage.get(node_id))
             location = " ".join(filter(None, (node["country_flag"], node["country_name"], node["country_code"]))) or "未识别"
             check_form = f"<form class='inline' method='post' action='{ADMIN_PREFIX}/nodes/{node_id}/check'><input type='hidden' name='csrf' value='{check_token}'><button type='submit' class='action-check'>检查</button></form>"
+            pin_form = ""
+            if node["kind"] == "ssh" and not str(node["ssh_host_fingerprint"] or ""):
+                pin_token = self._csrf("node-pin:" + str(node_id))
+                pin_form = f"<details class='inline'><summary>核对 SSH 指纹</summary><form class='compact' method='post' action='{ADMIN_PREFIX}/nodes/{node_id}/pin'><input type='hidden' name='csrf' value='{pin_token}'><input required name='ssh_host_fingerprint' placeholder='SHA256:...'><button>核对并固定</button></form></details>"
             delete_form = f" <form class='inline' method='post' action='{ADMIN_PREFIX}/nodes/{node_id}/delete'><input type='hidden' name='csrf' value='{delete_token}'><button type='submit' class='danger'>删除节点</button></form>"
             node_rows_list.append(
-                f"<tr><td>{html.escape(node['name'])}</td><td>{kind}</td><td>{html.escape(location)}</td><td><code>{html.escape(node['domain_suffix'])}</code></td><td>{html.escape(health)}<br><span class='muted'>采集：{html.escape(node['last_seen'] or '暂无')}</span><br>{traffic}</td><td>{check_form}{delete_form}</td></tr>"
+                f"<tr><td>{html.escape(node['name'])}</td><td>{kind}</td><td>{html.escape(location)}</td><td><code>{html.escape(node['domain_suffix'])}</code></td><td>{html.escape(health)}<br><span class='muted'>状态：{html.escape(node['state'] or 'active')} · 采集：{html.escape(node['last_seen'] or '暂无')}</span><br>{traffic}</td><td>{check_form}{pin_form}{delete_form}</td></tr>"
             )
         node_rows = "".join(node_rows_list) or "<tr><td colspan='6' class='muted'>还没有节点</td></tr>"
         route_rows_list = []
@@ -1199,7 +1519,7 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
 <section><h2>线路</h2><table><thead><tr><th>名称</th><th>源站</th><th>公开地址</th><th>节点</th><th>状态</th><th>操作</th></tr></thead><tbody>{route_rows}</tbody></table>{route_pagination}</section>
 <section><h2>新增线路</h2><p class='muted'>创建后会自动下发 Nginx，并从公网访问新地址确认链路；验证结果会直接显示。</p><form method='post' action='{ADMIN_PREFIX}/routes'><div class='grid'><label>线路名称（小写英文、数字、连字符）<input required name='name' pattern='[a-z0-9][a-z0-9-]{{1,31}}' placeholder='emby-a'></label><label>源站地址<input required name='origin' placeholder='https://emby.example.com'></label><label>部署节点<select name='node_id'>{node_options}</select></label></div><p><input type='hidden' name='csrf' value='{self._csrf('route-create')}'><button>创建、下发并验证</button></p></form></section>
 <section><h2>节点</h2><table><thead><tr><th>名称</th><th>类型</th><th>地区</th><th>域名后缀</th><th>状态 / 代理用量</th><th>操作</th></tr></thead><tbody>{node_rows}</tbody></table></section>
-<section><h2>新增节点</h2><p class='muted'>普通 VPS 直接使用公网 443；NAT 机需要填写服务商映射到内部 TCP 443 的公网 HTTPS 端口。其余 DNS、Nginx和证书均自动配置。</p><form method='post' enctype='multipart/form-data' action='{ADMIN_PREFIX}/nodes'><div class='grid'><label>节点名称<input required name='name' placeholder='海创'></label><label>网络类型<select required name='network_mode' id='network-mode'><option value='vps'>普通 VPS（独立公网 IP）</option><option value='nat'>NAT 机（端口映射）</option></select></label><label>服务器公网 IP<input required name='ssh_host' inputmode='decimal' placeholder='162.141.136.85'></label><label>SSH 端口<input required name='ssh_port' value='22' inputmode='numeric'></label><label id='nat-port-field' hidden>NAT 公网 HTTPS 端口<input name='nat_https_port' value='30004' inputmode='numeric'><span class='muted'>服务商需将此 TCP 端口映射到机器内部 443</span></label><label>SSH 密码（与私钥二选一）<input type='password' name='ssh_password' autocomplete='new-password'></label><label>SSH 私钥文件（与密码二选一）<input type='file' name='ssh_private_key' accept='.pem,.key,text/plain,application/x-pem-file'></label></div><p><input type='hidden' name='csrf' value='{self._csrf('node-create')}'><button>自动部署并添加</button></p></form><script nonce='__CSP_NONCE__'>(()=>{{const mode=document.getElementById('network-mode'),field=document.getElementById('nat-port-field');const sync=()=>field.hidden=mode.value!=='nat';mode.addEventListener('change',sync);sync();}})();</script></section>"""
+<section><h2>新增节点</h2><p class='muted'>普通 VPS 直接使用公网 443；NAT 机需要填写服务商映射到内部 TCP 443 的公网 HTTPS 端口。SSH 主机指纹必须先与云厂商控制台核对，主控机不会再自动信任陌生主机。</p><form method='post' enctype='multipart/form-data' action='{ADMIN_PREFIX}/nodes'><div class='grid'><label>节点名称<input required name='name' placeholder='海创'></label><label>网络类型<select required name='network_mode' id='network-mode'><option value='vps'>普通 VPS（独立公网 IP）</option><option value='nat'>NAT 机（端口映射）</option></select></label><label>服务器公网 IP<input required name='ssh_host' inputmode='decimal' placeholder='162.141.136.85'></label><label>SSH 端口<input required name='ssh_port' value='22' inputmode='numeric'></label><label>SSH 主机指纹<input required name='ssh_host_fingerprint' placeholder='SHA256:...'><span class='muted'>从云厂商控制台复制，必须与该 IP 的 SSH 指纹一致</span></label><label id='nat-port-field' hidden>NAT 公网 HTTPS 端口<input name='nat_https_port' value='30004' inputmode='numeric'><span class='muted'>服务商需将此 TCP 端口映射到机器内部 443</span></label><label>SSH 密码（与私钥二选一）<input type='password' name='ssh_password' autocomplete='new-password'></label><label>SSH 私钥文件（与密码二选一）<input type='file' name='ssh_private_key' accept='.pem,.key,text/plain,application/x-pem-file'></label></div><p><input type='hidden' name='csrf' value='{self._csrf('node-create')}'><button>自动部署并添加</button></p></form><script nonce='__CSP_NONCE__'>(()=>{{const mode=document.getElementById('network-mode'),field=document.getElementById('nat-port-field');const sync=()=>field.hidden=mode.value!=='nat';mode.addEventListener('change',sync);sync();}})();</script></section>"""
         return self._page(content, notice, error)
 
     @staticmethod
@@ -1539,9 +1859,15 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
             )
         return True
 
-    def _acme_account_value(self, key: str) -> str:
-        if not self.acme_account.is_file():
+    def _acme_account_value(self, key: str, *, required: bool = True) -> str:
+        try:
+            metadata = self.acme_account.lstat()
+        except OSError as exc:
+            raise PanelError("自动证书配置缺失，请联系管理员") from exc
+        if not stat.S_ISREG(metadata.st_mode) or self.acme_account.is_symlink():
             raise PanelError("自动证书配置缺失，请联系管理员")
+        if os.name == "posix" and (metadata.st_uid != 0 or stat.S_IMODE(metadata.st_mode) & 0o077):
+            raise PanelError("自动证书配置权限不安全，必须由 root 拥有且权限为 600")
         for line in self.acme_account.read_text(encoding="utf-8").splitlines():
             if not line.startswith(key + "="):
                 continue
@@ -1551,7 +1877,9 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                 raise PanelError("自动证书配置格式错误") from exc
             if values:
                 return values[0]
-        raise PanelError(f"自动证书配置缺少 {key}")
+        if required:
+            raise PanelError(f"自动证书配置缺少 {key}")
+        return ""
 
     def _cloudflare_api(self, method: str, path: str, payload: dict | None = None) -> dict:
         token = self._acme_account_value("SAVED_CF_Token")
@@ -1591,6 +1919,9 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                 if existing:
                     record = existing[0]
                     if record.get("content") == address and not record.get("proxied"):
+                        # An operator may have pre-created the exact record.
+                        # It is usable, but it is not owned by this deployment
+                        # and must not be removed on node deletion.
                         continue
                     raise PanelError(f"域名 {name} 已存在其他解析，请更换节点名称")
                 record = self._cloudflare_api("POST", f"/zones/{zone_id}/dns_records", {
@@ -1598,39 +1929,58 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                 }).get("result", {})
                 if record.get("id"):
                     created.append(str(record["id"]))
-        except Exception:
-            self._delete_node_dns(created)
+        except Exception as exc:
+            try:
+                self._delete_node_dns(created)
+            except Exception as cleanup_exc:
+                raise PanelError("DNS 创建失败，且回滚也失败；请在 Cloudflare 中检查孤儿记录") from cleanup_exc
             raise
         return created
 
     def _delete_node_dns(self, record_ids: list[str]) -> None:
         if not record_ids:
             return
+        zone_id = self._cloudflare_zone_id()
+        failures = []
+        for record_id in record_ids:
+            try:
+                self._cloudflare_api("DELETE", f"/zones/{zone_id}/dns_records/{record_id}")
+            except Exception as exc:
+                failures.append(f"{record_id}: {exc}")
+        if failures:
+            raise PanelError("DNS 记录删除失败：" + "; ".join(failures[:3]))
+
+    @staticmethod
+    def _node_dns_record_ids(node) -> list[str]:
         try:
-            zone_id = self._cloudflare_zone_id()
-            for record_id in record_ids:
-                try:
-                    self._cloudflare_api("DELETE", f"/zones/{zone_id}/dns_records/{record_id}")
-                except Exception:
-                    pass
-        except Exception:
-            pass
+            values = json.loads(str(node["dns_record_ids_json"] or "[]"))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return []
+        if not isinstance(values, list):
+            return []
+        return [str(item) for item in values if re.fullmatch(r"[A-Za-z0-9_-]{8,128}", str(item))]
 
     def _cleanup_managed_node(self, node) -> None:
         if not node["auto_managed"]:
             return
-        try:
-            zone_id = self._cloudflare_zone_id()
-            record_ids = []
-            for name in (node["domain_suffix"], "*." + node["domain_suffix"]):
-                query = urlencode({"type": "A", "name": name})
-                records = self._cloudflare_api(
-                    "GET", f"/zones/{zone_id}/dns_records?{query}"
-                ).get("result", [])
-                record_ids.extend(str(record["id"]) for record in records if record.get("id"))
-            self._delete_node_dns(record_ids)
-        except Exception:
-            pass
+        record_ids = self._node_dns_record_ids(node)
+        self._delete_node_dns(record_ids)
+        if node["kind"] != "local":
+            # Remove only files and jobs created by this project.  The marker
+            # prevents an old/shared acme installation from being destroyed.
+            marker = "/etc/uniproxy-nginx/.uniproxy-acme-managed"
+            cleanup = "\n".join([
+                "set -eu",
+                f"if [ -f {shlex.quote(marker)} ]; then",
+                "  if command -v crontab >/dev/null 2>&1; then crontab -l 2>/dev/null | grep -v 'uniproxy-nginx' | grep -v 'acme.sh.*--cron' | crontab - || true; fi",
+                "  if command -v systemctl >/dev/null 2>&1; then systemctl disable --now uniproxy-nginx.service >/dev/null 2>&1 || true; systemctl daemon-reload || true; fi",
+                "  rm -f /etc/systemd/system/uniproxy-nginx.service /usr/local/sbin/uniproxy-nginx",
+                f"  rm -rf {shlex.quote(str(node['generated_dir']))} {shlex.quote(str(node['caddy_config']))} /etc/uniproxy-nginx",
+                f"  rm -rf {shlex.quote('/root/.acme.sh/' + str(node['domain_suffix']) + '_ecc')}",
+                "  rm -f /root/.acme.sh/account.conf",
+                "fi",
+            ])
+            self._run(self._ssh_args(node) + [cleanup], env=self._ssh_env(node), timeout=90)
         identity = str(node["ssh_identity"] or "")
         if identity:
             try:
@@ -1684,19 +2034,30 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
         raise PanelError("节点内部配置已完成，但连续探测后公网 TCP 443 仍无法访问；请检查云平台安全组是否允许入站 TCP 443")
 
     def _provision_auto_node(self, node) -> tuple[int, list[str]]:
-        if not self.acme_template.is_file():
-            raise PanelError("自动部署组件缺失，请联系管理员")
         self._wait_for_root_ssh(node)
         dns_records = self._create_node_dns(node["domain_suffix"], node["ssh_host"])
-        remote_archive = "/tmp/uniproxy-acme-template.tgz"
-        remote_account = "/tmp/uniproxy-acme-account.conf"
+        try:
+            cert_path, key_path = self._issue_central_certificate(node)
+        except Exception:
+            try:
+                self._delete_node_dns(dns_records)
+            except Exception:
+                pass
+            raise
+        remote_stage = f"/tmp/uniproxy-stage-{secrets.token_hex(16)}"
+        remote_cert = remote_stage + "/fullchain.pem"
+        remote_key = remote_stage + "/key.pem"
         try:
             self._run(
-                self._scp_args(node, str(self.acme_template), remote_archive),
+                self._ssh_args(node) + [f"umask 077; install -d -m 700 {shlex.quote(remote_stage)}"],
+                env=self._ssh_env(node), timeout=30,
+            )
+            self._run(
+                self._scp_args(node, cert_path, remote_cert),
                 env=self._ssh_env(node), timeout=60,
             )
             self._run(
-                self._scp_args(node, str(self.acme_account), remote_account, preserve_mode=True),
+                self._scp_args(node, key_path, remote_key),
                 env=self._ssh_env(node), timeout=60,
             )
             root_dir = "/etc/uniproxy-nginx"
@@ -1708,11 +2069,10 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                 f"CONF={shlex.quote(node['caddy_config'])}",
                 f"PID={shlex.quote(pid_path)}",
                 "alive() { [ -s \"$PID\" ] && kill -0 \"$(cat \"$PID\")\" 2>/dev/null; }",
-                "open_ports() { if command -v iptables >/dev/null 2>&1; then iptables -C INPUT -p tcp --dport 80 -j ACCEPT >/dev/null 2>&1 || iptables -I INPUT 1 -p tcp --dport 80 -j ACCEPT >/dev/null 2>&1 || true; iptables -C INPUT -p tcp --dport 443 -j ACCEPT >/dev/null 2>&1 || iptables -I INPUT 1 -p tcp --dport 443 -j ACCEPT >/dev/null 2>&1 || true; fi; }",
                 "case \"${1:-}\" in",
                 "  test) exec \"$NGINX\" -t -c \"$CONF\" ;;",
-                "  start) open_ports; \"$NGINX\" -t -c \"$CONF\"; alive || \"$NGINX\" -c \"$CONF\" ;;",
-                "  reload) open_ports; \"$NGINX\" -t -c \"$CONF\"; if alive; then \"$NGINX\" -c \"$CONF\" -s reload; else \"$NGINX\" -c \"$CONF\"; fi ;;",
+                "  start) \"$NGINX\" -t -c \"$CONF\"; alive || \"$NGINX\" -c \"$CONF\" ;;",
+                "  reload) \"$NGINX\" -t -c \"$CONF\"; if alive; then \"$NGINX\" -c \"$CONF\" -s reload; else \"$NGINX\" -c \"$CONF\"; fi ;;",
                 "  stop) if alive; then \"$NGINX\" -c \"$CONF\" -s quit; fi ;;",
                 "  status) alive ;;",
                 "  *) echo 'usage: uniproxy-nginx {start|reload|stop|status|test}' >&2; exit 2 ;;",
@@ -1720,6 +2080,7 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
             ])
             nginx_config = "\n".join([
                 "# isolated Nginx configuration managed by uniproxy",
+                "user uniproxy-nginx;",
                 "worker_processes auto;",
                 "worker_rlimit_nofile 65535;",
                 f"pid {pid_path};",
@@ -1730,7 +2091,7 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                 "    ssl_protocols TLSv1.2 TLSv1.3;",
                 "    default_type application/octet-stream;",
                 "    log_format uniproxy '$remote_addr - [$time_local] \"$request_method $uri $server_protocol\" $status $body_bytes_sent $request_time';",
-                "    access_log /var/log/uniproxy-nginx-access.log uniproxy buffer=64k flush=5s;",
+                "    access_log off;",
                 "    sendfile on;",
                 "    tcp_nopush on;",
                 "    tcp_nodelay on;",
@@ -1752,7 +2113,7 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                 f"    ssl_certificate {node['tls_cert_file']};",
                 f"    ssl_certificate_key {node['tls_key_file']};",
                 "    ssl_protocols TLSv1.2 TLSv1.3;",
-                "    location = /__health { default_type text/plain; return 200 'ok\\n'; }",
+                "    location = /__health { access_log off; default_type text/plain; return 200 'ok\\n'; }",
                 "    location / { return 404; }",
                 "}", "",
             ])
@@ -1768,46 +2129,42 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
             encoded_nginx = base64.b64encode(nginx_config.encode()).decode()
             encoded_config = base64.b64encode(base_config.encode()).decode()
             encoded_unit = base64.b64encode(systemd_unit.encode()).decode()
-            suffix = shlex.quote(node["domain_suffix"])
-            acme_domain_dir = f"/root/.acme.sh/{node['domain_suffix']}_ecc"
-            reload_command = controller_path + " reload"
-            reload_value = base64.b64encode(reload_command.encode()).decode()
-            reload_line = f"Le_ReloadCmd='__ACME_BASE64__START_{reload_value}__ACME_BASE64__END_'"
+            egress_path = Path(__file__).resolve().parent / "deploy" / "uniproxy-egress.nft"
+            logrotate_path = Path(__file__).resolve().parent / "deploy" / "uniproxy.logrotate"
+            if not egress_path.is_file() or not logrotate_path.is_file():
+                raise PanelError("节点安全部署模板缺失")
+            encoded_egress = base64.b64encode(egress_path.read_bytes()).decode()
+            encoded_logrotate = base64.b64encode(logrotate_path.read_bytes()).decode()
             script = "\n".join([
                 "set -eu", "export DEBIAN_FRONTEND=noninteractive",
-                f"cleanup() {{ rm -f {shlex.quote(remote_archive)} {shlex.quote(remote_account)}; }}", "trap cleanup EXIT",
+                f"cleanup() {{ rm -rf {shlex.quote(remote_stage)}; }}", "trap cleanup EXIT",
                 "apt_with_lock_retry() { attempts=0; while ! apt-get -o DPkg::Lock::Timeout=5 \"$@\"; do attempts=$((attempts + 1)); if [ \"$attempts\" -ge 12 ]; then echo 'APT package manager remained busy for about 2 minutes; retry node deployment shortly.' >&2; return 1; fi; echo 'Waiting for the system package manager to finish...' >&2; sleep 5; done; }",
-                "if command -v apk >/dev/null 2>&1; then apk add --no-cache nginx ca-certificates curl dcron coreutils tar iptables openssl;",
-                "elif command -v apt-get >/dev/null 2>&1; then apt_with_lock_retry update -qq; apt_with_lock_retry install -y -qq nginx ca-certificates curl cron coreutils tar iptables openssl;",
-                "elif command -v dnf >/dev/null 2>&1; then dnf install -y nginx ca-certificates curl cronie coreutils tar iptables openssl;",
-                "elif command -v yum >/dev/null 2>&1; then yum install -y nginx ca-certificates curl cronie coreutils tar iptables openssl;",
+                "if command -v apk >/dev/null 2>&1; then apk add --no-cache nginx ca-certificates curl dcron coreutils openssl nftables logrotate shadow;",
+                "elif command -v apt-get >/dev/null 2>&1; then apt_with_lock_retry update -qq; apt_with_lock_retry install -y -qq nginx ca-certificates curl cron coreutils openssl nftables logrotate;",
+                "elif command -v dnf >/dev/null 2>&1; then dnf install -y nginx ca-certificates curl cronie coreutils openssl nftables logrotate shadow-utils;",
+                "elif command -v yum >/dev/null 2>&1; then yum install -y nginx ca-certificates curl cronie coreutils openssl nftables logrotate shadow-utils;",
                 "else echo '不支持的系统，无法自动安装 Nginx' >&2; exit 1; fi",
                 "if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then systemctl disable --now nginx >/dev/null 2>&1 || true;",
                 "elif command -v rc-service >/dev/null 2>&1; then rc-service nginx stop >/dev/null 2>&1 || true; rc-update del nginx default >/dev/null 2>&1 || true;",
                 "elif command -v service >/dev/null 2>&1; then service nginx stop >/dev/null 2>&1 || true; fi",
                 "if [ -s /run/nginx.pid ]; then old_pid=$(cat /run/nginx.pid 2>/dev/null || true); if [ -n \"$old_pid\" ] && kill -0 \"$old_pid\" 2>/dev/null; then kill -QUIT \"$old_pid\" 2>/dev/null || true; sleep 1; fi; fi",
-                f"mkdir -p {shlex.quote(root_dir)} {shlex.quote(node['generated_dir'])} /root/.acme.sh /usr/local/sbin",
+                f"mkdir -p {shlex.quote(root_dir)} {shlex.quote(node['generated_dir'])} {shlex.quote(root_dir + '/certs')} /usr/local/sbin",
+                "if ! id -u uniproxy-nginx >/dev/null 2>&1; then if command -v adduser >/dev/null 2>&1; then adduser --system --no-create-home --disabled-login --group uniproxy-nginx >/dev/null 2>&1 || adduser -S -D -H -s /sbin/nologin uniproxy-nginx; else useradd --system --no-create-home --shell /usr/sbin/nologin uniproxy-nginx; fi; fi",
+                "ca_source=/etc/ssl/certs/ca-certificates.crt; if [ ! -r \"$ca_source\" ]; then ca_source=/etc/pki/tls/certs/ca-bundle.crt; fi; test -r \"$ca_source\"; install -m 0644 \"$ca_source\" /etc/uniproxy-nginx/ca-bundle.pem",
                 f"printf %s {shlex.quote(encoded_controller)} | base64 -d > {shlex.quote(controller_path)}",
                 f"chmod 755 {shlex.quote(controller_path)}",
                 f"printf %s {shlex.quote(encoded_nginx)} | base64 -d > {shlex.quote(node['caddy_config'])}",
                 f"printf %s {shlex.quote(encoded_config)} | base64 -d > {shlex.quote(node['generated_dir'] + '/00-uniproxy-base.conf')}",
                 "rm -f /etc/nginx/conf.d/00-uniproxy-base.conf",
-                f"tar -xzf {shlex.quote(remote_archive)} -C /root",
-                f"install -m 600 {shlex.quote(remote_account)} /root/.acme.sh/account.conf",
-                "sed -i '1c #!/bin/sh' /root/.acme.sh/acme.sh", "chmod 700 /root/.acme.sh/acme.sh",
-                ". /root/.acme.sh/account.conf",
-                "export CF_Token=${SAVED_CF_Token:-${CF_Token:-}}",
-                "export CF_Account_ID=${SAVED_CF_Account_ID:-${CF_Account_ID:-}}",
-                f"if ! /bin/sh /root/.acme.sh/acme.sh --issue --server letsencrypt --dns dns_cf -d {suffix} -d {shlex.quote('*.' + node['domain_suffix'])} --keylength ec-256 --dnssleep 20 --home /root/.acme.sh; then test -s {shlex.quote('/root/.acme.sh/' + node['domain_suffix'] + '_ecc/fullchain.cer')} || exit 1; fi",
-                f"test -s {shlex.quote(node['tls_cert_file'])} && test -s {shlex.quote(node['tls_key_file'])}",
-                f"domain_conf={shlex.quote(acme_domain_dir + '/' + node['domain_suffix'] + '.conf')}",
-                f"reload_line={shlex.quote(reload_line)}",
-                "if grep -q '^Le_ReloadCmd=' \"$domain_conf\"; then sed -i \"s|^Le_ReloadCmd=.*|$reload_line|\" \"$domain_conf\"; else printf '%s\\n' \"$reload_line\" >> \"$domain_conf\"; fi",
-                "if command -v ufw >/dev/null 2>&1; then ufw allow 80/tcp >/dev/null 2>&1 || true; ufw allow 443/tcp >/dev/null 2>&1 || true; fi",
-                "if command -v firewall-cmd >/dev/null 2>&1; then firewall-cmd --permanent --add-service=http >/dev/null 2>&1 || true; firewall-cmd --permanent --add-service=https >/dev/null 2>&1 || true; firewall-cmd --reload >/dev/null 2>&1 || true; fi",
+                f"install -m 0600 {shlex.quote(remote_key)} {shlex.quote(node['tls_key_file'])}",
+                f"install -m 0644 {shlex.quote(remote_cert)} {shlex.quote(node['tls_cert_file'])}",
+                f"printf '%s\\n' managed > {shlex.quote(root_dir + '/.uniproxy-acme-managed')}; chmod 600 {shlex.quote(root_dir + '/.uniproxy-acme-managed')}",
+                f"printf '%s\\n' central-cert-mode > {shlex.quote(root_dir + '/.uniproxy-cert-mode')}; chmod 600 {shlex.quote(root_dir + '/.uniproxy-cert-mode')}",
+                f"printf %s {shlex.quote(encoded_egress)} | base64 -d > {shlex.quote(root_dir + '/egress.nft')}; if ! nft list table inet uniproxy_egress >/dev/null 2>&1; then nft -c -f {shlex.quote(root_dir + '/egress.nft')}; nft -f {shlex.quote(root_dir + '/egress.nft')}; fi",
+                f"printf %s {shlex.quote(encoded_logrotate)} | base64 -d > /etc/logrotate.d/uniproxy",
                 f"{shlex.quote(controller_path)} reload",
                 f"curl --fail --silent --show-error --connect-timeout 5 --max-time 10 --resolve {shlex.quote(node['domain_suffix'] + ':443:127.0.0.1')} {shlex.quote('https://' + node['domain_suffix'] + '/__health')} | grep -qx ok",
-                "if command -v crontab >/dev/null 2>&1; then (crontab -l 2>/dev/null | grep -v 'acme.sh.*--cron' | grep -v 'uniproxy-nginx start' || true; echo '17 3 * * * /bin/sh /root/.acme.sh/acme.sh --cron --home /root/.acme.sh >/dev/null 2>&1; /usr/local/sbin/uniproxy-nginx reload >/dev/null 2>&1'; echo '@reboot /usr/local/sbin/uniproxy-nginx start >/dev/null 2>&1') | crontab -; fi",
+                "if command -v crontab >/dev/null 2>&1; then (crontab -l 2>/dev/null | grep -v 'uniproxy-nginx' || true; echo '@reboot /usr/local/sbin/uniproxy-nginx start >/dev/null 2>&1') | crontab -; fi",
                 f"if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then printf %s {shlex.quote(encoded_unit)} | base64 -d > /etc/systemd/system/uniproxy-nginx.service; systemctl daemon-reload; systemctl enable uniproxy-nginx >/dev/null; fi",
                 "if command -v rc-service >/dev/null 2>&1; then rc-update add dcron default >/dev/null 2>&1 || rc-update add crond default >/dev/null 2>&1 || true; rc-service dcron start >/dev/null 2>&1 || rc-service crond start >/dev/null 2>&1 || true;",
                 "elif command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then systemctl enable --now cron >/dev/null 2>&1 || systemctl enable --now crond >/dev/null 2>&1 || true;",
@@ -1820,139 +2177,144 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
             self._delete_node_dns(dns_records)
             raise
 
-    def _render_mapping(self, origin: str, public_host: str, node) -> str:
-        split = urlsplit(origin)
-        upstream_host = split.hostname or ""
-        upstream_authority = split.netloc
-        variable_suffix = hashlib.sha256(public_host.encode()).hexdigest()[:12]
-        connection_variable = f"$uniproxy_connection_{variable_suffix}"
-        upstream_variable = f"$uniproxy_upstream_{variable_suffix}"
-        redirect_key = (
-            getattr(self, "password", "") or getattr(self, "agent_token", "")
-            or getattr(self, "default_domain", "") or public_host
-        )
-        redirect_token = hmac.new(
-            redirect_key.encode(), f"redirect:{public_host}".encode(), hashlib.sha256,
-        ).hexdigest()[:24]
-        redirect_prefix = f"/_uniproxy_follow_{redirect_token}"
-        follow_uri = f"uniproxy_uri_{variable_suffix}"
-        redirect_target = SAFE_REDIRECT_TARGETS.get(upstream_host.lower())
-        public_port = int(node["public_https_port"])
-        public_origin = f"https://{public_host}" if public_port == 443 else f"https://{public_host}:{public_port}"
-        cert = nginx_quote(node["tls_cert_file"])
-        key = nginx_quote(node["tls_key_file"])
-        upstream = nginx_quote(origin)
-        upstream_host_quoted = nginx_quote(upstream_authority)
-        request_header_lines = [f"        proxy_set_header {name} '';" for name in REQUEST_HEADERS_TO_DROP]
-        response_header_lines = [f"        proxy_hide_header {name};" for name in RESPONSE_HEADERS_TO_DROP]
-        lines = [
-            f"# generated by uniproxy panel for {origin}",
-            f"map $http_upgrade {connection_variable} {{",
-            "    default upgrade;",
-            "    '' '';",
-            "}",
-            "",
-            "server {",
-            "    listen 80;",
-            "    listen [::]:80;",
-            f"    server_name {public_host};",
-            "    access_log off;",
-            f"    return 301 {public_origin}$request_uri;",
-            "}",
-            "",
-            "server {",
-            "    listen 443 ssl;",
-            "    listen [::]:443 ssl;",
-            f"    server_name {public_host};",
-            f"    ssl_certificate {cert};",
-            f"    ssl_certificate_key {key};",
-            "    ssl_protocols TLSv1.2 TLSv1.3;",
-            "    server_tokens off;",
-            f"    access_log \"{nginx_quote(str(self.traffic_log_path))}\" {TRAFFIC_FORMAT_NAME} buffer=64k flush=5s;",
-            "    error_log /var/log/uniproxy-route-error.log crit;",
-            "    location / {",
-            "        resolver 1.1.1.1 8.8.8.8 223.5.5.5 ipv6=off valid=300s;",
-            "        resolver_timeout 5s;",
-            f"        set {upstream_variable} {upstream};",
-            f"        proxy_pass {upstream_variable}$request_uri;",
-            "        proxy_http_version 1.1;",
-            f"        proxy_set_header Host {upstream_host_quoted};",
-            "        proxy_ssl_server_name on;",
-            f"        proxy_ssl_name {nginx_quote(upstream_host)};",
-            "        proxy_ssl_protocols TLSv1.2 TLSv1.3;",
-            "        proxy_ssl_session_reuse on;",
-            "        proxy_set_header Upgrade $http_upgrade;",
-            f"        proxy_set_header Connection {connection_variable};",
-            "        proxy_set_header Range $http_range;",
-            "        proxy_set_header If-Range $http_if_range;",
-            "        proxy_set_header Accept-Encoding $http_accept_encoding;",
-            *request_header_lines,
-            f"        proxy_set_header Origin {nginx_quote(origin)};",
-            f"        proxy_set_header Referer {nginx_quote(origin + '/')} ;",
-            *response_header_lines,
-            f"        proxy_redirect https://{upstream_authority} {public_origin};",
-            f"        proxy_redirect http://{upstream_authority} {public_origin};",
-            "        proxy_buffering off;",
-            "        proxy_request_buffering off;",
-            "        proxy_max_temp_file_size 0;",
-            "        proxy_force_ranges on;",
-            "        proxy_socket_keepalive on;",
-            "        proxy_connect_timeout 10s;",
-            "        proxy_read_timeout 3600s;",
-            "        proxy_send_timeout 3600s;",
-            "        send_timeout 3600s;",
-            "        proxy_next_upstream error timeout invalid_header http_502 http_503 http_504;",
-            "        proxy_next_upstream_tries 3;",
-            "        proxy_next_upstream_timeout 20s;",
-            "    }",
-        ]
-        if redirect_target:
-            escaped_target = re.escape(redirect_target)
-            redirect_upstream = f"uniproxy_redirect_upstream_{variable_suffix}"
-            lines[-1:-1] = [
-                f"        proxy_redirect ~^https?://{escaped_target}(/.*)$ {public_origin}{redirect_prefix}$1;",
-            ]
-            lines.extend([
-                "",
-                f"    location ~ \"^{redirect_prefix}(?<{follow_uri}>/.*)$\" {{",
-                "        resolver 1.1.1.1 8.8.8.8 223.5.5.5 ipv6=off valid=300s;",
-                "        resolver_timeout 5s;",
-                f"        set ${redirect_upstream} https://{redirect_target};",
-                f"        proxy_pass ${redirect_upstream}${follow_uri}$is_args$args;",
-                "        proxy_http_version 1.1;",
-                f"        proxy_set_header Host {redirect_target};",
-                "        proxy_ssl_server_name on;",
-                f"        proxy_ssl_name {redirect_target};",
-                "        proxy_ssl_protocols TLSv1.2 TLSv1.3;",
-                "        proxy_ssl_session_reuse on;",
-                "        proxy_set_header Upgrade $http_upgrade;",
-                f"        proxy_set_header Connection {connection_variable};",
-                "        proxy_set_header Range $http_range;",
-                "        proxy_set_header If-Range $http_if_range;",
-                "        proxy_set_header Accept-Encoding $http_accept_encoding;",
-                *request_header_lines,
-                f"        proxy_set_header Origin {nginx_quote(origin)};",
-                f"        proxy_set_header Referer {nginx_quote(origin + '/')} ;",
-                *response_header_lines,
-                "        proxy_buffering off;",
-                "        proxy_request_buffering off;",
-                "        proxy_max_temp_file_size 0;",
-                "        proxy_force_ranges on;",
-                "        proxy_socket_keepalive on;",
-                "        proxy_connect_timeout 10s;",
-                "        proxy_read_timeout 3600s;",
-                "        proxy_send_timeout 3600s;",
-                "        send_timeout 3600s;",
-                "    }",
-                f"    location {redirect_prefix} {{ return 404; }}",
-            ])
-        lines.extend(["}", ""])
-        return "\n".join(lines)
+    def renew_node_certificates(self) -> list[str]:
+        """Renew centrally managed certificates and atomically push them."""
+        with self._connect() as db:
+            nodes = db.execute(
+                "SELECT * FROM nodes WHERE auto_managed=1 AND kind!='local' AND state='active' ORDER BY id"
+            ).fetchall()
+        errors = []
+        for node in nodes:
+            stage = f"/tmp/uniproxy-cert-{secrets.token_hex(16)}"
+            try:
+                cert_path, key_path = self._issue_central_certificate(node)
+                self._run(
+                    self._ssh_args(node) + [f"umask 077; install -d -m 700 {shlex.quote(stage)}"],
+                    env=self._ssh_env(node), timeout=30,
+                )
+                self._run(self._scp_args(node, cert_path, stage + "/fullchain.pem"), env=self._ssh_env(node), timeout=60)
+                self._run(self._scp_args(node, key_path, stage + "/key.pem"), env=self._ssh_env(node), timeout=60)
+                command = "\n".join([
+                    "set -eu",
+                    f"install -m 0600 {shlex.quote(stage + '/key.pem')} {shlex.quote(str(node['tls_key_file']))}",
+                    f"install -m 0644 {shlex.quote(stage + '/fullchain.pem')} {shlex.quote(str(node['tls_cert_file']))}",
+                    "rm -f /root/.acme.sh/account.conf; if command -v crontab >/dev/null 2>&1; then crontab -l 2>/dev/null | grep -v 'acme.sh.*--cron' | crontab - || true; fi",
+                    f"/usr/local/sbin/uniproxy-nginx reload",
+                    f"rm -rf {shlex.quote(stage)}",
+                ])
+                self._run(self._ssh_args(node) + [command], env=self._ssh_env(node), timeout=90)
+            except Exception as exc:
+                errors.append(f"{node['name']}：{str(exc)[-240:]}")
+                try:
+                    self._run(self._ssh_args(node) + [f"rm -rf {shlex.quote(stage)}"], env=self._ssh_env(node), timeout=30)
+                except Exception:
+                    pass
+        return errors
 
+    def _render_mapping(self, route, node) -> str:
+        allow_insecure_http = bool(route["allow_insecure_http"])
+        resolution = self._resolve_route_origin(
+            str(route["origin"]),
+            allow_insecure_http=allow_insecure_http,
+            enforce_user_ports=route["owner_user_id"] is not None,
+        )
+        redirect_token = str(route["redirect_token"] or "")
+        if not redirect_token:
+            redirect_token = secrets.token_urlsafe(24)
+        redirect = None
+        redirect_target = SAFE_REDIRECT_TARGETS.get(resolution.hostname.lower())
+        if redirect_target:
+            redirect_resolution = self._resolve_route_origin(
+                "https://" + redirect_target,
+                allow_insecure_http=False,
+                enforce_user_ports=False,
+            )
+            redirect = RedirectSpec(
+                hostname=redirect_resolution.hostname,
+                upstream_ips=redirect_resolution.addresses,
+                token=redirect_token,
+                port=redirect_resolution.port,
+                ca_bundle=str(node["ca_bundle_path"]),
+            )
+        try:
+            content = render_route(RouteSpec(
+                origin=resolution.origin,
+                public_host=str(route["public_host"]),
+                upstream_ips=resolution.addresses,
+                tls_cert_file=str(node["tls_cert_file"]),
+                tls_key_file=str(node["tls_key_file"]),
+                public_https_port=int(node["public_https_port"]),
+                ca_bundle=str(node["ca_bundle_path"]),
+                allow_insecure_http=allow_insecure_http,
+                # The generated configuration is consumed on the remote Linux
+                # node.  Keep the path POSIX even when the control panel is
+                # tested or run from Windows, where Path.__str__ uses '\\'.
+                traffic_log_path=self.traffic_log_path.as_posix(),
+                traffic_log_format=TRAFFIC_FORMAT_NAME,
+                error_log_path="/var/log/uniproxy-route-error.log",
+                redirect=redirect,
+            ))
+        except RendererError as exc:
+            raise PanelError(f"无法生成安全的 Nginx 配置：{exc}") from exc
+        with self._connect() as db:
+            db.execute(
+                "UPDATE routes SET origin=?,resolved_ips_json=?,resolved_at=?,"
+                "upstream_security_status='verified',security_policy_version=2,"
+                "redirect_token=?,updated_at=? WHERE id=?",
+                (
+                    resolution.origin,
+                    json.dumps(resolution.addresses, separators=(",", ":")),
+                    now(),
+                    redirect_token,
+                    now(),
+                    route["id"],
+                ),
+            )
+        return content
     def _run(self, command: list[str], env: dict | None = None, timeout: int = 40) -> str:
-        result = subprocess.run(command, text=True, capture_output=True, timeout=timeout, env=env)
-        output = (result.stdout + result.stderr).strip()
-        if result.returncode != 0:
+        process = subprocess.Popen(
+            command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env
+        )
+        stdout = bytearray()
+        stderr = bytearray()
+        overflow = threading.Event()
+
+        def drain(stream, target: bytearray, limit: int) -> None:
+            try:
+                while True:
+                    chunk = stream.read(65536)
+                    if not chunk:
+                        return
+                    if len(target) + len(chunk) > limit:
+                        remaining = max(0, limit - len(target))
+                        target.extend(chunk[:remaining])
+                        overflow.set()
+                        process.kill()
+                        return
+                    target.extend(chunk)
+            finally:
+                stream.close()
+
+        threads = [
+            threading.Thread(target=drain, args=(process.stdout, stdout, 4 * 1024 * 1024), daemon=True),
+            threading.Thread(target=drain, args=(process.stderr, stderr, 64 * 1024), daemon=True),
+        ]
+        for thread in threads:
+            thread.start()
+        try:
+            returncode = process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+            for thread in threads:
+                thread.join(timeout=1)
+            raise
+        for thread in threads:
+            thread.join(timeout=1)
+        if overflow.is_set():
+            raise PanelError("远程命令输出超过安全上限")
+        output = (stdout + stderr).decode("utf-8", errors="replace").strip()
+        if returncode != 0:
             raise PanelError(output[-700:] or "命令执行失败")
         return output
 
@@ -1964,6 +2326,68 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
             "network is unreachable", "connection reset", "connection closed", "kex_exchange_identification",
             "banner exchange", "ssh_exchange_identification",
         ))
+
+    def _verify_ssh_host_key(self, node, expected_fingerprint: str) -> tuple[str, str]:
+        """Pin a host key only after the operator verifies its fingerprint."""
+        expected = str(expected_fingerprint or "").strip()
+        if not re.fullmatch(r"SHA256:[A-Za-z0-9+/]+", expected):
+            raise PanelError("请先从云厂商控制台核对 SSH 主机指纹（格式：SHA256:...）")
+        keyscan = shutil.which("ssh-keyscan")
+        keygen = shutil.which("ssh-keygen")
+        if not keyscan or not keygen:
+            raise PanelError("主控机缺少 ssh-keyscan/ssh-keygen，无法安全核对主机指纹")
+        try:
+            scan = subprocess.run(
+                [keyscan, "-T", "10", "-p", str(node["ssh_port"]), str(node["ssh_host"])],
+                text=True, capture_output=True, timeout=15, check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise PanelError("读取 SSH 主机指纹超时") from exc
+        candidates = [line.strip() for line in scan.stdout.splitlines() if line and not line.startswith("#")]
+        if not candidates:
+            raise PanelError("无法读取 SSH 主机指纹，请确认端口和安全组")
+        selected = None
+        for line in candidates:
+            try:
+                fingerprint = subprocess.run(
+                    [keygen, "-lf", "-", "-E", "sha256"], input=line + "\n",
+                    text=True, capture_output=True, timeout=10, check=False,
+                ).stdout.split()[1]
+            except (IndexError, OSError, subprocess.TimeoutExpired):
+                continue
+            if fingerprint == expected:
+                selected = (line, fingerprint)
+                break
+        if selected is None:
+            observed = []
+            for line in candidates:
+                result = subprocess.run(
+                    [keygen, "-lf", "-", "-E", "sha256"], input=line + "\n",
+                    text=True, capture_output=True, timeout=10, check=False,
+                )
+                if result.stdout.split():
+                    observed.append(result.stdout.split()[1])
+            raise PanelError("SSH 主机指纹不匹配；已拒绝连接（观测到：" + ", ".join(observed[:3]) + "）")
+        host = str(node["ssh_host"])
+        host_alias = f"[{host}]:{int(node['ssh_port'])}"
+        key_parts = selected[0].split()
+        if len(key_parts) < 3:
+            raise PanelError("SSH 主机密钥格式无效")
+        known_hosts = self.db_path.parent / "known_hosts"
+        known_hosts.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if known_hosts.is_symlink():
+            raise PanelError("known_hosts 不能是符号链接")
+        known_hosts.touch(mode=0o600, exist_ok=True)
+        os.chmod(known_hosts, 0o600)
+        record = " ".join([host_alias, key_parts[1], key_parts[2]])
+        existing = known_hosts.read_text(encoding="utf-8", errors="ignore").splitlines()
+        if record not in existing:
+            with known_hosts.open("a", encoding="utf-8") as file:
+                file.write(record + "\n")
+        node["ssh_host_key"] = record
+        node["ssh_host_fingerprint"] = selected[1]
+        node["host_key_verified_at"] = now()
+        return record, selected[1]
 
     def _wait_for_root_ssh(self, node) -> None:
         """Wait briefly for just-created VPS instances to finish bringing SSH online."""
@@ -1993,13 +2417,19 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
 
     def _ssh_args(self, node) -> list[str]:
         known_hosts = self.db_path.parent / "known_hosts"
+        if node["kind"] != "local" and not str(node["ssh_host_fingerprint"] or ""):
+            raise PanelError("该节点尚未完成 SSH 主机指纹核验，已拒绝自动连接")
         args = [
-            "ssh", "-p", str(node["ssh_port"]),
+            "ssh", "-F", "/dev/null", "-p", str(node["ssh_port"]),
             "-o", "ConnectTimeout=10",
-            "-o", "StrictHostKeyChecking=accept-new",
+            "-o", "StrictHostKeyChecking=yes",
+            "-o", "IdentitiesOnly=yes",
+            "-o", "ClearAllForwardings=yes",
+            "-o", "ForwardAgent=no",
+            "-o", "PermitLocalCommand=no",
             "-o", f"UserKnownHostsFile={known_hosts}",
         ]
-        if node["ssh_password"]:
+        if self._node_password(node):
             args = ["sshpass", "-e"] + args
             args.extend(["-o", "PreferredAuthentications=password", "-o", "PubkeyAuthentication=no"])
         else:
@@ -2010,13 +2440,19 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
 
     def _scp_args(self, node, source: str, target: str, preserve_mode: bool = False) -> list[str]:
         known_hosts = self.db_path.parent / "known_hosts"
+        if node["kind"] != "local" and not str(node["ssh_host_fingerprint"] or ""):
+            raise PanelError("该节点尚未完成 SSH 主机指纹核验，已拒绝自动连接")
         args = [
-            "scp", "-P", str(node["ssh_port"]),
+            "scp", "-F", "/dev/null", "-P", str(node["ssh_port"]),
             "-o", "ConnectTimeout=10",
-            "-o", "StrictHostKeyChecking=accept-new",
+            "-o", "StrictHostKeyChecking=yes",
+            "-o", "IdentitiesOnly=yes",
+            "-o", "ClearAllForwardings=yes",
+            "-o", "ForwardAgent=no",
+            "-o", "PermitLocalCommand=no",
             "-o", f"UserKnownHostsFile={known_hosts}",
         ]
-        if node["ssh_password"]:
+        if self._node_password(node):
             args = ["sshpass", "-e"] + args
             args.extend(["-o", "PreferredAuthentications=password", "-o", "PubkeyAuthentication=no"])
         else:
@@ -2029,14 +2465,15 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
         return args
 
     def _ssh_env(self, node) -> dict | None:
-        if not node["ssh_password"]:
+        password = self._node_password(node)
+        if not password:
             return None
         env = os.environ.copy()
-        env["SSHPASS"] = node["ssh_password"]
+        env["SSHPASS"] = password
         return env
 
     def _deploy_route(self, node, route) -> None:
-        content = self._render_mapping(route["origin"], route["public_host"], node)
+        content = self._render_mapping(route, node)
         target = f"{node['generated_dir']}/{route['public_host']}.conf"
         traffic_target = f"{node['generated_dir']}/{TRAFFIC_CONFIG_NAME}"
         traffic_content = self._traffic_format_config()
@@ -2188,13 +2625,13 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
         except Exception as exc:
             with self._connect() as db:
                 db.execute(
-                    "UPDATE routes SET last_error = ?, updated_at = ? WHERE id = ?",
+                    "UPDATE routes SET state='failed',last_error = ?, updated_at = ? WHERE id = ?",
                     (f"下发失败：{exc}"[:700], now(), route["id"]),
                 )
             raise
         with self._connect() as db:
             db.execute(
-                "UPDATE routes SET deployed = 1,last_error = '',updated_at = ? WHERE id = ?",
+                "UPDATE routes SET deployed = 1,state='deployed',last_error = '',updated_at = ? WHERE id = ?",
                 (now(), route["id"]),
             )
         try:
@@ -2203,7 +2640,7 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
             message = f"配置已下发，但公网验证失败：{exc}"
             with self._connect() as db:
                 db.execute(
-                    "UPDATE routes SET last_error = ?, updated_at = ? WHERE id = ?",
+                    "UPDATE routes SET state='deployed',last_error = ?, updated_at = ? WHERE id = ?",
                     (message[:700], now(), route["id"]),
                 )
             raise PanelError(message) from exc
@@ -2213,6 +2650,8 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
         if not self.enabled:
             raise web.HTTPNotFound()
         await self.require_authorized(request)
+        if request.method == "POST":
+            self._check_request_origin(request)
         try:
             route_page = max(1, int(request.query.get("page", "1")))
         except ValueError:
@@ -2268,7 +2707,12 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                     suffix = "；部分线路处理失败：" + "；".join(errors[:2]) if errors else ""
                     return self.users_dashboard(notice=("用户已启用并恢复线路" if action == "enable" else "用户已停用并下线线路") + suffix)
                 if action == "reset-password":
-                    temporary = await asyncio.to_thread(self._reset_user_password, user_id)
+                    try:
+                        temporary = await self.hash_limiter.run(self._reset_user_password, user_id)
+                    except HashWorkLimitExceeded as exc:
+                        raise web.HTTPServiceUnavailable(
+                            text="password service is busy", headers={"Retry-After": "3"}
+                        ) from exc
                     return self.users_dashboard(notice="临时密码（仅显示一次，用户登录后必须修改）：" + temporary)
                 await asyncio.to_thread(self._delete_user_and_routes, user_id)
                 return self.users_dashboard(notice="用户及其全部线路已删除。")
@@ -2296,6 +2740,11 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                 password = str(data.get("ssh_password", ""))
                 if len(password) > 512:
                     raise PanelError("SSH 密码过长")
+                if password and not self.node_credential_cipher:
+                    raise PanelError("请先配置 NODE_CREDENTIAL_ENCRYPTION_KEY，再添加密码登录节点")
+                host_fingerprint = str(data.get("ssh_host_fingerprint", "")).strip()
+                if not re.fullmatch(r"SHA256:[A-Za-z0-9+/]+", host_fingerprint):
+                    raise PanelError("请填写已从云厂商控制台核对的 SSH 主机指纹")
                 with self._connect() as db:
                     if db.execute("SELECT 1 FROM nodes WHERE name = ?", (name,)).fetchone():
                         raise PanelError("节点名称已存在")
@@ -2305,16 +2754,18 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                         Path(identity).unlink(missing_ok=True)
                     raise PanelError("SSH 密码和私钥必须且只能提供一个")
                 domain_suffix = self._auto_domain_suffix(name, address, ssh_port)
-                cert_dir = f"/root/.acme.sh/{domain_suffix}_ecc"
+                cert_dir = "/etc/uniproxy-nginx/certs"
                 candidate = {
                     "name": name, "kind": "ssh", "ssh_host": address, "ssh_port": ssh_port,
                     "ssh_user": "root", "ssh_identity": identity, "ssh_password": password,
-                    "domain_suffix": domain_suffix, "tls_cert_file": cert_dir + "/fullchain.cer",
-                    "tls_key_file": cert_dir + f"/{domain_suffix}.key",
+                    "domain_suffix": domain_suffix, "tls_cert_file": cert_dir + "/fullchain.pem",
+                    "tls_key_file": cert_dir + "/key.pem",
                     "caddy_config": "/etc/uniproxy-nginx/nginx.conf",
                     "generated_dir": "/etc/uniproxy-nginx/conf.d", "auto_managed": 1,
                     "network_mode": network_mode, "public_https_port": public_port,
+                    "ssh_host_fingerprint": host_fingerprint,
                 }
+                self._verify_ssh_host_key(candidate, host_fingerprint)
                 country_name, country_code, country_flag = await self._lookup_node_location(address)
                 dns_records = []
                 try:
@@ -2322,13 +2773,16 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                     candidate["public_https_port"] = public_port
                     with self._connect() as db:
                         db.execute(
-                            "INSERT INTO nodes (name,kind,ssh_host,ssh_port,ssh_user,ssh_identity,ssh_password,domain_suffix,tls_cert_file,tls_key_file,caddy_config,generated_dir,public_https_port,country_name,country_code,country_flag,network_mode,auto_managed,created_at) "
-                            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)",
+                            "INSERT INTO nodes (name,kind,ssh_host,ssh_port,ssh_user,ssh_identity,ssh_password,ssh_password_ciphertext,domain_suffix,tls_cert_file,tls_key_file,caddy_config,generated_dir,public_https_port,country_name,country_code,country_flag,network_mode,auto_managed,ssh_host_key,ssh_host_fingerprint,host_key_verified_at,dns_record_ids_json,cert_mode,state,security_policy_version,created_at,updated_at) "
+                            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?,1,?,?,?,?,'central','active',2,?,?)",
                             (candidate["name"], candidate["kind"], candidate["ssh_host"], candidate["ssh_port"],
-                             candidate["ssh_user"], candidate["ssh_identity"], candidate["ssh_password"],
+                             candidate["ssh_user"], candidate["ssh_identity"], "",
+                             self.node_credential_cipher.encrypt(candidate["ssh_password"].encode()).decode() if candidate["ssh_password"] and self.node_credential_cipher else candidate["ssh_password"],
                              candidate["domain_suffix"], candidate["tls_cert_file"], candidate["tls_key_file"],
                              candidate["caddy_config"], candidate["generated_dir"], candidate["public_https_port"],
-                             country_name, country_code, country_flag, candidate["network_mode"], now()),
+                             country_name, country_code, country_flag, candidate["network_mode"],
+                             candidate["ssh_host_key"], candidate["ssh_host_fingerprint"], candidate["host_key_verified_at"],
+                             json.dumps(dns_records, separators=(",", ":")), now(), now()),
                         )
                 except Exception:
                     await asyncio.to_thread(self._delete_node_dns, dns_records)
@@ -2338,6 +2792,23 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                 location = f"已识别为 {country_flag} {country_name}（{country_code}）；" if country_code else "未能识别地区，可稍后在节点名称中标注地区；"
                 probe_url = self._public_url(candidate, domain_suffix).rstrip("/") + "/__health"
                 return self.dashboard(notice=location + f"节点已自动部署并添加；公网探测地址：{probe_url}")
+            node_pin_match = re.fullmatch(re.escape(ADMIN_PREFIX) + r"/nodes/(\d+)/pin", request.path)
+            if node_pin_match:
+                node_id = int(node_pin_match.group(1))
+                self._check_csrf(f"node-pin:{node_id}", data)
+                with self._connect() as db:
+                    row = db.execute("SELECT * FROM nodes WHERE id=? AND kind='ssh'", (node_id,)).fetchone()
+                if not row:
+                    raise PanelError("节点不存在或不是 SSH 节点")
+                node = dict(row)
+                fingerprint = str(data.get("ssh_host_fingerprint", "")).strip()
+                self._verify_ssh_host_key(node, fingerprint)
+                with self._connect() as db:
+                    db.execute(
+                        "UPDATE nodes SET ssh_host_key=?,ssh_host_fingerprint=?,host_key_verified_at=?,state='active',state_step='',last_error='',updated_at=? WHERE id=?",
+                        (node["ssh_host_key"], node["ssh_host_fingerprint"], node["host_key_verified_at"], now(), node_id),
+                    )
+                return self.dashboard(notice="SSH 主机指纹已核对并固定；后续连接不会自动接受变更密钥。")
             node_delete_match = re.fullmatch(re.escape(ADMIN_PREFIX) + r"/nodes/(\d+)/delete", request.path)
             if node_delete_match:
                 node_id = int(node_delete_match.group(1))
@@ -2354,8 +2825,22 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                             "INSERT INTO settings (key,value) VALUES ('local_node_disabled','1') "
                             "ON CONFLICT(key) DO UPDATE SET value=excluded.value"
                         )
+                    db.execute(
+                        "UPDATE nodes SET state='decommissioning',state_step='dns-and-remote-cleanup',last_error='',updated_at=? WHERE id=?",
+                        (now(), node_id),
+                    )
+                try:
+                    await asyncio.to_thread(self._cleanup_managed_node, node)
+                except Exception as exc:
+                    with self._connect() as db:
+                        db.execute(
+                            "UPDATE nodes SET state='decommission_failed',last_error=?,updated_at=? WHERE id=?",
+                            (str(exc)[-700:], now(), node_id),
+                        )
+                    raise PanelError("节点清理未完成，已保留记录并标记为待重试：" + str(exc)[-240:]) from exc
+                with self._connect() as db:
+                    db.execute("UPDATE nodes SET state='decommissioned',state_step='complete',updated_at=? WHERE id=?", (now(), node_id))
                     db.execute("DELETE FROM nodes WHERE id = ?", (node_id,))
-                await asyncio.to_thread(self._cleanup_managed_node, node)
                 return self.dashboard(notice="节点已删除。")
             node_match = re.fullmatch(re.escape(ADMIN_PREFIX) + r"/nodes/(\d+)/check", request.path)
             if node_match:
@@ -2372,7 +2857,13 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                 name = str(data.get("name", "")).strip().lower()
                 if not SAFE_SLUG.fullmatch(name):
                     raise PanelError("线路名称必须为 2–32 位小写字母、数字或连字符")
-                origin = self.normalize_origin(str(data.get("origin", "")))
+                resolution = await asyncio.to_thread(
+                    self._resolve_route_origin,
+                    str(data.get("origin", "")),
+                    allow_insecure_http=False,
+                    enforce_user_ports=False,
+                )
+                origin = resolution.origin
                 node_id = int(str(data.get("node_id", "")))
                 with self._connect() as db:
                     node = db.execute("SELECT * FROM nodes WHERE id = ?", (node_id,)).fetchone()
@@ -2380,8 +2871,13 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                         raise PanelError("节点不存在")
                     host = f"{name}.{node['domain_suffix']}"
                     cursor = db.execute(
-                        "INSERT INTO routes (node_id,name,origin,public_host,deployed,created_at,updated_at) VALUES (?,?,?,?,0,?,?)",
-                        (node_id, name, origin, host, now(), now()),
+                        "INSERT INTO routes (node_id,name,origin,public_host,deployed,state,resolved_ips_json,resolved_at,upstream_security_status,security_policy_version,redirect_token,created_at,updated_at) "
+                        "VALUES (?,?,?,?,0,'pending',?,?,'verified',2,?,?,?)",
+                        (
+                            node_id, name, origin, host,
+                            json.dumps(resolution.addresses, separators=(",", ":")), now(),
+                            secrets.token_urlsafe(24), now(), now(),
+                        ),
                     )
                     route = db.execute("SELECT * FROM routes WHERE id = ?", (cursor.lastrowid,)).fetchone()
                 status = await asyncio.to_thread(self._deploy_and_verify, node, route)

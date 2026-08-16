@@ -1,0 +1,61 @@
+#!/usr/sbin/nft -f
+
+# UniProxy Nginx egress guard.
+#
+# The dedicated uniproxy-nginx account must exist before this file is loaded.
+# Only sockets created by that UID are filtered; SSH, package management and
+# other host services retain their existing policy.  The Python control plane
+# must still pin a fully validated DNS answer set -- this is the second line of
+# defence against DNS rebinding and cloud metadata access.
+
+table inet uniproxy_egress {
+    set uniproxy_blocked_ipv4 {
+        type ipv4_addr
+        flags interval
+        elements = {
+            0.0.0.0/8,
+            10.0.0.0/8,
+            100.64.0.0/10,
+            127.0.0.0/8,
+            169.254.0.0/16,
+            172.16.0.0/12,
+            192.0.0.0/24,
+            192.0.2.0/24,
+            192.88.99.0/24,
+            192.168.0.0/16,
+            198.18.0.0/15,
+            198.51.100.0/24,
+            203.0.113.0/24,
+            224.0.0.0/4,
+            240.0.0.0/4
+        }
+    }
+
+    set uniproxy_blocked_ipv6 {
+        type ipv6_addr
+        flags interval
+        elements = {
+            ::/96,
+            ::ffff:0.0.0.0/96,
+            64:ff9b::/96,
+            64:ff9b:1::/48,
+            100::/64,
+            2001::/32,
+            2001:2::/48,
+            2001:10::/28,
+            2001:20::/28,
+            2001:db8::/32,
+            3fff::/20,
+            fc00::/7,
+            fe80::/10,
+            ff00::/8
+        }
+    }
+
+    chain uniproxy_output_guard {
+        type filter hook output priority -10; policy accept;
+
+        meta skuid "uniproxy-nginx" ip daddr @uniproxy_blocked_ipv4 counter reject with icmpx type admin-prohibited
+        meta skuid "uniproxy-nginx" ip6 daddr @uniproxy_blocked_ipv6 counter reject with icmpx type admin-prohibited
+    }
+}

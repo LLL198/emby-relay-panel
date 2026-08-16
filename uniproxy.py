@@ -1,538 +1,29 @@
 #!/usr/bin/env python3
 import asyncio
-import base64
-import hashlib
 import html
-import hmac
-import ipaddress
 import json
 import os
 import re
 import secrets
-import socket
-import subprocess
-from urllib.parse import parse_qs, urlsplit, urlunsplit
+from urllib.parse import parse_qs
 
-from aiohttp import ClientSession, ClientTimeout, WSMsgType, web
+from aiohttp import web
 
+from nginx_renderer import RendererError, normalize_origin as normalize_route_origin
 
-TOKEN = os.environ["PROXY_TOKEN"].strip("/")
-COOKIE_NAME = "_uniproxy_origin"
 LISTEN_HOST = os.environ.get("LISTEN_HOST", "127.0.0.1")
 LISTEN_PORT = int(os.environ.get("LISTEN_PORT", "8787"))
-DEFAULT_TARGET_ORIGIN = os.environ.get("DEFAULT_TARGET_ORIGIN", "").rstrip("/")
 PROXY_DOMAIN_SUFFIX = os.environ.get("PROXY_DOMAIN_SUFFIX", "sh.996878.xyz").lower().strip(".")
-PUBLIC_HTTPS_PORT = int(os.environ.get("PUBLIC_HTTPS_PORT", "443"))
-PUBLIC_HTTP_PORT = int(os.environ.get("PUBLIC_HTTP_PORT", "80"))
-GENERATED_NGINX_DIR = os.environ.get("GENERATED_NGINX_DIR", "/etc/nginx/conf.d")
-TLS_CERT_FILE = os.environ.get("TLS_CERT_FILE", "/etc/letsencrypt/live/sh.996878.xyz/fullchain.pem")
-TLS_KEY_FILE = os.environ.get("TLS_KEY_FILE", "/etc/letsencrypt/live/sh.996878.xyz/privkey.pem")
-SAFE_HOST_RE = re.compile(r"^[A-Za-z0-9.-]+$")
-SAFE_SLUG_RE = re.compile(r"[^a-z0-9-]+")
-SAFE_REDIRECT_TARGETS = {
-    "video.emos.best": "proxy.emosstore.sbs",
-}
-
-HOP_BY_HOP_HEADERS = {
-    "connection",
-    "keep-alive",
-    "proxy-authenticate",
-    "proxy-authorization",
-    "te",
-    "trailer",
-    "trailers",
-    "transfer-encoding",
-    "upgrade",
-}
-REQUEST_HEADERS_TO_DROP = {
-    "client-ip",
-    "cf-connecting-ip",
-    "cf-ipcountry",
-    "cf-ray",
-    "cf-visitor",
-    "cdn-loop",
-    "fastly-client-ip",
-    "forwarded",
-    "proxy-client-ip",
-    "true-client-ip",
-    "via",
-    "wl-proxy-client-ip",
-    "x-client-ip",
-    "x-cluster-client-ip",
-    "x-forwarded-for",
-    "x-forwarded-host",
-    "x-forwarded-port",
-    "x-forwarded-proto",
-    "x-originating-ip",
-    "x-remote-addr",
-    "x-remote-ip",
-    "x-real-ip",
-}
-RESPONSE_HEADERS_TO_DROP = {
-    "alt-svc",
-    "cf-cache-status",
-    "cf-ray",
-    "date",
-    "nel",
-    "report-to",
-    "server",
-    "speculation-rules",
-    "via",
-    "x-aspnet-version",
-    "x-aspnetmvc-version",
-    "x-backend-server",
-    "x-cache",
-    "x-cache-hits",
-    "x-powered-by",
-    "x-runtime",
-    "x-served-by",
-    "x-timer",
-}
-
-NGINX_REQUEST_HEADERS_TO_DROP = (
-    "X-Forwarded-For",
-    "X-Forwarded-Host",
-    "X-Forwarded-Port",
-    "X-Forwarded-Proto",
-    "X-Real-IP",
-    "Forwarded",
-    "Via",
-    "CF-Connecting-IP",
-    "CF-IPCountry",
-    "CF-Ray",
-    "CF-Visitor",
-    "CDN-Loop",
-    "True-Client-IP",
-    "Client-IP",
-    "Fastly-Client-IP",
-    "Proxy-Client-IP",
-    "WL-Proxy-Client-IP",
-    "X-Client-IP",
-    "X-Cluster-Client-IP",
-    "X-Originating-IP",
-    "X-Remote-Addr",
-    "X-Remote-IP",
-)
-
-NGINX_RESPONSE_HEADERS_TO_DROP = (
-    "Alt-Svc",
-    "CF-Cache-Status",
-    "CF-Ray",
-    "NEL",
-    "Report-To",
-    "Server",
-    "Speculation-Rules",
-    "Via",
-    "X-Powered-By",
-    "X-AspNet-Version",
-    "X-AspNetMvc-Version",
-    "X-Backend-Server",
-    "X-Cache",
-    "X-Cache-Hits",
-    "X-Runtime",
-    "X-Served-By",
-    "X-Timer",
-)
-
-
-def sign_origin(origin: str) -> str:
-    sig = hmac.new(TOKEN.encode(), origin.encode(), hashlib.sha256).digest()
-    return base64.urlsafe_b64encode(origin.encode()).decode().rstrip("=") + "." + base64.urlsafe_b64encode(sig).decode().rstrip("=")
-
-
-def unsign_origin(value: str) -> str | None:
-    try:
-        raw_origin, raw_sig = value.split(".", 1)
-        origin = base64.urlsafe_b64decode(raw_origin + "=" * (-len(raw_origin) % 4)).decode()
-        sig = base64.urlsafe_b64decode(raw_sig + "=" * (-len(raw_sig) % 4))
-    except Exception:
-        return None
-
-    expected = hmac.new(TOKEN.encode(), origin.encode(), hashlib.sha256).digest()
-    return origin if hmac.compare_digest(sig, expected) else None
-
-
-def is_global_address(host: str) -> bool:
-    try:
-        return ipaddress.ip_address(host.strip("[]")).is_global
-    except ValueError:
-        pass
-
-    try:
-        infos = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
-    except socket.gaierror:
-        return False
-
-    addrs = {item[4][0] for item in infos}
-    if not addrs:
-        return False
-    return all(ipaddress.ip_address(addr).is_global for addr in addrs)
-
-
-def clean_headers(headers, target):
-    outgoing = {}
-    for key, value in headers.items():
-        lower = key.lower()
-        if lower in HOP_BY_HOP_HEADERS or lower in REQUEST_HEADERS_TO_DROP or lower == "host":
-            continue
-        outgoing[key] = value
-
-    host = target.hostname or ""
-    if target.port:
-        host = f"{host}:{target.port}"
-    outgoing["Host"] = host
-    return outgoing
-
-
-def encode_origin(origin: str) -> str:
-    encoded = base64.b32encode(origin.encode()).decode().lower().rstrip("=")
-    return f"u-{encoded}"
-
-
-def decode_origin(label: str) -> str | None:
-    if not label.startswith("u-"):
-        return None
-    raw = label[2:].upper()
-    try:
-        return base64.b32decode(raw + "=" * (-len(raw) % 8)).decode()
-    except Exception:
-        return None
-
-
-def friendly_origin_from_label(label: str) -> str | None:
-    if label.startswith("u-") or "--" not in label:
-        return None
-    host = label.replace("--", ".")
-    if not host or host.startswith(".") or host.endswith("."):
-        return None
-    return "https://" + host
-
-
-def proxied_origin_from_host(host_header: str) -> str | None:
-    host = host_header.split(":", 1)[0].lower().strip(".")
-    suffix = "." + PROXY_DOMAIN_SUFFIX
-    if not host.endswith(suffix):
-        return None
-
-    label = host[: -len(suffix)]
-    if "." in label or not label:
-        return None
-    return decode_origin(label) or friendly_origin_from_label(label)
-
-
-def proxied_host_for_origin(origin: str) -> str:
-    return f"{encode_origin(origin)}.{PROXY_DOMAIN_SUFFIX}"
 
 
 def normalized_origin(value: str) -> str:
-    value = value.strip().rstrip("/")
+    value = value.strip()
     if "://" not in value:
         value = "https://" + value
-    parsed = urlsplit(value)
-    scheme = parsed.scheme.lower()
-    if scheme not in {"http", "https"} or not parsed.netloc or not parsed.hostname:
-        raise ValueError("bad origin")
-    if parsed.username is not None or parsed.password is not None:
-        raise ValueError("userinfo is not allowed")
-
-    hostname = parsed.hostname.lower().rstrip(".")
-    if not SAFE_HOST_RE.match(hostname):
-        raise ValueError("bad host")
-    port = parsed.port
-    if port and not (1 <= port <= 65535):
-        raise ValueError("bad port")
-
-    default_port = 443 if scheme == "https" else 80
-    netloc = hostname if not port or port == default_port else f"{hostname}:{port}"
-    return f"{scheme}://{netloc}"
-
-
-def slug_from_origin(origin: str) -> str:
-    parsed = urlsplit(origin)
-    host = (parsed.hostname or "emby").lower()
-    parts = [part for part in host.split(".") if part and part not in {"www", "emby", "jellyfin"}]
-    base = parts[0] if parts else host.split(".")[0]
-    base = SAFE_SLUG_RE.sub("-", base).strip("-") or "emby"
-    if len(base) < 3:
-        base = "emby-" + base
-    return base[:24].strip("-") or "emby"
-
-
-def public_urls_for_host(host: str):
-    https_authority = host if PUBLIC_HTTPS_PORT == 443 else f"{host}:{PUBLIC_HTTPS_PORT}"
-    http_authority = host if PUBLIC_HTTP_PORT == 80 else f"{host}:{PUBLIC_HTTP_PORT}"
-    return (
-        f"https://{https_authority}/",
-        f"http://{http_authority}/",
-        host,
-    )
-
-
-def public_urls_for_origin(origin: str):
-    return public_urls_for_host(proxied_host_for_origin(origin))
-
-
-def nginx_quote(value: str) -> str:
-    return value.replace("\\", "\\\\").replace('"', '\\"')
-
-
-def render_nginx_mapping(origin: str, host: str) -> str:
-    parsed = urlsplit(origin)
-    upstream_host = parsed.hostname or ""
-    upstream_authority = parsed.netloc
-    variable_suffix = hashlib.sha256(host.encode()).hexdigest()[:12]
-    connection_variable = f"$uniproxy_connection_{variable_suffix}"
-    upstream_variable = f"$uniproxy_upstream_{variable_suffix}"
-    redirect_token = hmac.new(
-        TOKEN.encode(), f"redirect:{host}".encode(), hashlib.sha256,
-    ).hexdigest()[:24]
-    redirect_prefix = f"/_uniproxy_follow_{redirect_token}"
-    follow_uri = f"uniproxy_uri_{variable_suffix}"
-    redirect_target = SAFE_REDIRECT_TARGETS.get(upstream_host.lower(), upstream_host)
-    redirect_upstream = f"uniproxy_redirect_upstream_{variable_suffix}"
-    public_authority = host if PUBLIC_HTTPS_PORT == 443 else f"{host}:{PUBLIC_HTTPS_PORT}"
-    public_origin = f"https://{public_authority}"
-    cleared_headers = "\n".join(f"        proxy_set_header {name} '';" for name in NGINX_REQUEST_HEADERS_TO_DROP)
-    hidden_headers = "\n".join(f"        proxy_hide_header {name};" for name in NGINX_RESPONSE_HEADERS_TO_DROP)
-    return f"""# generated by uniproxy for {origin}
-map $http_upgrade {connection_variable} {{
-    default upgrade;
-    '' '';
-}}
-
-server {{
-    listen 80;
-    server_name {host};
-    access_log off;
-    return 301 {public_origin}$request_uri;
-}}
-
-server {{
-    listen 443 ssl;
-    server_name {host};
-    ssl_certificate \"{nginx_quote(TLS_CERT_FILE)}\";
-    ssl_certificate_key \"{nginx_quote(TLS_KEY_FILE)}\";
-    ssl_protocols TLSv1.2 TLSv1.3;
-    server_tokens off;
-    access_log off;
-    error_log /var/log/uniproxy-route-error.log crit;
-
-    location / {{
-        resolver 1.1.1.1 8.8.8.8 223.5.5.5 ipv6=off valid=300s;
-        resolver_timeout 5s;
-        set {upstream_variable} \"{nginx_quote(origin)}\";
-        proxy_pass {upstream_variable}$request_uri;
-        proxy_http_version 1.1;
-        proxy_set_header Host \"{nginx_quote(upstream_authority)}\";
-        proxy_ssl_server_name on;
-        proxy_ssl_name \"{nginx_quote(upstream_host)}\";
-        proxy_ssl_protocols TLSv1.2 TLSv1.3;
-        proxy_ssl_session_reuse on;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection {connection_variable};
-        proxy_set_header Range $http_range;
-        proxy_set_header If-Range $http_if_range;
-        proxy_set_header Accept-Encoding $http_accept_encoding;
-{cleared_headers}
-        proxy_set_header Origin \"{nginx_quote(origin)}\";
-        proxy_set_header Referer \"{nginx_quote(origin + '/')}\";
-        proxy_redirect https://{upstream_authority} {public_origin};
-        proxy_redirect http://{upstream_authority} {public_origin};
-        proxy_redirect ~^https?://{re.escape(redirect_target)}(/.*)$ {public_origin}{redirect_prefix}$1;
-{hidden_headers}
-        proxy_buffering off;
-        proxy_request_buffering off;
-        proxy_max_temp_file_size 0;
-        proxy_force_ranges on;
-        proxy_socket_keepalive on;
-        proxy_connect_timeout 10s;
-        proxy_read_timeout 3600s;
-        proxy_send_timeout 3600s;
-        send_timeout 3600s;
-        proxy_next_upstream error timeout invalid_header http_502 http_503 http_504;
-        proxy_next_upstream_tries 3;
-        proxy_next_upstream_timeout 20s;
-    }}
-
-    location ~ \"^{redirect_prefix}(?<{follow_uri}>/.*)$\" {{
-        resolver 1.1.1.1 8.8.8.8 223.5.5.5 ipv6=off valid=300s;
-        resolver_timeout 5s;
-        set ${redirect_upstream} https://{redirect_target};
-        proxy_pass ${redirect_upstream}${follow_uri}$is_args$args;
-        proxy_http_version 1.1;
-        proxy_set_header Host {redirect_target};
-        proxy_ssl_server_name on;
-        proxy_ssl_name {redirect_target};
-        proxy_ssl_protocols TLSv1.2 TLSv1.3;
-        proxy_ssl_session_reuse on;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection {connection_variable};
-        proxy_set_header Range $http_range;
-        proxy_set_header If-Range $http_if_range;
-        proxy_set_header Accept-Encoding $http_accept_encoding;
-{cleared_headers}
-        proxy_set_header Origin \"{nginx_quote(origin)}\";
-        proxy_set_header Referer \"{nginx_quote(origin + '/')}\";
-        proxy_redirect off;
-{hidden_headers}
-        proxy_buffering off;
-        proxy_request_buffering off;
-        proxy_max_temp_file_size 0;
-        proxy_force_ranges on;
-        proxy_socket_keepalive on;
-        proxy_connect_timeout 10s;
-        proxy_read_timeout 3600s;
-        proxy_send_timeout 3600s;
-        send_timeout 3600s;
-        proxy_next_upstream error timeout invalid_header http_502 http_503 http_504;
-        proxy_next_upstream_tries 3;
-        proxy_next_upstream_timeout 20s;
-    }}
-}}
-"""
-
-
-def ensure_nginx_mapping(origin: str) -> str:
-    os.makedirs(GENERATED_NGINX_DIR, exist_ok=True)
-    slug = slug_from_origin(origin)
-    host = ""
-    filename = ""
-    for index in range(1, 1000):
-        candidate_slug = slug if index == 1 else f"{slug}{index}"
-        candidate_host = f"{candidate_slug}.{PROXY_DOMAIN_SUFFIX}"
-        candidate_filename = os.path.join(GENERATED_NGINX_DIR, candidate_host + ".conf")
-        if not os.path.exists(candidate_filename):
-            host = candidate_host
-            filename = candidate_filename
-            break
-        with open(candidate_filename, "r", encoding="utf-8", errors="ignore") as existing:
-            if f"# generated by uniproxy for {origin}\n" in existing.read(300):
-                host = candidate_host
-                filename = candidate_filename
-                break
-    if not host or not host.endswith("." + PROXY_DOMAIN_SUFFIX):
-        raise ValueError("unable to allocate proxy host")
-
-    tmp_filename = filename + ".tmp"
-    content = render_nginx_mapping(origin, host)
-
-    with open(tmp_filename, "w", encoding="utf-8") as file:
-        file.write(content)
-    os.replace(tmp_filename, filename)
-
-    validate = subprocess.run(["/usr/sbin/nginx", "-t", "-c", "/etc/nginx/nginx.conf"], capture_output=True, text=True)
-    if validate.returncode != 0:
-        try:
-            os.remove(filename)
-        except FileNotFoundError:
-            pass
-        raise RuntimeError(validate.stderr or validate.stdout or "nginx validate failed")
-
-    reload_cmd = subprocess.run(["/bin/systemctl", "reload", "nginx"], capture_output=True, text=True)
-    if reload_cmd.returncode != 0:
-        raise RuntimeError(reload_cmd.stderr or reload_cmd.stdout or "nginx reload failed")
-    return host
-
-
-def curl_check(name: str, url: str, resolve_host: str | None = None) -> dict:
-    command = [
-        "/usr/bin/curl",
-        "-L",
-        "-sS",
-        "-o",
-        "/dev/null",
-        "-A",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
-        "--connect-timeout",
-        "8",
-        "--max-time",
-        "20",
-        "-w",
-        "%{http_code} %{time_namelookup} %{time_connect} %{time_appconnect} %{time_starttransfer} %{time_total} %{size_download} %{speed_download}",
-    ]
-    if resolve_host:
-        command.extend(["--resolve", f"{resolve_host}:443:127.0.0.1"])
-    command.append(url)
-
     try:
-        result = subprocess.run(command, capture_output=True, text=True, timeout=25)
-    except subprocess.TimeoutExpired:
-        return {"name": name, "ok": False, "summary": "超时", "detail": "超过 25 秒未完成"}
-
-    output = (result.stdout or "").strip().split()
-    if result.returncode != 0 or len(output) < 8:
-        detail = (result.stderr or result.stdout or "curl failed").strip()
-        return {"name": name, "ok": False, "summary": "失败", "detail": detail[:240]}
-
-    code, lookup, connect, appconnect, start, total, size, speed = output[:8]
-    total_f = float(total)
-    start_f = float(start)
-    code_i = int(code)
-    ok = 200 <= code_i < 400 and total_f < 5
-    if code_i == 403:
-        summary = "403，疑似上游 WAF/CF 拦截"
-    elif total_f >= 5:
-        summary = "偏慢"
-    elif ok:
-        summary = "正常"
-    else:
-        summary = f"HTTP {code}"
-
-    return {
-        "name": name,
-        "ok": ok,
-        "summary": summary,
-        "detail": f"code={code} 首包={start_f:.3f}s 总耗时={total_f:.3f}s 大小={size}B 速度={speed}B/s DNS={float(lookup):.3f}s TCP={float(connect):.3f}s TLS={float(appconnect):.3f}s",
-    }
-
-
-def run_mapping_checks(origin: str, host: str) -> list[dict]:
-    upstream = origin.rstrip("/")
-    proxy = f"https://{host}"
-    return [
-        curl_check("源站 Public API", upstream + "/System/Info/Public"),
-        curl_check("反代 Public API", proxy + "/System/Info/Public", resolve_host=host),
-        curl_check("源站 Web 首页", upstream + "/web/index.html"),
-        curl_check("反代 Web 首页", proxy + "/web/index.html", resolve_host=host),
-    ]
-
-
-def diagnosis_html(checks: list[dict]) -> str:
-    by_name = {check["name"]: check for check in checks}
-    upstream_api = by_name.get("源站 Public API", {})
-    proxy_api = by_name.get("反代 Public API", {})
-    upstream_web = by_name.get("源站 Web 首页", {})
-    proxy_web = by_name.get("反代 Web 首页", {})
-
-    tips = []
-    if proxy_api.get("ok") and not proxy_web.get("ok") and not upstream_web.get("ok"):
-        tips.append("源站 API 正常，但源站 Web 首页异常；这通常不是反代配置问题，播放器仍可尝试连接。")
-    if upstream_api.get("ok") and not proxy_api.get("ok"):
-        tips.append("源站 API 正常但反代 API 异常，建议重新生成或检查 Nginx 配置。")
-    if proxy_api.get("summary", "").startswith("403") or proxy_web.get("summary", "").startswith("403"):
-        tips.append("检测到 403，通常是上游 WAF/Cloudflare 策略；为避免改变客户端身份，代理不会伪装 User-Agent。")
-    if any("偏慢" in check.get("summary", "") for check in checks):
-        tips.append("检测到偏慢，优先考虑小鸡到源站线路问题，换出口节点通常比改配置有效。")
-    if all(check.get("ok") for check in checks):
-        tips.append("全部自检正常，可以直接把完整 HTTPS 地址发给朋友。")
-
-    if not tips:
-        tips.append("自检存在异常，请优先看源站与反代的差异：源站也异常时多半不是本机配置问题。")
-
-    items = "".join(f"<li>{html.escape(tip)}</li>" for tip in tips)
-    return f"<div class='diagnosis'><strong>诊断建议</strong><ul>{items}</ul></div>"
-
-
-def checks_html(checks: list[dict]) -> str:
-    rows = []
-    for check in checks:
-        cls = "ok" if check["ok"] else "warn"
-        rows.append(
-            f"<tr class='{cls}'><td>{html.escape(check['name'])}</td>"
-            f"<td>{html.escape(check['summary'])}</td>"
-            f"<td>{html.escape(check['detail'])}</td></tr>"
-        )
-    return diagnosis_html(checks) + "<table><thead><tr><th>自检项</th><th>结果</th><th>详情</th></tr></thead><tbody>" + "".join(rows) + "</tbody></table>"
+        return normalize_route_origin(value, allow_insecure_http=False)
+    except RendererError as exc:
+        raise ValueError(str(exc)) from exc
 
 
 def is_base_proxy_host(request: web.Request) -> bool:
@@ -554,6 +45,7 @@ async def generator_response(request: web.Request):
     raw_url = ""
     raw_route_note = ""
     if request.method == "POST":
+        panel._check_request_origin(request)
         data = await request.post()
         panel._check_user_csrf(user, data)
         raw_url = str(data.get("url", "")).strip()
@@ -571,12 +63,18 @@ async def generator_response(request: web.Request):
     result_html = ""
     if raw_url:
         try:
+            if not panel.user_route_creation_enabled:
+                raise ValueError("route creation is temporarily disabled")
             origin = normalized_origin(raw_url)
-            if not is_global_address(urlsplit(origin).hostname or ""):
-                raise ValueError("private target")
             if not selected_node_id:
                 raise ValueError("no node available")
-            host, https_url = panel.create_frontend_route(origin, selected_node_id, int(user["id"]), raw_route_note)
+            host, https_url = await asyncio.to_thread(
+                panel.create_frontend_route,
+                origin,
+                selected_node_id,
+                int(user["id"]),
+                raw_route_note,
+            )
             checks_section = "<p class='hint'>线路已下发到所选节点。可点击上方“测试延迟”从当前浏览器重新测试节点。</p>"
             result_html = f"""
             <section class="result">
@@ -659,106 +157,6 @@ document.querySelectorAll('[data-copy]').forEach(button=>button.addEventListener
     return response
 
 
-def target_from_request(request: web.Request):
-    raw_path = request.raw_path
-    query = request.query_string
-    path = raw_path.lstrip("/")
-    origin_from_url = None
-    host_origin = proxied_origin_from_host(request.headers.get("host", ""))
-
-    if path == "__health":
-        return None, None, None
-
-    if host_origin:
-        target_url = host_origin.rstrip("/") + "/" + path
-
-    elif path == TOKEN or path.startswith(TOKEN + "/"):
-        tail = path[len(TOKEN):].lstrip("/")
-        if tail.startswith(("http://", "https://")):
-            target_url = tail
-            parsed = urlsplit(target_url)
-            origin_from_url = f"{parsed.scheme}://{parsed.netloc}"
-        else:
-            origin = unsign_origin(request.cookies.get(COOKIE_NAME, ""))
-            if not origin:
-                raise web.HTTPBadRequest(text="missing target url")
-            target_url = origin.rstrip("/") + "/" + tail
-    elif path.startswith(("http://", "https://")):
-        target_url = path
-        parsed = urlsplit(target_url)
-        origin_from_url = f"{parsed.scheme}://{parsed.netloc}"
-    else:
-        origin = unsign_origin(request.cookies.get(COOKIE_NAME, ""))
-        if origin:
-            target_url = origin.rstrip("/") + "/" + path
-        elif DEFAULT_TARGET_ORIGIN:
-            target_url = DEFAULT_TARGET_ORIGIN + "/" + path
-        else:
-            raise web.HTTPUnauthorized(text="missing proxy token")
-
-    if query:
-        target_url = target_url + "?" + query
-
-    parsed = urlsplit(target_url)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc or not parsed.hostname:
-        raise web.HTTPBadRequest(text="target must start with http:// or https://")
-    if not is_global_address(parsed.hostname):
-        raise web.HTTPForbidden(text="target host is not a public internet address")
-
-    return urlunsplit(parsed), origin_from_url, host_origin
-
-
-def rewrite_location(location: str, origin: str, host_origin: str | None, request: web.Request) -> str:
-    if host_origin:
-        proxy_scheme = request.headers.get("x-forwarded-proto", request.scheme)
-        proxy_host = request.headers.get("host", "")
-        if location.startswith(("http://", "https://")):
-            parsed = urlsplit(location)
-            target_origin = f"{parsed.scheme}://{parsed.netloc}"
-            proxy_host = request.headers.get("host", "")
-            if target_origin != origin:
-                proxy_host = proxied_host_for_origin(target_origin)
-            return urlunsplit((proxy_scheme, proxy_host, parsed.path, parsed.query, parsed.fragment))
-        return location
-
-    if location.startswith(("http://", "https://")):
-        return f"/{location}"
-    if location.startswith("/"):
-        return f"/{origin}{location}"
-    return location
-
-
-async def websocket_proxy(request: web.Request, target_url: str):
-    split = urlsplit(target_url)
-    ws_scheme = "wss" if split.scheme == "https" else "ws"
-    ws_target = urlunsplit((ws_scheme, split.netloc, split.path, split.query, split.fragment))
-    ws_client = web.WebSocketResponse()
-    await ws_client.prepare(request)
-
-    headers = clean_headers(request.headers, split)
-    async with request.app["session"].ws_connect(ws_target, headers=headers, max_msg_size=0) as ws_upstream:
-        async def client_to_upstream():
-            async for msg in ws_client:
-                if msg.type == WSMsgType.TEXT:
-                    await ws_upstream.send_str(msg.data)
-                elif msg.type == WSMsgType.BINARY:
-                    await ws_upstream.send_bytes(msg.data)
-                elif msg.type == WSMsgType.CLOSE:
-                    await ws_upstream.close()
-
-        async def upstream_to_client():
-            async for msg in ws_upstream:
-                if msg.type == WSMsgType.TEXT:
-                    await ws_client.send_str(msg.data)
-                elif msg.type == WSMsgType.BINARY:
-                    await ws_client.send_bytes(msg.data)
-                elif msg.type == WSMsgType.CLOSE:
-                    await ws_client.close()
-
-        await asyncio.gather(client_to_upstream(), upstream_to_client(), return_exceptions=True)
-    return ws_client
-
-
 async def handle(request: web.Request):
     if request.path == "/__health":
         return web.Response(text="ok\n")
@@ -834,12 +232,26 @@ async def create_app():
                 pass
             await asyncio.sleep(60)
 
+    async def renew_node_certificates(application: web.Application) -> None:
+        interval = max(3600, int(os.environ.get("CERT_RENEW_INTERVAL", "21600")))
+        while True:
+            try:
+                await asyncio.to_thread(application["panel"].renew_node_certificates)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # Renewal failures leave the previous certificate in place and
+                # are retried on the next pass; operators can inspect logs.
+                pass
+            await asyncio.sleep(interval)
+
     async def start_reconciler(application: web.Application) -> None:
         application["user_reconciler"] = asyncio.create_task(reconcile_users(application))
         application["traffic_collector"] = asyncio.create_task(collect_traffic(application))
+        application["certificate_renewer"] = asyncio.create_task(renew_node_certificates(application))
 
     async def stop_reconciler(application: web.Application) -> None:
-        for name in ("user_reconciler", "traffic_collector"):
+        for name in ("user_reconciler", "traffic_collector", "certificate_renewer"):
             task = application.get(name)
             if task:
                 task.cancel()
@@ -856,6 +268,4 @@ async def create_app():
 
 
 if __name__ == "__main__":
-    if not TOKEN:
-        raise SystemExit("PROXY_TOKEN is required")
     web.run_app(create_app(), host=LISTEN_HOST, port=LISTEN_PORT)
