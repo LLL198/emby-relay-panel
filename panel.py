@@ -195,7 +195,9 @@ class ProxyPanel:
             1, min(256, int(os.environ.get("MINIMUM_PASSWORD_LENGTH", "1")))
         )
         self.password_policy = PasswordPolicy(
-            min_characters=self.minimum_password_length, max_bytes=1024
+            min_characters=self.minimum_password_length,
+            max_bytes=1024,
+            common_passwords=frozenset(),
         )
         self.hash_limiter = HashWorkLimiter(
             max_concurrent=max(1, min(8, int(os.environ.get("PASSWORD_HASH_CONCURRENCY", "2")))),
@@ -578,7 +580,11 @@ class ProxyPanel:
                 raise PanelError(f"密码至少需要 {self.minimum_password_length} 个字符") from exc
             if "too_long" in exc.violations:
                 raise PanelError("密码内容过长") from exc
-            raise PanelError("密码过于常见，请换一个更难猜的密码") from exc
+            if "matches_username" in exc.violations:
+                raise PanelError("密码不能与账号相同") from exc
+            if "whitespace_only" in exc.violations:
+                raise PanelError("密码不能只包含空格") from exc
+            raise PanelError("密码格式不符合要求") from exc
 
     @staticmethod
     def _password_matches(password: str, stored: str) -> bool:
