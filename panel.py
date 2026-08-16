@@ -2072,6 +2072,32 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
             except OSError:
                 pass
 
+    @staticmethod
+    def _remote_cleanup_unreachable(error: BaseException) -> bool:
+        """Allow detaching a node when its SSH endpoint is clearly offline."""
+        text = str(error).lower()
+        return any(
+            marker in text
+            for marker in (
+                "connection refused",
+                "connection timed out",
+                "no route to host",
+                "network is unreachable",
+            )
+        )
+
+    def _remove_node_identity(self, node) -> None:
+        identity = str(node["ssh_identity"] or "")
+        if not identity:
+            return
+        try:
+            path = Path(identity).resolve()
+            key_dir = (self.db_path.parent / "keys").resolve()
+            if path.parent == key_dir:
+                path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
     def _auto_domain_suffix(self, name: str, address: str, ssh_port: int) -> str:
         label = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:18] or "node"
         digest = hashlib.sha256(f"{name}|{address}|{ssh_port}".encode()).hexdigest()[:6]
@@ -2959,6 +2985,17 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                 try:
                     await asyncio.to_thread(self._cleanup_managed_node, node)
                 except Exception as exc:
+                    if self._remote_cleanup_unreachable(exc):
+                        # DNS cleanup has already completed before the remote
+                        # SSH step. Detach the local record so an offline node
+                        # cannot block the panel forever; remote files remain
+                        # for manual cleanup when the machine returns.
+                        self._remove_node_identity(node)
+                        with self._connect() as db:
+                            db.execute("DELETE FROM nodes WHERE id = ?", (node_id,))
+                        return self.dashboard(
+                            notice="后台节点记录已删除；远端 SSH 当前不可达，远端项目文件未清理。"
+                        )
                     with self._connect() as db:
                         db.execute(
                             "UPDATE nodes SET state='decommission_failed',last_error=?,updated_at=? WHERE id=?",

@@ -77,6 +77,11 @@ class PanelSecurityIntegrationTests(unittest.TestCase):
              patch.object(self.panel, "_cloudflare_api", side_effect=missing):
             self.panel._delete_node_dns(["4065a91c4aa064a56671a91b248f4976"])
 
+    def test_remote_cleanup_unreachable_can_detach(self):
+        self.assertTrue(self.panel._remote_cleanup_unreachable(RuntimeError("ssh: connect to host: Connection refused")))
+        self.assertTrue(self.panel._remote_cleanup_unreachable(RuntimeError("Connection timed out")))
+        self.assertFalse(self.panel._remote_cleanup_unreachable(RuntimeError("Permission denied")))
+
     def test_existing_nginx_port_prefers_ssl_and_ignores_http(self):
         config = """
         listen 80 default_server;
