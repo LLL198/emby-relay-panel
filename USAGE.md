@@ -1,4 +1,4 @@
-# UniRelay 新手教程（照着做）
+# emby-relay-panel 新手教程（照着做）
 
 这份教程分成两种情况：
 
