@@ -549,11 +549,36 @@ class ProxyPanel:
         if not hmac.compare_digest(str(data.get("csrf", "")), self._csrf(action)):
             raise web.HTTPForbidden(text="invalid form token")
 
+    @staticmethod
+    def _canonical_http_origin(value: str, *, allow_path: bool = False) -> str:
+        """Normalise an Origin/Referer origin without changing its host."""
+        try:
+            parsed = urlsplit(str(value).strip())
+            if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+                return ""
+            if parsed.username or parsed.password or (not allow_path and parsed.path not in {"", "/"}):
+                return ""
+            hostname = parsed.hostname.lower().rstrip(".")
+            port = parsed.port
+            default_port = 443 if parsed.scheme.lower() == "https" else 80
+            suffix = f":{port}" if port and port != default_port else ""
+            return f"{parsed.scheme.lower()}://{hostname}{suffix}"
+        except (TypeError, ValueError):
+            return ""
+
     def _check_request_origin(self, request: web.Request) -> None:
         """Reject browser state changes originating outside the control host."""
-        origin = request.headers.get("Origin", "").rstrip("/")
-        if not origin or not hmac.compare_digest(origin, self.panel_public_origin):
-            raise web.HTTPForbidden(text="invalid request origin")
+        expected = self._canonical_http_origin(self.panel_public_origin)
+        origin = self._canonical_http_origin(request.headers.get("Origin", ""))
+        if origin and hmac.compare_digest(origin, expected):
+            return
+        # Some same-origin form POSTs omit Origin.  A same-origin Referer is
+        # an equivalent browser signal; still require the exact configured
+        # scheme/host/port and never accept a sibling subdomain.
+        referer = self._canonical_http_origin(request.headers.get("Referer", ""), allow_path=True)
+        if referer and hmac.compare_digest(referer, expected):
+            return
+        raise web.HTTPForbidden(text="invalid request origin")
 
     @staticmethod
     def _normalize_username(value: str) -> str:

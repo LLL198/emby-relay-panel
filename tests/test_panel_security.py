@@ -82,6 +82,12 @@ class PanelSecurityIntegrationTests(unittest.TestCase):
     def test_control_plane_origin_is_exact_not_same_site(self):
         valid = make_mocked_request("POST", "/login", headers={"Origin": "https://sh.996878.xyz"})
         self.panel._check_request_origin(valid)
+        default_port = make_mocked_request("POST", "/login", headers={"Origin": "https://sh.996878.xyz:443"})
+        self.panel._check_request_origin(default_port)
+        referer_fallback = make_mocked_request(
+            "POST", "/login", headers={"Referer": "https://sh.996878.xyz/_admin/nodes"}
+        )
+        self.panel._check_request_origin(referer_fallback)
         sibling = make_mocked_request("POST", "/login", headers={"Origin": "https://evil.996878.xyz"})
         with self.assertRaises(web.HTTPForbidden):
             self.panel._check_request_origin(sibling)
