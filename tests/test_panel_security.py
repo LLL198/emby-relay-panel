@@ -66,6 +66,12 @@ class PanelSecurityIntegrationTests(unittest.TestCase):
         self.assertIn("internal_https_port", node_columns)
         self.panel.setup()
 
+    def test_first_ssh_host_key_warning_does_not_fail_root_check(self):
+        with patch.object(self.panel, "_ssh_args", return_value=[]), \
+             patch.object(self.panel, "_ssh_env", return_value=None), \
+             patch.object(self.panel, "_run", return_value="0\nWarning: Permanently added host key"):
+            self.panel._wait_for_root_ssh({})
+
     def test_host_cookie_names_have_no_domain_scope(self):
         response = web.Response()
         self.panel._set_user_session(response, "a" * 43, "b" * 43)

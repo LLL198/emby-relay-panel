@@ -2486,7 +2486,7 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
             try:
                 user_id = self._run(
                     self._ssh_args(node) + ["id -u"], env=self._ssh_env(node), timeout=15,
-                ).strip()
+                )
             except subprocess.TimeoutExpired:
                 last_error = "SSH 连接超时"
             except PanelError as exc:
@@ -2494,7 +2494,7 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                 if not self._is_transient_ssh_failure(last_error):
                     raise
             else:
-                if user_id == "0":
+                if any(line.strip() == "0" for line in user_id.splitlines()):
                     return
                 raise PanelError("自动部署需要 root SSH 登录")
             if attempt + 1 < SSH_READY_ATTEMPTS:
@@ -2510,6 +2510,7 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
         args = [
             "ssh", "-F", "/dev/null", "-p", str(node["ssh_port"]),
             "-o", "ConnectTimeout=10",
+            "-o", "LogLevel=ERROR",
             "-o", "StrictHostKeyChecking=accept-new",
             "-o", "IdentitiesOnly=yes",
             "-o", "ClearAllForwardings=yes",
@@ -2531,6 +2532,7 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
         args = [
             "scp", "-F", "/dev/null", "-P", str(node["ssh_port"]),
             "-o", "ConnectTimeout=10",
+            "-o", "LogLevel=ERROR",
             "-o", "StrictHostKeyChecking=accept-new",
             "-o", "IdentitiesOnly=yes",
             "-o", "ClearAllForwardings=yes",
