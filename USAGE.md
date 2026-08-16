@@ -267,7 +267,7 @@ sudo systemctl status uniproxy --no-pager
 管理后台：https://你的主站域名/_admin
 ```
 
-## 7. 安全提醒（只记住这几条）
+## 7. 安全提醒
 
 - 不要把密码、Cloudflare Token、数据库、证书或私钥提交到 Git。
 - `/root/.secrets/uniproxy-panel.env` 权限保持 `600`。
