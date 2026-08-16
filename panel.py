@@ -192,7 +192,7 @@ class ProxyPanel:
             "ALLOW_UNPROTECTED_EGRESS", "0"
         ).strip().lower() in {"1", "true", "yes", "on"}
         self.minimum_password_length = max(
-            1, min(256, int(os.environ.get("MINIMUM_PASSWORD_LENGTH", "12")))
+            1, min(256, int(os.environ.get("MINIMUM_PASSWORD_LENGTH", "1")))
         )
         self.password_policy = PasswordPolicy(
             min_characters=self.minimum_password_length, max_bytes=1024
