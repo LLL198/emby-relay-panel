@@ -72,6 +72,17 @@ class PanelSecurityIntegrationTests(unittest.TestCase):
              patch.object(self.panel, "_run", return_value="0\nWarning: Permanently added host key"):
             self.panel._wait_for_root_ssh({})
 
+    def test_existing_nginx_port_prefers_ssl_and_ignores_http(self):
+        config = """
+        listen 80 default_server;
+        listen [::]:8443 ssl http2;
+        listen 443 ssl;
+        listen 8080;
+        """
+        self.assertEqual(self.panel._select_existing_nginx_port(config), 443)
+        self.assertEqual(self.panel._select_existing_nginx_port("listen 80;\nlisten 8443;"), 8443)
+        self.assertIsNone(self.panel._select_existing_nginx_port("listen 80;"))
+
     def test_host_cookie_names_have_no_domain_scope(self):
         response = web.Response()
         self.panel._set_user_session(response, "a" * 43, "b" * 43)

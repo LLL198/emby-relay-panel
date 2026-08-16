@@ -1565,7 +1565,7 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
 <section><h2>线路</h2><table><thead><tr><th>名称</th><th>源站</th><th>公开地址</th><th>节点</th><th>状态</th><th>操作</th></tr></thead><tbody>{route_rows}</tbody></table>{route_pagination}</section>
 <section><h2>新增线路</h2><p class='muted'>创建后会自动下发 Nginx，并从公网访问新地址确认链路；验证结果会直接显示。</p><form method='post' action='{ADMIN_PREFIX}/routes'><div class='grid'><label>线路名称（小写英文、数字、连字符）<input required name='name' pattern='[a-z0-9][a-z0-9-]{{1,31}}' placeholder='emby-a'></label><label>源站地址<input required name='origin' placeholder='https://emby.example.com'></label><label>部署节点<select name='node_id'>{node_options}</select></label></div><p><input type='hidden' name='csrf' value='{self._csrf('route-create')}'><button>创建、下发并验证</button></p></form></section>
 <section><h2>节点</h2><table><thead><tr><th>名称</th><th>类型</th><th>地区</th><th>域名后缀</th><th>状态 / 代理用量</th><th>操作</th></tr></thead><tbody>{node_rows}</tbody></table></section>
-<section><h2>新增节点</h2><p class='muted'>公网 HTTPS 端口是用户访问时使用的端口，内部 HTTPS 端口是节点 Nginx 实际监听的端口，默认都是 443；两者可以独立填写。NAT 机需要让服务商把公网端口映射到内部端口。</p><form method='post' enctype='multipart/form-data' action='{ADMIN_PREFIX}/nodes'><div class='grid'><label>节点名称<input required name='name' placeholder='海创'></label><label>网络类型<select required name='network_mode' id='network-mode'><option value='vps'>普通 VPS（独立公网 IP）</option><option value='nat'>NAT 机（端口映射）</option></select></label><label>服务器公网 IP<input required name='ssh_host' inputmode='decimal' placeholder='162.141.136.85'></label><label>SSH 端口<input required name='ssh_port' value='22' inputmode='numeric'></label><label>公网 HTTPS 端口<input required id='public-port' name='public_https_port' value='443' inputmode='numeric'><span class='muted'>NAT 默认可填服务商分配的端口，例如 30004</span></label><label>内部 HTTPS 端口<input required name='internal_https_port' value='443' inputmode='numeric'><span class='muted'>Nginx 监听端口，不能使用 80</span></label><label>SSH 密码（与私钥二选一）<input type='password' name='ssh_password' autocomplete='new-password'></label><label>SSH 私钥文件（与密码二选一）<input type='file' name='ssh_private_key' accept='.pem,.key,text/plain,application/x-pem-file'></label></div><p><input type='hidden' name='csrf' value='{self._csrf('node-create')}'><button>自动部署并添加</button></p></form><script nonce='__CSP_NONCE__'>(()=>{{const mode=document.getElementById('network-mode'),publicPort=document.getElementById('public-port');const sync=()=>{{if(mode.value==='nat'&&publicPort.value==='443')publicPort.value='30004';if(mode.value==='vps'&&publicPort.value==='30004')publicPort.value='443';}};mode.addEventListener('change',sync);}})();</script></section>"""
+<section><h2>新增节点</h2><p class='muted'>公网 HTTPS 端口是用户访问时使用的端口，内部 HTTPS 端口是节点 Nginx 实际监听的端口，默认都是 443；两者可以独立填写。若远端已安装 Nginx，系统会自动读取它的 HTTPS 监听端口并优先使用，忽略你填写的内部端口。NAT 机需要让服务商把公网端口映射到内部端口。</p><form method='post' enctype='multipart/form-data' action='{ADMIN_PREFIX}/nodes'><div class='grid'><label>节点名称<input required name='name' placeholder='海创'></label><label>网络类型<select required name='network_mode' id='network-mode'><option value='vps'>普通 VPS（独立公网 IP）</option><option value='nat'>NAT 机（端口映射）</option></select></label><label>服务器公网 IP<input required name='ssh_host' inputmode='decimal' placeholder='162.141.136.85'></label><label>SSH 端口<input required name='ssh_port' value='22' inputmode='numeric'></label><label>公网 HTTPS 端口<input required id='public-port' name='public_https_port' value='443' inputmode='numeric'><span class='muted'>NAT 默认可填服务商分配的端口，例如 30004</span></label><label>内部 HTTPS 端口<input required name='internal_https_port' value='443' inputmode='numeric'><span class='muted'>Nginx 监听端口，不能使用 80；远端已有 Nginx 时自动识别</span></label><label>SSH 密码（与私钥二选一）<input type='password' name='ssh_password' autocomplete='new-password'></label><label>SSH 私钥文件（与密码二选一）<input type='file' name='ssh_private_key' accept='.pem,.key,text/plain,application/x-pem-file'></label></div><p><input type='hidden' name='csrf' value='{self._csrf('node-create')}'><button>自动部署并添加</button></p></form><script nonce='__CSP_NONCE__'>(()=>{{const mode=document.getElementById('network-mode'),publicPort=document.getElementById('public-port');const sync=()=>{{if(mode.value==='nat'&&publicPort.value==='443')publicPort.value='30004';if(mode.value==='vps'&&publicPort.value==='30004')publicPort.value='443';}};mode.addEventListener('change',sync);}})();</script></section>"""
         return self._page(content, notice, error)
 
     @staticmethod
@@ -2150,6 +2150,57 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
             f"节点内部配置已完成，但连续探测后公网 TCP {port} 仍无法访问；"
             f"请检查云平台安全组，并确认服务监听内部 TCP {int(node['internal_https_port'])}"
         )
+
+    @staticmethod
+    def _select_existing_nginx_port(output: str) -> int | None:
+        """Choose an existing Nginx listener suitable for HTTPS takeover.
+
+        The remote probe is deliberately limited to ``listen`` directives;
+        it never trusts an arbitrary process port.  Prefer an explicit SSL
+        listener, then prefer 443, and never select the HTTP redirect port.
+        """
+        ssl_ports: set[int] = set()
+        other_ports: set[int] = set()
+        for raw_line in str(output or "").splitlines():
+            match = re.match(r"^\s*listen\s+([^;]+);", raw_line, re.IGNORECASE)
+            if not match:
+                continue
+            tokens = match.group(1).split()
+            if not tokens:
+                continue
+            endpoint = tokens[0].strip()
+            port_text = endpoint
+            if endpoint.startswith("[") and "]" in endpoint:
+                port_text = endpoint.rsplit(":", 1)[-1]
+            elif ":" in endpoint and endpoint.count(":") == 1:
+                port_text = endpoint.rsplit(":", 1)[-1]
+            if not port_text.isdigit():
+                continue
+            port = int(port_text)
+            if not 1 <= port <= 65535 or port == 80:
+                continue
+            if any(token.lower() == "ssl" for token in tokens[1:]):
+                ssl_ports.add(port)
+            else:
+                other_ports.add(port)
+        if ssl_ports:
+            return min(ssl_ports, key=lambda port: (port != 443, port))
+        if other_ports:
+            return min(other_ports, key=lambda port: (port != 443, port))
+        return None
+
+    def _detect_existing_nginx_port(self, node) -> int | None:
+        """Read an installed Nginx config before the project takes it over."""
+        probe = (
+            "if command -v nginx >/dev/null 2>&1; then "
+            "nginx -T 2>/dev/null | grep -E '^\\s*listen\\s+[^;]+;' | head -n 200 || true; "
+            "fi"
+        )
+        try:
+            output = self._run(self._ssh_args(node) + [probe], env=self._ssh_env(node), timeout=30)
+        except (PanelError, subprocess.TimeoutExpired):
+            return None
+        return self._select_existing_nginx_port(output)
 
     def _provision_auto_node(self, node) -> tuple[int, list[str]]:
         self._wait_for_root_ssh(node)
@@ -2836,8 +2887,6 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                     raise PanelError("公网 HTTPS 端口超出范围")
                 if not 1 <= internal_port <= 65535:
                     raise PanelError("内部 HTTPS 端口超出范围")
-                if internal_port == 80:
-                    raise PanelError("内部 HTTPS 端口不能使用 80（该端口用于 HTTP 跳转）")
                 password = str(data.get("ssh_password", ""))
                 if len(password) > 512:
                     raise PanelError("SSH 密码过长")
@@ -2866,6 +2915,15 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                     # host-key pinning was intentionally removed from the form.
                     "ssh_host_key": "", "ssh_host_fingerprint": "", "host_key_verified_at": "",
                 }
+                detected_internal_port = await asyncio.to_thread(self._detect_existing_nginx_port, candidate)
+                if detected_internal_port is not None:
+                    candidate["internal_https_port"] = detected_internal_port
+                if int(candidate["internal_https_port"]) == 80:
+                    raise PanelError("内部 HTTPS 端口不能使用 80（该端口用于 HTTP 跳转）")
+                port_notice = (
+                    f"已检测到远端 Nginx HTTPS 端口 {int(candidate['internal_https_port'])}，已忽略表单中的内部端口；"
+                    if detected_internal_port is not None else ""
+                )
                 country_name, country_code, country_flag = await self._lookup_node_location(address)
                 dns_records = []
                 try:
@@ -2891,7 +2949,7 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                     raise
                 location = f"已识别为 {country_flag} {country_name}（{country_code}）；" if country_code else "未能识别地区，可稍后在节点名称中标注地区；"
                 probe_url = self._public_url(candidate, domain_suffix).rstrip("/") + "/__health"
-                return self.dashboard(notice=location + f"节点已自动部署并添加；公网探测地址：{probe_url}")
+                return self.dashboard(notice=port_notice + location + f"节点已自动部署并添加；公网探测地址：{probe_url}")
             node_delete_match = re.fullmatch(re.escape(ADMIN_PREFIX) + r"/nodes/(\d+)/delete", request.path)
             if node_delete_match:
                 node_id = int(node_delete_match.group(1))
