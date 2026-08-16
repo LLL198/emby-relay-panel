@@ -17,7 +17,6 @@ import socket
 import sqlite3
 import stat
 import subprocess
-import shutil
 import tempfile
 import threading
 import time
@@ -421,9 +420,12 @@ class ProxyPanel:
             db.execute(
                 "UPDATE nodes SET ca_bundle_path='/etc/ssl/certs/ca-certificates.crt' WHERE kind='local'"
             )
+            # SSH host-key confirmation is intentionally non-blocking.  Keep
+            # the legacy columns for compatibility, but reactivate nodes that
+            # were marked pending by the short-lived confirmation workflow.
             db.execute(
-                "UPDATE nodes SET state='legacy-ssh-unverified',state_step='host-key-required' "
-                "WHERE kind!='local' AND COALESCE(ssh_host_fingerprint,'')='' AND state='active'"
+                "UPDATE nodes SET state='active',state_step='',last_error='' "
+                "WHERE kind!='local' AND state='legacy-ssh-unverified'"
             )
             local = db.execute("SELECT id FROM nodes WHERE kind = 'local' LIMIT 1").fetchone()
             local_disabled = db.execute("SELECT value FROM settings WHERE key = 'local_node_disabled'").fetchone()
@@ -1483,13 +1485,9 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
             traffic = self._format_traffic_usage(node_usage.get(node_id))
             location = " ".join(filter(None, (node["country_flag"], node["country_name"], node["country_code"]))) or "未识别"
             check_form = f"<form class='inline' method='post' action='{ADMIN_PREFIX}/nodes/{node_id}/check'><input type='hidden' name='csrf' value='{check_token}'><button type='submit' class='action-check'>检查</button></form>"
-            pin_form = ""
-            if node["kind"] == "ssh" and not str(node["ssh_host_fingerprint"] or ""):
-                pin_token = self._csrf("node-pin:" + str(node_id))
-                pin_form = f"<details class='inline'><summary>核对 SSH 指纹</summary><form class='compact' method='post' action='{ADMIN_PREFIX}/nodes/{node_id}/pin'><input type='hidden' name='csrf' value='{pin_token}'><input required name='ssh_host_fingerprint' placeholder='SHA256:...'><button>核对并固定</button></form></details>"
             delete_form = f" <form class='inline' method='post' action='{ADMIN_PREFIX}/nodes/{node_id}/delete'><input type='hidden' name='csrf' value='{delete_token}'><button type='submit' class='danger'>删除节点</button></form>"
             node_rows_list.append(
-                f"<tr><td>{html.escape(node['name'])}</td><td>{kind}</td><td>{html.escape(location)}</td><td><code>{html.escape(node['domain_suffix'])}</code></td><td>{html.escape(health)}<br><span class='muted'>状态：{html.escape(node['state'] or 'active')} · 采集：{html.escape(node['last_seen'] or '暂无')}</span><br>{traffic}</td><td>{check_form}{pin_form}{delete_form}</td></tr>"
+                f"<tr><td>{html.escape(node['name'])}</td><td>{kind}</td><td>{html.escape(location)}</td><td><code>{html.escape(node['domain_suffix'])}</code></td><td>{html.escape(health)}<br><span class='muted'>状态：{html.escape(node['state'] or 'active')} · 采集：{html.escape(node['last_seen'] or '暂无')}</span><br>{traffic}</td><td>{check_form}{delete_form}</td></tr>"
             )
         node_rows = "".join(node_rows_list) or "<tr><td colspan='6' class='muted'>还没有节点</td></tr>"
         route_rows_list = []
@@ -1519,7 +1517,7 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
 <section><h2>线路</h2><table><thead><tr><th>名称</th><th>源站</th><th>公开地址</th><th>节点</th><th>状态</th><th>操作</th></tr></thead><tbody>{route_rows}</tbody></table>{route_pagination}</section>
 <section><h2>新增线路</h2><p class='muted'>创建后会自动下发 Nginx，并从公网访问新地址确认链路；验证结果会直接显示。</p><form method='post' action='{ADMIN_PREFIX}/routes'><div class='grid'><label>线路名称（小写英文、数字、连字符）<input required name='name' pattern='[a-z0-9][a-z0-9-]{{1,31}}' placeholder='emby-a'></label><label>源站地址<input required name='origin' placeholder='https://emby.example.com'></label><label>部署节点<select name='node_id'>{node_options}</select></label></div><p><input type='hidden' name='csrf' value='{self._csrf('route-create')}'><button>创建、下发并验证</button></p></form></section>
 <section><h2>节点</h2><table><thead><tr><th>名称</th><th>类型</th><th>地区</th><th>域名后缀</th><th>状态 / 代理用量</th><th>操作</th></tr></thead><tbody>{node_rows}</tbody></table></section>
-<section><h2>新增节点</h2><p class='muted'>普通 VPS 直接使用公网 443；NAT 机需要填写服务商映射到内部 TCP 443 的公网 HTTPS 端口。SSH 主机指纹必须先与云厂商控制台核对，主控机不会再自动信任陌生主机。</p><form method='post' enctype='multipart/form-data' action='{ADMIN_PREFIX}/nodes'><div class='grid'><label>节点名称<input required name='name' placeholder='海创'></label><label>网络类型<select required name='network_mode' id='network-mode'><option value='vps'>普通 VPS（独立公网 IP）</option><option value='nat'>NAT 机（端口映射）</option></select></label><label>服务器公网 IP<input required name='ssh_host' inputmode='decimal' placeholder='162.141.136.85'></label><label>SSH 端口<input required name='ssh_port' value='22' inputmode='numeric'></label><label>SSH 主机指纹<input required name='ssh_host_fingerprint' placeholder='SHA256:...'><span class='muted'>从云厂商控制台复制，必须与该 IP 的 SSH 指纹一致</span></label><label id='nat-port-field' hidden>NAT 公网 HTTPS 端口<input name='nat_https_port' value='30004' inputmode='numeric'><span class='muted'>服务商需将此 TCP 端口映射到机器内部 443</span></label><label>SSH 密码（与私钥二选一）<input type='password' name='ssh_password' autocomplete='new-password'></label><label>SSH 私钥文件（与密码二选一）<input type='file' name='ssh_private_key' accept='.pem,.key,text/plain,application/x-pem-file'></label></div><p><input type='hidden' name='csrf' value='{self._csrf('node-create')}'><button>自动部署并添加</button></p></form><script nonce='__CSP_NONCE__'>(()=>{{const mode=document.getElementById('network-mode'),field=document.getElementById('nat-port-field');const sync=()=>field.hidden=mode.value!=='nat';mode.addEventListener('change',sync);sync();}})();</script></section>"""
+<section><h2>新增节点</h2><p class='muted'>普通 VPS 直接使用公网 443；NAT 机需要填写服务商映射到内部 TCP 443 的公网 HTTPS 端口。首次连接会自动记录 SSH 主机密钥；如果已记录的密钥发生变化，连接会被拒绝。</p><form method='post' enctype='multipart/form-data' action='{ADMIN_PREFIX}/nodes'><div class='grid'><label>节点名称<input required name='name' placeholder='海创'></label><label>网络类型<select required name='network_mode' id='network-mode'><option value='vps'>普通 VPS（独立公网 IP）</option><option value='nat'>NAT 机（端口映射）</option></select></label><label>服务器公网 IP<input required name='ssh_host' inputmode='decimal' placeholder='162.141.136.85'></label><label>SSH 端口<input required name='ssh_port' value='22' inputmode='numeric'></label><label id='nat-port-field' hidden>NAT 公网 HTTPS 端口<input name='nat_https_port' value='30004' inputmode='numeric'><span class='muted'>服务商需将此 TCP 端口映射到机器内部 443</span></label><label>SSH 密码（与私钥二选一）<input type='password' name='ssh_password' autocomplete='new-password'></label><label>SSH 私钥文件（与密码二选一）<input type='file' name='ssh_private_key' accept='.pem,.key,text/plain,application/x-pem-file'></label></div><p><input type='hidden' name='csrf' value='{self._csrf('node-create')}'><button>自动部署并添加</button></p></form><script nonce='__CSP_NONCE__'>(()=>{{const mode=document.getElementById('network-mode'),field=document.getElementById('nat-port-field');const sync=()=>field.hidden=mode.value!=='nat';mode.addEventListener('change',sync);sync();}})();</script></section>"""
         return self._page(content, notice, error)
 
     @staticmethod
@@ -2327,68 +2325,6 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
             "banner exchange", "ssh_exchange_identification",
         ))
 
-    def _verify_ssh_host_key(self, node, expected_fingerprint: str) -> tuple[str, str]:
-        """Pin a host key only after the operator verifies its fingerprint."""
-        expected = str(expected_fingerprint or "").strip()
-        if not re.fullmatch(r"SHA256:[A-Za-z0-9+/]+", expected):
-            raise PanelError("请先从云厂商控制台核对 SSH 主机指纹（格式：SHA256:...）")
-        keyscan = shutil.which("ssh-keyscan")
-        keygen = shutil.which("ssh-keygen")
-        if not keyscan or not keygen:
-            raise PanelError("主控机缺少 ssh-keyscan/ssh-keygen，无法安全核对主机指纹")
-        try:
-            scan = subprocess.run(
-                [keyscan, "-T", "10", "-p", str(node["ssh_port"]), str(node["ssh_host"])],
-                text=True, capture_output=True, timeout=15, check=False,
-            )
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            raise PanelError("读取 SSH 主机指纹超时") from exc
-        candidates = [line.strip() for line in scan.stdout.splitlines() if line and not line.startswith("#")]
-        if not candidates:
-            raise PanelError("无法读取 SSH 主机指纹，请确认端口和安全组")
-        selected = None
-        for line in candidates:
-            try:
-                fingerprint = subprocess.run(
-                    [keygen, "-lf", "-", "-E", "sha256"], input=line + "\n",
-                    text=True, capture_output=True, timeout=10, check=False,
-                ).stdout.split()[1]
-            except (IndexError, OSError, subprocess.TimeoutExpired):
-                continue
-            if fingerprint == expected:
-                selected = (line, fingerprint)
-                break
-        if selected is None:
-            observed = []
-            for line in candidates:
-                result = subprocess.run(
-                    [keygen, "-lf", "-", "-E", "sha256"], input=line + "\n",
-                    text=True, capture_output=True, timeout=10, check=False,
-                )
-                if result.stdout.split():
-                    observed.append(result.stdout.split()[1])
-            raise PanelError("SSH 主机指纹不匹配；已拒绝连接（观测到：" + ", ".join(observed[:3]) + "）")
-        host = str(node["ssh_host"])
-        host_alias = f"[{host}]:{int(node['ssh_port'])}"
-        key_parts = selected[0].split()
-        if len(key_parts) < 3:
-            raise PanelError("SSH 主机密钥格式无效")
-        known_hosts = self.db_path.parent / "known_hosts"
-        known_hosts.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        if known_hosts.is_symlink():
-            raise PanelError("known_hosts 不能是符号链接")
-        known_hosts.touch(mode=0o600, exist_ok=True)
-        os.chmod(known_hosts, 0o600)
-        record = " ".join([host_alias, key_parts[1], key_parts[2]])
-        existing = known_hosts.read_text(encoding="utf-8", errors="ignore").splitlines()
-        if record not in existing:
-            with known_hosts.open("a", encoding="utf-8") as file:
-                file.write(record + "\n")
-        node["ssh_host_key"] = record
-        node["ssh_host_fingerprint"] = selected[1]
-        node["host_key_verified_at"] = now()
-        return record, selected[1]
-
     def _wait_for_root_ssh(self, node) -> None:
         """Wait briefly for just-created VPS instances to finish bringing SSH online."""
         last_error = ""
@@ -2417,12 +2353,10 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
 
     def _ssh_args(self, node) -> list[str]:
         known_hosts = self.db_path.parent / "known_hosts"
-        if node["kind"] != "local" and not str(node["ssh_host_fingerprint"] or ""):
-            raise PanelError("该节点尚未完成 SSH 主机指纹核验，已拒绝自动连接")
         args = [
             "ssh", "-F", "/dev/null", "-p", str(node["ssh_port"]),
             "-o", "ConnectTimeout=10",
-            "-o", "StrictHostKeyChecking=yes",
+            "-o", "StrictHostKeyChecking=accept-new",
             "-o", "IdentitiesOnly=yes",
             "-o", "ClearAllForwardings=yes",
             "-o", "ForwardAgent=no",
@@ -2440,12 +2374,10 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
 
     def _scp_args(self, node, source: str, target: str, preserve_mode: bool = False) -> list[str]:
         known_hosts = self.db_path.parent / "known_hosts"
-        if node["kind"] != "local" and not str(node["ssh_host_fingerprint"] or ""):
-            raise PanelError("该节点尚未完成 SSH 主机指纹核验，已拒绝自动连接")
         args = [
             "scp", "-F", "/dev/null", "-P", str(node["ssh_port"]),
             "-o", "ConnectTimeout=10",
-            "-o", "StrictHostKeyChecking=yes",
+            "-o", "StrictHostKeyChecking=accept-new",
             "-o", "IdentitiesOnly=yes",
             "-o", "ClearAllForwardings=yes",
             "-o", "ForwardAgent=no",
@@ -2742,9 +2674,6 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                     raise PanelError("SSH 密码过长")
                 if password and not self.node_credential_cipher:
                     raise PanelError("请先配置 NODE_CREDENTIAL_ENCRYPTION_KEY，再添加密码登录节点")
-                host_fingerprint = str(data.get("ssh_host_fingerprint", "")).strip()
-                if not re.fullmatch(r"SHA256:[A-Za-z0-9+/]+", host_fingerprint):
-                    raise PanelError("请填写已从云厂商控制台核对的 SSH 主机指纹")
                 with self._connect() as db:
                     if db.execute("SELECT 1 FROM nodes WHERE name = ?", (name,)).fetchone():
                         raise PanelError("节点名称已存在")
@@ -2763,9 +2692,8 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                     "caddy_config": "/etc/uniproxy-nginx/nginx.conf",
                     "generated_dir": "/etc/uniproxy-nginx/conf.d", "auto_managed": 1,
                     "network_mode": network_mode, "public_https_port": public_port,
-                    "ssh_host_fingerprint": host_fingerprint,
+                    "ssh_host_fingerprint": "",
                 }
-                self._verify_ssh_host_key(candidate, host_fingerprint)
                 country_name, country_code, country_flag = await self._lookup_node_location(address)
                 dns_records = []
                 try:
@@ -2792,23 +2720,6 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                 location = f"已识别为 {country_flag} {country_name}（{country_code}）；" if country_code else "未能识别地区，可稍后在节点名称中标注地区；"
                 probe_url = self._public_url(candidate, domain_suffix).rstrip("/") + "/__health"
                 return self.dashboard(notice=location + f"节点已自动部署并添加；公网探测地址：{probe_url}")
-            node_pin_match = re.fullmatch(re.escape(ADMIN_PREFIX) + r"/nodes/(\d+)/pin", request.path)
-            if node_pin_match:
-                node_id = int(node_pin_match.group(1))
-                self._check_csrf(f"node-pin:{node_id}", data)
-                with self._connect() as db:
-                    row = db.execute("SELECT * FROM nodes WHERE id=? AND kind='ssh'", (node_id,)).fetchone()
-                if not row:
-                    raise PanelError("节点不存在或不是 SSH 节点")
-                node = dict(row)
-                fingerprint = str(data.get("ssh_host_fingerprint", "")).strip()
-                self._verify_ssh_host_key(node, fingerprint)
-                with self._connect() as db:
-                    db.execute(
-                        "UPDATE nodes SET ssh_host_key=?,ssh_host_fingerprint=?,host_key_verified_at=?,state='active',state_step='',last_error='',updated_at=? WHERE id=?",
-                        (node["ssh_host_key"], node["ssh_host_fingerprint"], node["host_key_verified_at"], now(), node_id),
-                    )
-                return self.dashboard(notice="SSH 主机指纹已核对并固定；后续连接不会自动接受变更密钥。")
             node_delete_match = re.fullmatch(re.escape(ADMIN_PREFIX) + r"/nodes/(\d+)/delete", request.path)
             if node_delete_match:
                 node_id = int(node_delete_match.group(1))

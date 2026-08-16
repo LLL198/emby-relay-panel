@@ -89,14 +89,14 @@ class PanelSecurityIntegrationTests(unittest.TestCase):
         with self.assertRaises(web.HTTPForbidden):
             self.panel._check_request_origin(missing)
 
-    def test_unpinned_remote_ssh_is_rejected_before_authentication(self):
+    def test_remote_ssh_uses_tofu_and_rejects_changed_keys(self):
         node = {
             "kind": "ssh", "ssh_host": "198.51.100.10", "ssh_port": 22,
             "ssh_user": "root", "ssh_identity": "", "ssh_password": "secret",
             "ssh_host_fingerprint": "", "ssh_password_ciphertext": "",
         }
-        with self.assertRaises(PanelError):
-            self.panel._ssh_args(node)
+        args = self.panel._ssh_args(node)
+        self.assertIn("StrictHostKeyChecking=accept-new", args)
 
     def test_route_quota_check_and_insert_are_atomic(self):
         with closing(self.connect()) as db:

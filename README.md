@@ -15,4 +15,4 @@ UniRelay 是一个基于 Nginx 的反向代理节点和用户管理面板，支�
 
 运行时的环境变量、数据库、Cloudflare Token、证书和 SSH 密钥不应提交到 Git。
 
-安全默认值：用户源站只允许 HTTPS 且会固定经过验证的公网解析地址；上游 TLS 开启证书校验；面板会使用 `__Host-` 会话 Cookie；新节点必须核对 SSH 主机指纹。Cloudflare Token 仅用于主控机集中签发证书，不应复制到节点。
+安全默认值：用户源站只允许 HTTPS 且会固定经过验证的公网解析地址；上游 TLS 开启证书校验；面板会使用 `__Host-` 会话 Cookie；SSH 首次连接自动记录主机密钥，后续密钥变化会被拒绝。Cloudflare Token 仅用于主控机集中签发证书，不应复制到节点。

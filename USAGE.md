@@ -19,7 +19,7 @@ UniRelay 分为三部分：
 1. 一个主站域名，例如 `panel.example.com`。
 2. 主站域名的 HTTPS 证书和私钥。
 3. 主站服务器的 80、443 端口已放行，8787 只监听本机。
-4. 如需自动添加节点，准备 Cloudflare API Token、主控机的 acme.sh，以及节点的 root SSH 登录方式。新增节点时还要从云厂商控制台核对 SSH 主机指纹。
+4. 如需自动添加节点，准备 Cloudflare API Token、主控机的 acme.sh，以及节点的 root SSH 登录方式。
 
 ### Cloudflare Token 权限
 
@@ -31,7 +31,7 @@ UniRelay 分为三部分：
 
 Token 不要写进源码、截图、Git 或聊天记录。主控机的 `/opt/uniproxy/acme-account.conf` 只允许 root 读取，权限必须为 `600`；节点不应出现该文件或 `SAVED_CF_Token`。
 
-新增节点前，在云厂商控制台复制该实例的 SSH `SHA256:...` 主机指纹。面板会使用 `ssh-keyscan` 取回公钥、核对指纹并写入独立 `known_hosts`，指纹不匹配或未核对时不会发送 SSH 密码/私钥。
+新增节点时无需填写 SSH 指纹。面板会在首次连接时自动记录主机密钥，后续密钥发生变化会被 OpenSSH 拒绝；如节点重装系统导致密钥变化，需要清理主控机对应的 `known_hosts` 条目后再连接。
 
 ## 3. 安装系统依赖
 
