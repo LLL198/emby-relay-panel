@@ -93,6 +93,20 @@ class PanelSecurityIntegrationTests(unittest.TestCase):
         self.assertEqual(self.panel._select_existing_nginx_port("listen 80;\nlisten 8443;"), 8443)
         self.assertEqual(self.panel._select_existing_nginx_port("listen 80;"), 80)
 
+    def test_old_nodes_get_ca_bundle_migration_script(self):
+        script = self.panel._ca_bundle_prepare_script("/etc/uniproxy-nginx/ca-bundle.pem")
+        self.assertIn("/etc/ssl/certs/ca-certificates.crt", script)
+        self.assertIn("/etc/ssl/cert.pem", script)
+        self.assertIn("/etc/pki/tls/certs/ca-bundle.crt", script)
+        self.assertIn('install -m 0644 "$ca_source" "$ca_bundle"', script)
+        self.assertIn("系统 CA bundle 不存在", script)
+
+    def test_ca_bundle_migration_rejects_non_absolute_path(self):
+        with self.assertRaises(PanelError):
+            self.panel._ca_bundle_prepare_script("relative/ca.pem")
+        with self.assertRaises(PanelError):
+            self.panel._ca_bundle_prepare_script("/etc/ca\n-bundle.pem")
+
     def test_host_cookie_names_have_no_domain_scope(self):
         response = web.Response()
         self.panel._set_user_session(response, "a" * 43, "b" * 43)

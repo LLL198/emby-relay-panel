@@ -151,6 +151,8 @@ sudo journalctl -u nginx -n 100 --no-pager
 
 把最后一段错误发给管理员，不要直接删除整个 `/etc/nginx`。
 
+如果错误里出现 `ca-bundle.pem` 或 `SSL_CTX_load_verify_locations`，说明这是旧节点还没有补 CA 文件。先把主站更新到最新版，然后在节点面板点击一次“检查”或重新下发线路；面板会自动从系统 CA 文件补齐 `/etc/uniproxy-nginx/ca-bundle.pem`。
+
 ### `524`、超时或拖动视频断流
 
 先确认节点配置至少有 **512 MB 内存**，NAT 映射没有限速，且源站允许节点出口 IP。小内存 NAT 机同时跑 Nginx、证书续期和播放器长连接时容易超时。
