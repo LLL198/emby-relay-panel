@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Password-protected management panel for uniproxy nodes and routes."""
+"""Password-protected management panel for emby-relay-panel nodes and routes."""
 
 import asyncio
 import base64

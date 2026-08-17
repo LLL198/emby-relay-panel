@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+"""HTTP entry point for the emby-relay-panel user and admin interfaces."""
+
 import asyncio
 import html
 import json
