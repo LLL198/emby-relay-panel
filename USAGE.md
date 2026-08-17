@@ -189,7 +189,7 @@ install -m 0644 /opt/uniproxy/deploy/00-uniproxy-security.conf /etc/nginx/conf.d
 cp /opt/uniproxy/deploy/sh.996878.xyz.nginx /etc/nginx/conf.d/sh.example.com.nginx
 ```
 
-Alpine 通常使用 `/etc/nginx/http.d/`；把两个文件放到 Nginx 主配置实际 `include` 的目录即可。不要同时启用旧的 `sh.lplww.xyz.redirect.nginx` 示例。
+Alpine 通常使用 `/etc/nginx/http.d/`；把两个文件放到 Nginx 主配置实际 `include` 的目录即可。仓库不再附带旧域名跳转配置；如需迁移旧域名，请按自己的域名另写一个只做 301 的 server 块。
 
 示例配置默认启用了 Cloudflare Origin Pull：
 
@@ -281,3 +281,7 @@ tail -f /var/log/nginx/error.log
 ## 12. 交付给使用者
 
 部署完成后只需要发给使用者三样东西：主站地址、邀请码、简短说明（注册 → 登录 → 填源站 → 选节点 → 复制线路）。不要把 Cloudflare Token、管理员密码、SSH 密码、数据库或证书私钥发给使用者。
+
+## 13. 关于旧版内部名称
+
+项目品牌已统一为 `emby-relay-panel`。为了兼容已经部署的节点和数据库，以下运行时标识暂时保留，不要手动改名：systemd 服务 `uniproxy`、安装目录 `/opt/uniproxy`、数据目录 `/var/lib/uniproxy`、节点隔离用户 `uniproxy-nginx` 以及相关日志路径。未来如果要迁移这些路径，必须按版本提供迁移脚本，不能直接批量替换。

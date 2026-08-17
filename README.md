@@ -59,6 +59,8 @@ python3 -m venv /opt/uniproxy/.venv
 - `origin_security.py`：源站 HTTPS 和公网地址校验。
 - `tests/`：安全、数据库和回归测试。
 
+项目品牌统一为 `emby-relay-panel`；`uniproxy` 出现在服务名、安装路径、日志和节点隔离用户中，是为了兼容已部署实例的运行时标识，不代表项目仍使用旧品牌。
+
 ## 安全注意事项
 
 - `.env`、`panel.db`、`acme-account.conf`、SSH 私钥、证书私钥和日志都不应提交到 Git。

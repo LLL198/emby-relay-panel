@@ -81,7 +81,7 @@ class RendererTests(unittest.TestCase):
 
     def test_secure_https_defaults(self):
         rendered = render_route(self.spec())
-        self.assertIn(f"# unirelay-renderer-version: {RENDERER_VERSION}", rendered)
+        self.assertIn(f"# emby-relay-panel-renderer-version: {RENDERER_VERSION}", rendered)
         self.assertIn("server 8.8.8.8:443 max_fails=2 fail_timeout=10s;", rendered)
         self.assertIn("proxy_pass https://unirelay_backend_", rendered)
         self.assertNotIn("resolver ", rendered)
@@ -207,7 +207,7 @@ class ConverterIntegrationTests(unittest.TestCase):
             with mock.patch.object(sys, "argv", argv), contextlib.redirect_stdout(io.StringIO()):
                 convert_remote_routes.main()
             rendered = (output / "media.node.example.net.conf").read_text(encoding="utf-8")
-            self.assertIn(f"# unirelay-renderer-version: {RENDERER_VERSION}", rendered)
+            self.assertIn(f"# emby-relay-panel-renderer-version: {RENDERER_VERSION}", rendered)
             self.assertIn("proxy_ssl_verify on;", rendered)
             self.assertIn("server 8.8.8.8:443", rendered)
             self.assertNotIn("resolver ", rendered)
