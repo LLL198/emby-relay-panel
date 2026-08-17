@@ -1,0 +1,55 @@
+[Unit]
+Description=emby-relay-panel controller (legacy uniproxy service id)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/root/.secrets/uniproxy-panel.env
+Environment=PROXY_DOMAIN_SUFFIX=sh.996878.xyz
+Environment=AUTO_NODE_ZONE=996878.xyz
+Environment=PUBLIC_HTTPS_PORT=443
+Environment=PUBLIC_HTTP_PORT=80
+Environment=PANEL_PUBLIC_ORIGIN=https://sh.996878.xyz
+Environment=USER_ORIGIN_ALLOWED_PORTS=443,8443,8920,12172
+Environment=MINIMUM_PASSWORD_LENGTH=1
+Environment=PASSWORD_HASH_CONCURRENCY=2
+Environment=USER_ROUTE_CREATION_ENABLED=1
+Environment=CERT_RENEW_INTERVAL=21600
+Environment=GENERATED_NGINX_DIR=/etc/nginx/conf.d
+Environment=TLS_CERT_FILE=/etc/letsencrypt/live/sh.996878.xyz/fullchain.pem
+Environment=TLS_KEY_FILE=/etc/letsencrypt/live/sh.996878.xyz/privkey.pem
+Environment=LISTEN_HOST=127.0.0.1
+Environment=LISTEN_PORT=8787
+WorkingDirectory=/opt/uniproxy
+ExecStart=/usr/bin/python3 /opt/uniproxy/uniproxy.py
+Restart=always
+RestartSec=2
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/var/lib/uniproxy /etc/nginx /root/.acme.sh
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+TasksMax=128
+LimitNOFILE=65536
+Environment=PYTHONDONTWRITEBYTECODE=1
+
+[Install]
+WantedBy=multi-user.target

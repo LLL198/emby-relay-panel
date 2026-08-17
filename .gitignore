@@ -1,0 +1,40 @@
+# Python caches and local tooling output
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Runtime state and local data
+*.db
+*.sqlite
+*.sqlite3
+*.log
+*.pid
+backups/
+data/
+
+# Environment files and secret material
+.env
+.env.*
+!.env.example
+.cloudflare-token
+acme-account.conf
+acme-template.tgz
+*.tgz
+*.secret
+secrets/
+keys/
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+
+# Editor and OS files
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
