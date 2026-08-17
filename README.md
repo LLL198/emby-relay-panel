@@ -1,6 +1,5 @@
-# UniRelay
-
-UniRelay 是一个基于 Nginx 的反向代理节点和用户管理面板，支持普通 VPS、NAT 节点、Cloudflare DNS 自动配置、HTTPS 证书、邀请码、用户线路和流量统计。
+# emby-relay-panel
+emby-relay-panel 是一个基于 Nginx 的反向代理节点和用户管理面板，支持普通 VPS、NAT 节点、Cloudflare DNS 自动配置、HTTPS 证书、邀请码、用户线路和流量统计。
 
 ## 不会用？按这个顺序做
 
