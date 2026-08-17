@@ -2361,7 +2361,7 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                 "if [ -s /run/nginx.pid ]; then old_pid=$(cat /run/nginx.pid 2>/dev/null || true); if [ -n \"$old_pid\" ] && kill -0 \"$old_pid\" 2>/dev/null; then kill -QUIT \"$old_pid\" 2>/dev/null || true; sleep 1; fi; fi",
                 f"mkdir -p {shlex.quote(root_dir)} {shlex.quote(node['generated_dir'])} {shlex.quote(root_dir + '/certs')} /usr/local/sbin",
                 ensure_nginx_user,
-                "ca_source=/etc/ssl/certs/ca-certificates.crt; if [ ! -r \"$ca_source\" ]; then ca_source=/etc/pki/tls/certs/ca-bundle.crt; fi; test -r \"$ca_source\"; install -m 0644 \"$ca_source\" /etc/uniproxy-nginx/ca-bundle.pem",
+                self._ca_bundle_prepare_script("/etc/uniproxy-nginx/ca-bundle.pem"),
                 f"printf %s {shlex.quote(encoded_controller)} | base64 -d > {shlex.quote(controller_path)}",
                 f"chmod 755 {shlex.quote(controller_path)}",
                 f"printf %s {shlex.quote(encoded_nginx)} | base64 -d > {shlex.quote(node['caddy_config'])}",
@@ -2406,6 +2406,7 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                 self._run(self._scp_args(node, key_path, stage + "/key.pem"), env=self._ssh_env(node), timeout=60)
                 command = "\n".join([
                     "set -eu",
+                    self._ca_bundle_prepare_script(str(node["ca_bundle_path"])),
                     f"install -m 0600 {shlex.quote(stage + '/key.pem')} {shlex.quote(str(node['tls_key_file']))}",
                     f"install -m 0644 {shlex.quote(stage + '/fullchain.pem')} {shlex.quote(str(node['tls_cert_file']))}",
                     "rm -f /root/.acme.sh/account.conf; if command -v crontab >/dev/null 2>&1; then crontab -l 2>/dev/null | grep -v 'acme.sh.*--cron' | crontab - || true; fi",
@@ -2619,6 +2620,35 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
         env["SSHPASS"] = password
         return env
 
+    @staticmethod
+    def _ca_bundle_prepare_script(path: str) -> str:
+        """Return a small idempotent migration for old nodes.
+
+        Earlier node deployments did not copy a CA bundle to the project
+        directory, while newly rendered routes require that stable path for
+        ``proxy_ssl_trusted_certificate``.  Keep the renderer stable and
+        repair the path just before every remote nginx test/reload.  The
+        source list covers the layouts used by Debian/Ubuntu, Alpine,
+        RHEL-family and other common distributions.
+        """
+        ca_path = str(path or "").strip()
+        if not ca_path.startswith("/") or "\n" in ca_path or "\r" in ca_path:
+            raise PanelError("远端 CA bundle 路径不合法")
+        quoted_path = shlex.quote(ca_path)
+        return "\n".join([
+            f"ca_bundle={quoted_path}",
+            'if [ ! -r "$ca_bundle" ]; then',
+            '  install -d -m 0755 "$(dirname "$ca_bundle")"',
+            '  ca_source=""',
+            '  for candidate in /etc/ssl/certs/ca-certificates.crt /etc/ssl/cert.pem /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/ca-bundle.pem /etc/ssl/certs/ca-bundle.crt; do',
+            '    if [ -r "$candidate" ]; then ca_source="$candidate"; break; fi',
+            '  done',
+            '  if [ -z "$ca_source" ]; then echo "系统 CA bundle 不存在，请先安装 ca-certificates" >&2; exit 1; fi',
+            '  install -m 0644 "$ca_source" "$ca_bundle"',
+            'fi',
+            'test -r "$ca_bundle" || { echo "CA bundle 不可读：$ca_bundle" >&2; exit 1; }',
+        ])
+
     def _deploy_route(self, node, route) -> None:
         content = self._render_mapping(route, node)
         target = f"{node['generated_dir']}/{route['public_host']}.conf"
@@ -2668,8 +2698,9 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
         traffic_backup = traffic_target + ".panel-backup"
         traffic_temporary = traffic_target + ".panel-new"
         reload_command = "/usr/local/sbin/uniproxy-nginx reload" if managed else "/bin/systemctl reload nginx"
+        ca_prepare = self._ca_bundle_prepare_script(str(node["ca_bundle_path"]))
         script = "\n".join([
-            "set -eu", f"mkdir -p {shlex.quote(node['generated_dir'])}",
+            "set -eu", ca_prepare, f"mkdir -p {shlex.quote(node['generated_dir'])}",
             f"target={shlex.quote(target)}", f"backup={shlex.quote(backup)}", f"temporary={shlex.quote(temporary)}",
             f"traffic_target={shlex.quote(traffic_target)}", f"traffic_backup={shlex.quote(traffic_backup)}", f"traffic_temporary={shlex.quote(traffic_temporary)}",
             "had_old=0", "had_traffic_old=0",
@@ -2705,8 +2736,9 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
             return
         backup = target + ".panel-backup"
         reload_command = "/usr/local/sbin/uniproxy-nginx reload" if managed else "/bin/systemctl reload nginx"
+        ca_prepare = self._ca_bundle_prepare_script(str(node["ca_bundle_path"]))
         script = "\n".join([
-            "set -eu", f"target={shlex.quote(target)}", f"backup={shlex.quote(backup)}", "had_old=0",
+            "set -eu", ca_prepare, f"target={shlex.quote(target)}", f"backup={shlex.quote(backup)}", "had_old=0",
             'if [ -f "$target" ]; then cp "$target" "$backup"; rm -f "$target"; had_old=1; fi',
             f"if ! /usr/sbin/nginx -t -c {shlex.quote(node['caddy_config'])}; then",
             '  if [ "$had_old" = 1 ]; then mv "$backup" "$target"; fi; exit 1', "fi",
@@ -2728,7 +2760,7 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
         ]
         if node["auto_managed"]:
             requirements.append(("-x", "/usr/local/sbin/uniproxy-nginx", "自动 Nginx 控制器不存在"))
-        commands = ["set -eu"]
+        commands = ["set -eu", self._ca_bundle_prepare_script(str(node["ca_bundle_path"]))]
         for test, path, message in requirements:
             commands.append(f"test {test} {shlex.quote(path)} || {{ echo {shlex.quote(message)} >&2; exit 1; }}")
         commands.append(f"/usr/sbin/nginx -t -c {shlex.quote(node['caddy_config'])}")
