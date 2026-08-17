@@ -57,8 +57,9 @@ USER_SESSION_COOKIE = "__Host-uniproxy-session"
 USER_CSRF_COOKIE = "__Host-uniproxy-csrf"
 LEGACY_USER_SESSION_COOKIE = "_uniproxy_user_session"
 LEGACY_USER_CSRF_COOKIE = "_uniproxy_user_csrf"
-USER_SESSION_SECONDS = 24 * 60 * 60
-SCHEMA_VERSION = 3
+SESSION_EPHEMERAL_SECONDS = 24 * 60 * 60
+SESSION_REMEMBER_SECONDS = 90 * 24 * 60 * 60
+SCHEMA_VERSION = 4
 ADMIN_ROUTE_PAGE_SIZE = 5
 TRAFFIC_FORMAT_NAME = "uniproxy_traffic"
 TRAFFIC_CONFIG_NAME = "00-uniproxy-traffic.conf"
@@ -231,7 +232,6 @@ class ProxyPanel:
             self.node_credential_cipher = Fernet(credential_key.encode("ascii")) if credential_key else None
         except (ValueError, UnicodeError):
             raise RuntimeError("NODE_CREDENTIAL_ENCRYPTION_KEY must be a Fernet key")
-        self._auth_failures: dict[str, list[float]] = {}
         self._user_auth_failures: dict[str, list[float]] = {}
 
     @property
@@ -287,7 +287,8 @@ class ProxyPanel:
                 "id INTEGER PRIMARY KEY, username TEXT NOT NULL, username_norm TEXT NOT NULL UNIQUE, "
                 "password_hash TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', route_quota INTEGER NOT NULL DEFAULT 10, "
                 "expires_at TEXT, notes TEXT NOT NULL DEFAULT '', invite_id INTEGER REFERENCES invites(id) ON DELETE SET NULL, "
-                "must_change_password INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, "
+                "must_change_password INTEGER NOT NULL DEFAULT 0, is_admin INTEGER NOT NULL DEFAULT 0, "
+                "created_at TEXT NOT NULL, updated_at TEXT NOT NULL, "
                 "last_login_at TEXT NOT NULL DEFAULT '', last_login_ip TEXT NOT NULL DEFAULT '');"
                 "CREATE TABLE IF NOT EXISTS user_sessions ("
                 "token_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, "
@@ -377,6 +378,9 @@ class ProxyPanel:
                 db.execute(
                     "UPDATE routes SET state=CASE WHEN deployed=1 THEN 'deployed' ELSE 'failed' END"
                 )
+            user_columns = {row["name"] for row in db.execute("PRAGMA table_info(users)")}
+            if "is_admin" not in user_columns:
+                db.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0")
             invite_columns = {row["name"] for row in db.execute("PRAGMA table_info(invites)")}
             if "code_ciphertext" not in invite_columns:
                 db.execute("ALTER TABLE invites ADD COLUMN code_ciphertext TEXT NOT NULL DEFAULT ''")
@@ -448,6 +452,7 @@ class ProxyPanel:
                 local_id = None
             if local_id is not None:
                 self._import_local_routes(db, local_id)
+        self._sync_admin_account()
         os.chmod(self.db_path, 0o600)
         throttle_secret = os.environ.get("AUTH_THROTTLE_SECRET", "").strip()
         if not throttle_secret:
@@ -464,6 +469,90 @@ class ProxyPanel:
                         (throttle_secret,),
                     )
         self.auth_throttle = PersistentAuthThrottle(self.db_path, throttle_secret)
+
+    def _sync_admin_account(self) -> None:
+        """Create or explicitly reset the single administrator account.
+
+        The configured credentials seed the account once.  A later UI
+        password change is kept in the database; changing the environment
+        credentials is treated as an intentional emergency reset.
+        """
+        try:
+            admin_username = self._normalize_username(self.username)
+        except PanelError as exc:
+            raise RuntimeError("ADMIN_USERNAME is invalid") from exc
+        if not self.password:
+            raise RuntimeError("ADMIN_PASSWORD is required")
+        with self._connect() as db:
+            secret_row = db.execute(
+                "SELECT value FROM settings WHERE key='admin_env_sync_secret'"
+            ).fetchone()
+            if secret_row:
+                sync_secret = str(secret_row["value"])
+            else:
+                sync_secret = secrets.token_urlsafe(32)
+                db.execute(
+                    "INSERT INTO settings (key,value) VALUES ('admin_env_sync_secret',?)",
+                    (sync_secret,),
+                )
+            fingerprint = hmac.new(
+                sync_secret.encode("utf-8"),
+                (self.username + "\x00" + self.password).encode("utf-8"),
+                hashlib.sha256,
+            ).hexdigest()
+            fingerprint_row = db.execute(
+                "SELECT value FROM settings WHERE key='admin_env_fingerprint'"
+            ).fetchone()
+            admins = db.execute(
+                "SELECT * FROM users WHERE is_admin=1 ORDER BY id"
+            ).fetchall()
+            if len(admins) > 1:
+                raise RuntimeError("数据库中存在多个管理员账号，已停止启动")
+            admin = admins[0] if admins else None
+            conflict = db.execute(
+                "SELECT id FROM users WHERE username_norm=? AND is_admin=0",
+                (admin_username,),
+            ).fetchone()
+            if conflict and (admin is None or int(conflict["id"]) != int(admin["id"])):
+                raise RuntimeError(
+                    f"管理员用户名 {self.username!r} 已被普通用户占用，请修改 ADMIN_USERNAME 后重试"
+                )
+            if admin is None:
+                timestamp = now()
+                db.execute(
+                    "INSERT INTO users (username,username_norm,password_hash,status,route_quota,expires_at,notes,"
+                    "must_change_password,is_admin,created_at,updated_at) VALUES (?,?,?,'active',1000,NULL,?,0,1,?,?)",
+                    (
+                        self.username.strip(), admin_username, self._password_hash(self.password),
+                        "系统管理员", timestamp, timestamp,
+                    ),
+                )
+                db.execute(
+                    "INSERT INTO settings (key,value) VALUES ('admin_env_fingerprint',?) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    (fingerprint,),
+                )
+                return
+            if fingerprint_row is None or str(fingerprint_row["value"]) != fingerprint:
+                db.execute(
+                    "UPDATE users SET username=?,username_norm=?,password_hash=?,status='active',"
+                    "expires_at=NULL,is_admin=1,updated_at=? WHERE id=?",
+                    (
+                        self.username.strip(), admin_username, self._password_hash(self.password),
+                        now(), admin["id"],
+                    ),
+                )
+                db.execute("DELETE FROM user_sessions WHERE user_id=?", (admin["id"],))
+                db.execute(
+                    "INSERT INTO settings (key,value) VALUES ('admin_env_fingerprint',?) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    (fingerprint,),
+                )
+            else:
+                db.execute(
+                    "UPDATE users SET status='active',expires_at=NULL,is_admin=1,updated_at=? WHERE id=?",
+                    (now(), admin["id"]),
+                )
 
     def _node_password(self, node) -> str:
         ciphertext = str(node["ssh_password_ciphertext"] or "") if "ssh_password_ciphertext" in node.keys() else ""
@@ -498,16 +587,6 @@ class ProxyPanel:
                 (node_id, host.split(".", 1)[0], match.group(1), host, now(), now()),
             )
 
-    def _authorized(self, request: web.Request) -> bool:
-        raw = request.headers.get("Authorization", "")
-        if not raw.startswith("Basic "):
-            return False
-        try:
-            user, password = base64.b64decode(raw[6:], validate=True).decode().split(":", 1)
-        except Exception:
-            return False
-        return hmac.compare_digest(user, self.username) and hmac.compare_digest(password, self.password)
-
     def _client_ip(self, request: web.Request) -> str:
         peer = request.transport.get_extra_info("peername") if request.transport else None
         peer_ip = str(peer[0]) if peer else "unknown"
@@ -523,35 +602,12 @@ class ProxyPanel:
                 pass
         return peer_ip
 
-    async def require_authorized(self, request: web.Request) -> None:
-        """Require panel credentials and slow repeated failures per client IP."""
-        client_ip = self._client_ip(request)
-        current = time.monotonic()
-        failures = [stamp for stamp in self._auth_failures.get(client_ip, []) if current - stamp < 600]
-        if len(failures) >= 8:
-            self._auth_failures[client_ip] = failures
-            raise web.HTTPTooManyRequests(text="too many authentication failures", headers={"Retry-After": "600"})
-        if self._authorized(request):
-            self._auth_failures.pop(client_ip, None)
-            return
-        failures.append(current)
-        self._auth_failures[client_ip] = failures
-        if len(self._auth_failures) > 4096:
-            self._auth_failures = {
-                ip: stamps for ip, stamps in self._auth_failures.items()
-                if stamps and current - stamps[-1] < 600
-            }
-        await asyncio.sleep(min(1.5, 0.15 * len(failures)))
-        raise web.HTTPUnauthorized(
-            headers={"WWW-Authenticate": 'Basic realm="Proxy panel", charset="UTF-8"'}
-        )
-
-    def _csrf(self, action: str) -> str:
-        return hmac.new(self.password.encode(), action.encode(), hashlib.sha256).hexdigest()
-
-    def _check_csrf(self, action: str, data) -> None:
-        if not hmac.compare_digest(str(data.get("csrf", "")), self._csrf(action)):
-            raise web.HTTPForbidden(text="invalid form token")
+    def require_admin(self, request: web.Request):
+        """Require a live user session whose role is administrator."""
+        user = self.require_user(request)
+        if int(user["is_admin"] or 0) != 1:
+            raise web.HTTPNotFound()
+        return user
 
     @staticmethod
     def _normalize_username(value: str) -> str:
@@ -626,17 +682,18 @@ class ProxyPanel:
     def _session_hash(self, token: str) -> str:
         return hashlib.sha256(token.encode("ascii")).hexdigest()
 
-    def _create_user_session(self, user_id: int) -> tuple[str, str]:
+    def _create_user_session(self, user_id: int, remember: bool = True) -> tuple[str, str, int]:
         token = secrets.token_urlsafe(32)
         csrf_secret = secrets.token_urlsafe(32)
-        expires = (datetime.now(timezone.utc) + timedelta(seconds=USER_SESSION_SECONDS)).replace(microsecond=0).isoformat()
+        lifetime = SESSION_REMEMBER_SECONDS if remember else SESSION_EPHEMERAL_SECONDS
+        expires = (datetime.now(timezone.utc) + timedelta(seconds=lifetime)).replace(microsecond=0).isoformat()
         with self._connect() as db:
             db.execute("DELETE FROM user_sessions WHERE expires_at <= ?", (now(),))
             db.execute(
                 "INSERT INTO user_sessions (token_hash,user_id,csrf_secret,expires_at,created_at) VALUES (?,?,?,?,?)",
                 (self._session_hash(token), user_id, csrf_secret, expires, now()),
             )
-        return token, csrf_secret
+        return token, csrf_secret, lifetime
 
     def _session_user(self, request: web.Request):
         token = request.cookies.get(USER_SESSION_COOKIE, "")
@@ -667,10 +724,15 @@ class ProxyPanel:
             if self.auto_zone:
                 response.del_cookie(name, domain=self.auto_zone, path="/", secure=True)
 
-    def _set_user_session(self, response: web.StreamResponse, token: str, csrf_secret: str) -> None:
+    def _set_user_session(self, response: web.StreamResponse, token: str, csrf_secret: str, max_age: int | None = None) -> None:
         self._clear_legacy_user_cookies(response)
-        response.set_cookie(USER_SESSION_COOKIE, token, secure=True, httponly=True, samesite="Strict", max_age=USER_SESSION_SECONDS, path="/")
-        response.set_cookie(USER_CSRF_COOKIE, csrf_secret, secure=True, httponly=False, samesite="Strict", max_age=USER_SESSION_SECONDS, path="/")
+        cookie_args = {"secure": True, "httponly": True, "samesite": "Strict", "path": "/"}
+        csrf_args = {"secure": True, "httponly": False, "samesite": "Strict", "path": "/"}
+        if max_age is not None:
+            cookie_args["max_age"] = max_age
+            csrf_args["max_age"] = max_age
+        response.set_cookie(USER_SESSION_COOKIE, token, **cookie_args)
+        response.set_cookie(USER_CSRF_COOKIE, csrf_secret, **csrf_args)
 
     def _clear_user_session(self, response: web.StreamResponse) -> None:
         response.del_cookie(USER_SESSION_COOKIE, path="/", secure=True, httponly=True, samesite="Strict")
@@ -742,6 +804,8 @@ class ProxyPanel:
 
     def _register_user(self, invite_code: str, username: str, password: str, client_ip: str):
         normalized = self._normalize_username(username)
+        if normalized == str(self.username).strip().lower():
+            raise PanelError("该用户名为系统保留名称")
         code_hash = hashlib.sha256(invite_code.strip().encode("utf-8")).hexdigest()
         with self._connect() as db:
             invite = db.execute("SELECT * FROM invites WHERE code_hash=?", (code_hash,)).fetchone()
@@ -759,6 +823,8 @@ class ProxyPanel:
             invite = db.execute("SELECT * FROM invites WHERE code_hash=?", (code_hash,)).fetchone()
             if not invite or invite["revoked_at"] or invite["expires_at"] <= now() or int(invite["used_count"]) >= int(invite["max_uses"]):
                 raise PanelError("邀请码无效或已失效")
+            if normalized == str(self.username).strip().lower():
+                raise PanelError("该用户名为系统保留名称")
             if db.execute("SELECT 1 FROM users WHERE username_norm=?", (normalized,)).fetchone():
                 raise PanelError("用户名已被使用")
             expires_at = self._future(int(invite["account_days"])) if invite["account_days"] is not None else None
@@ -1253,7 +1319,7 @@ class ProxyPanel:
             messages += f"<p class='notice'>{html.escape(notice)}</p>"
         body = f"""<!doctype html><html lang='zh-CN'><meta charset='utf-8'>
 <meta name='viewport' content='width=device-width,initial-scale=1'><title>{html.escape(title)}</title><style>
-*{{box-sizing:border-box}}body{{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:radial-gradient(circle at 10% 10%,#dbeafe 0,transparent 34%),linear-gradient(135deg,#f8fafc,#e7eefb);font:14px system-ui,-apple-system,'Segoe UI',sans-serif;color:#1e293b}}main{{width:min(100%,430px)}}.brand{{margin:0 0 20px;text-align:center;color:#4c659e;font-weight:800;letter-spacing:.08em}}section{{padding:28px;border:1px solid rgba(255,255,255,.85);border-radius:20px;background:rgba(255,255,255,.78);box-shadow:0 18px 50px rgba(64,88,140,.14);backdrop-filter:blur(16px)}}h1{{margin:0 0 8px;font-size:25px}}p{{line-height:1.7}}.muted{{color:#64748b}}label{{display:grid;gap:6px;margin-top:14px;color:#475569;font-size:13px;font-weight:650}}input{{width:100%;padding:12px;border:1px solid #d6e0ef;border-radius:10px;background:#fff;font:inherit}}button{{width:100%;margin-top:20px;padding:12px;border:0;border-radius:10px;background:linear-gradient(135deg,#2563eb,#4f46e5);color:#fff;font:inherit;font-weight:750;cursor:pointer}}a{{color:#315fbd;text-decoration:none}}.links{{display:flex;justify-content:space-between;gap:12px;margin-top:18px;font-size:13px}}.error,.notice{{padding:10px 12px;border-radius:10px}}.error{{background:#fff1f2;color:#b4233a}}.notice{{background:#ecfdf5;color:#047857}}</style>
+*{{box-sizing:border-box}}body{{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:radial-gradient(circle at 10% 10%,#dbeafe 0,transparent 34%),linear-gradient(135deg,#f8fafc,#e7eefb);font:14px system-ui,-apple-system,'Segoe UI',sans-serif;color:#1e293b}}main{{width:min(100%,430px)}}.brand{{margin:0 0 20px;text-align:center;color:#4c659e;font-weight:800;letter-spacing:.08em}}section{{padding:28px;border:1px solid rgba(255,255,255,.85);border-radius:20px;background:rgba(255,255,255,.78);box-shadow:0 18px 50px rgba(64,88,140,.14);backdrop-filter:blur(16px)}}h1{{margin:0 0 8px;font-size:25px}}p{{line-height:1.7}}.muted{{color:#64748b}}label{{display:grid;gap:6px;margin-top:14px;color:#475569;font-size:13px;font-weight:650}}label.checkline{{display:flex;align-items:center;gap:8px;font-weight:500}}input{{width:100%;padding:12px;border:1px solid #d6e0ef;border-radius:10px;background:#fff;font:inherit}}label.checkline input{{width:auto;padding:0}}button{{width:100%;margin-top:20px;padding:12px;border:0;border-radius:10px;background:linear-gradient(135deg,#2563eb,#4f46e5);color:#fff;font:inherit;font-weight:750;cursor:pointer}}a{{color:#315fbd;text-decoration:none}}.links{{display:flex;justify-content:space-between;gap:12px;margin-top:18px;font-size:13px}}.error,.notice{{padding:10px 12px;border-radius:10px}}.error{{background:#fff1f2;color:#b4233a}}.notice{{background:#ecfdf5;color:#047857}}</style>
 <main><p class='brand'>✦ 反代入口</p><section>{messages}{content}</section></main></html>"""
         response = web.Response(text=body, content_type="text/html")
         response.headers.update({
@@ -1262,13 +1328,13 @@ class ProxyPanel:
         })
         self._clear_legacy_user_cookies(response)
         if csrf_token:
-            response.set_cookie(USER_CSRF_COOKIE, csrf_token, secure=True, httponly=False, samesite="Strict", max_age=USER_SESSION_SECONDS, path="/")
+            response.set_cookie(USER_CSRF_COOKIE, csrf_token, secure=True, httponly=False, samesite="Strict", max_age=SESSION_EPHEMERAL_SECONDS, path="/")
         return response
 
     def login_page(self, request: web.Request, error: str = "") -> web.Response:
         csrf_token = self._anonymous_csrf(request)
-        content = f"""<h1>登录</h1><p class='muted'>登录后可选择节点并创建自己的访问线路。</p>
-<form method='post' action='/login'><input type='hidden' name='csrf' value='{html.escape(csrf_token, quote=True)}'><label>用户名<input required name='username' autocomplete='username'></label><label>密码<input required type='password' name='password' autocomplete='current-password'></label><button>登录</button></form><p class='links'><span>没有账号？</span><a href='/register'>使用邀请码注册</a></p>"""
+        content = f"""<h1>登录</h1><p class='muted'>登录后可选择节点并创建自己的访问线路。管理员账号登录后会在首页显示后台入口。</p>
+<form method='post' action='/login'><input type='hidden' name='csrf' value='{html.escape(csrf_token, quote=True)}'><label>用户名<input required name='username' autocomplete='username'></label><label>密码<input required type='password' name='password' autocomplete='current-password'></label><label class='checkline'><input type='checkbox' name='remember' value='1' checked> 保持登录 90 天</label><button>登录</button></form><p class='links'><span>没有账号？</span><a href='/register'>使用邀请码注册</a></p>"""
         return self._user_page("登录", content, csrf_token=csrf_token, error=error)
 
     def register_page(self, request: web.Request, error: str = "") -> web.Response:
@@ -1313,6 +1379,7 @@ class ProxyPanel:
                 data = await request.post()
                 self._check_anonymous_csrf(request, data)
                 username = str(data.get("username", ""))
+                remember = str(data.get("remember", "")) == "1"
                 await self._enforce_user_auth_limit(request, username)
                 try:
                     user = await self.hash_limiter.run(
@@ -1329,9 +1396,11 @@ class ProxyPanel:
                     await self._record_user_auth_failure(request, username)
                     return self.login_page(request, error="用户名或密码错误，或账号已停用/到期")
                 await self._record_user_auth_success(request, username)
-                token, csrf_secret = await asyncio.to_thread(self._create_user_session, int(user["id"]))
+                token, csrf_secret, lifetime = await asyncio.to_thread(
+                    self._create_user_session, int(user["id"]), remember
+                )
                 response = web.HTTPFound("/account" if user["must_change_password"] else "/")
-                self._set_user_session(response, token, csrf_secret)
+                self._set_user_session(response, token, csrf_secret, lifetime if remember else None)
                 return response
         if path == "/register":
             if request.method == "GET":
@@ -1361,9 +1430,11 @@ class ProxyPanel:
                     await self._record_user_auth_failure(request, username)
                     return self.register_page(request, error=str(exc))
                 await self._record_user_auth_success(request, username)
-                token, csrf_secret = await asyncio.to_thread(self._create_user_session, user_id)
+                token, csrf_secret, lifetime = await asyncio.to_thread(
+                    self._create_user_session, user_id, True
+                )
                 response = web.HTTPFound("/")
-                self._set_user_session(response, token, csrf_secret)
+                self._set_user_session(response, token, csrf_secret, lifetime)
                 return response
         if path == "/logout" and request.method == "POST":
             user = self.require_user(request)
@@ -1399,9 +1470,8 @@ class ProxyPanel:
                 await self._record_user_auth_failure(request, str(user["username"]))
                 return self.account_page(request, user, error=str(exc))
             await self._record_user_auth_success(request, str(user["username"]))
-            token, csrf_secret = await asyncio.to_thread(self._create_user_session, int(user["id"]))
-            response = web.HTTPFound("/")
-            self._set_user_session(response, token, csrf_secret)
+            response = web.HTTPFound("/login")
+            self._clear_user_session(response)
             return response
         route_match = re.fullmatch(r"/my/routes/(\d+)/(delete|note)", path)
         if route_match and request.method == "POST":
@@ -1454,7 +1524,8 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
         })
         return response
 
-    def dashboard(self, notice: str = "", error: str = "", route_page: int = 1) -> web.Response:
+    def dashboard(self, notice: str = "", error: str = "", route_page: int = 1, csrf_token: str = "") -> web.Response:
+        csrf_token = html.escape(csrf_token, quote=True)
         try:
             route_page = max(1, int(route_page))
         except (TypeError, ValueError):
@@ -1475,8 +1546,8 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
         node_rows_list = []
         for node in nodes:
             node_id = int(node["id"])
-            check_token = self._csrf("node-check:" + str(node_id))
-            delete_token = self._csrf("node-delete:" + str(node_id))
+            check_token = csrf_token
+            delete_token = csrf_token
             kind = "本机" if node["kind"] == "local" else "SSH"
             if node["kind"] == "ssh":
                 mode = "普通 VPS" if node["network_mode"] == "vps" else "NAT"
@@ -1492,8 +1563,8 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
         node_rows = "".join(node_rows_list) or "<tr><td colspan='6' class='muted'>还没有节点</td></tr>"
         route_rows_list = []
         for route in routes:
-            deploy_token = self._csrf("route-deploy:" + str(route["id"]))
-            delete_token = self._csrf("route-delete:" + str(route["id"]))
+            deploy_token = csrf_token
+            delete_token = csrf_token
             public_port = int(route["public_https_port"])
             public_suffix = "" if public_port == 443 else f":{public_port}"
             public_url = f"https://{route['public_host']}{public_suffix}/"
@@ -1515,9 +1586,9 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
             route_pagination = ""
         content = f"""
 <section><h2>线路</h2><table><thead><tr><th>名称</th><th>源站</th><th>公开地址</th><th>节点</th><th>状态</th><th>操作</th></tr></thead><tbody>{route_rows}</tbody></table>{route_pagination}</section>
-<section><h2>新增线路</h2><p class='muted'>创建后会自动下发 Nginx，并从公网访问新地址确认链路；验证结果会直接显示。</p><form method='post' action='{ADMIN_PREFIX}/routes'><div class='grid'><label>线路名称（小写英文、数字、连字符）<input required name='name' pattern='[a-z0-9][a-z0-9-]{{1,31}}' placeholder='emby-a'></label><label>源站地址<input required name='origin' placeholder='https://emby.example.com'></label><label>部署节点<select name='node_id'>{node_options}</select></label></div><p><input type='hidden' name='csrf' value='{self._csrf('route-create')}'><button>创建、下发并验证</button></p></form></section>
+<section><h2>新增线路</h2><p class='muted'>创建后会自动下发 Nginx，并从公网访问新地址确认链路；验证结果会直接显示。</p><form method='post' action='{ADMIN_PREFIX}/routes'><div class='grid'><label>线路名称（小写英文、数字、连字符）<input required name='name' pattern='[a-z0-9][a-z0-9-]{{1,31}}' placeholder='emby-a'></label><label>源站地址<input required name='origin' placeholder='https://emby.example.com'></label><label>部署节点<select name='node_id'>{node_options}</select></label></div><p><input type='hidden' name='csrf' value='{html.escape(csrf_token, quote=True)}'><button>创建、下发并验证</button></p></form></section>
 <section><h2>节点</h2><table><thead><tr><th>名称</th><th>类型</th><th>地区</th><th>域名后缀</th><th>状态 / 代理用量</th><th>操作</th></tr></thead><tbody>{node_rows}</tbody></table></section>
-<section><h2>新增节点</h2><p class='muted'>公网 HTTPS 端口是用户访问时使用的端口，内部 HTTPS 端口是节点 Nginx 实际监听的端口，默认都是 443；两者可以独立填写。若远端已安装 Nginx，系统会自动读取它的 HTTPS 监听端口并优先使用，忽略你填写的内部端口。NAT 机需要让服务商把公网端口映射到内部端口。</p><form method='post' enctype='multipart/form-data' action='{ADMIN_PREFIX}/nodes'><div class='grid'><label>节点名称<input required name='name' placeholder='海创'></label><label>网络类型<select required name='network_mode' id='network-mode'><option value='vps'>普通 VPS（独立公网 IP）</option><option value='nat'>NAT 机（端口映射）</option></select></label><label>服务器公网 IP<input required name='ssh_host' inputmode='decimal' placeholder='162.141.136.85'></label><label>SSH 端口<input required name='ssh_port' value='22' inputmode='numeric'></label><label>公网 HTTPS 端口<input required id='public-port' name='public_https_port' value='443' inputmode='numeric'><span class='muted'>NAT 默认可填服务商分配的端口，例如 30004</span></label><label>内部 HTTPS 端口<input required name='internal_https_port' value='443' inputmode='numeric'><span class='muted'>Nginx 监听端口，不能使用 80；远端已有 Nginx 时自动识别</span></label><label>SSH 密码（与私钥二选一）<input type='password' name='ssh_password' autocomplete='new-password'></label><label>SSH 私钥文件（与密码二选一）<input type='file' name='ssh_private_key' accept='.pem,.key,text/plain,application/x-pem-file'></label></div><p><input type='hidden' name='csrf' value='{self._csrf('node-create')}'><button>自动部署并添加</button></p></form><script nonce='__CSP_NONCE__'>(()=>{{const mode=document.getElementById('network-mode'),publicPort=document.getElementById('public-port');const sync=()=>{{if(mode.value==='nat'&&publicPort.value==='443')publicPort.value='30004';if(mode.value==='vps'&&publicPort.value==='30004')publicPort.value='443';}};mode.addEventListener('change',sync);}})();</script></section>"""
+<section><h2>新增节点</h2><p class='muted'>公网 HTTPS 端口是用户访问时使用的端口，内部 HTTPS 端口是节点 Nginx 实际监听的端口，默认都是 443；两者可以独立填写。若远端已安装 Nginx，系统会自动读取它的 HTTPS 监听端口并优先使用，忽略你填写的内部端口。NAT 机需要让服务商把公网端口映射到内部端口。</p><form method='post' enctype='multipart/form-data' action='{ADMIN_PREFIX}/nodes'><div class='grid'><label>节点名称<input required name='name' placeholder='海创'></label><label>网络类型<select required name='network_mode' id='network-mode'><option value='vps'>普通 VPS（独立公网 IP）</option><option value='nat'>NAT 机（端口映射）</option></select></label><label>服务器公网 IP<input required name='ssh_host' inputmode='decimal' placeholder='162.141.136.85'></label><label>SSH 端口<input required name='ssh_port' value='22' inputmode='numeric'></label><label>公网 HTTPS 端口<input required id='public-port' name='public_https_port' value='443' inputmode='numeric'><span class='muted'>NAT 默认可填服务商分配的端口，例如 30004</span></label><label>内部 HTTPS 端口<input required name='internal_https_port' value='443' inputmode='numeric'><span class='muted'>Nginx 监听端口；远端已有 Nginx 时自动识别</span></label><label>SSH 密码（与私钥二选一）<input type='password' name='ssh_password' autocomplete='new-password'></label><label>SSH 私钥文件（与密码二选一）<input type='file' name='ssh_private_key' accept='.pem,.key,text/plain,application/x-pem-file'></label></div><p><input type='hidden' name='csrf' value='{html.escape(csrf_token, quote=True)}'><button>自动部署并添加</button></p></form><script nonce='__CSP_NONCE__'>(()=>{{const mode=document.getElementById('network-mode'),publicPort=document.getElementById('public-port');const sync=()=>{{if(mode.value==='nat'&&publicPort.value==='443')publicPort.value='30004';if(mode.value==='vps'&&publicPort.value==='30004')publicPort.value='443';}};mode.addEventListener('change',sync);}})();</script></section>"""
         content = content.replace("自动读取它的 HTTPS 监听端口", "自动读取它的监听端口")
         content = content.replace("Nginx 监听端口，不能使用 80；远端已有 Nginx 时自动识别", "Nginx 监听端口；远端已有 Nginx 时自动识别")
         content = content.replace("placeholder='海创'", "")
@@ -1603,6 +1674,8 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
             user = db.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
             if not user:
                 raise PanelError("用户不存在")
+            if int(user["is_admin"] or 0):
+                raise PanelError("管理员账号请在首页的账号安全中操作")
             used = int(db.execute("SELECT COUNT(*) FROM routes WHERE owner_user_id=?", (user_id,)).fetchone()[0])
             if route_quota < used:
                 raise PanelError(f"线路额度不能低于当前已占用的 {used} 条")
@@ -1659,6 +1732,8 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
             user = db.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
             if not user:
                 raise PanelError("用户不存在")
+            if int(user["is_admin"] or 0):
+                raise PanelError("管理员账号不能在用户管理中停用")
             if enabled:
                 if user["expires_at"] and user["expires_at"] <= now():
                     raise PanelError("该用户已到期，请先延长有效期")
@@ -1672,8 +1747,11 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
         alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
         temporary = "".join(secrets.choice(alphabet) for _ in range(16))
         with self._connect() as db:
-            if not db.execute("SELECT 1 FROM users WHERE id=?", (user_id,)).fetchone():
+            user = db.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+            if not user:
                 raise PanelError("用户不存在")
+            if int(user["is_admin"] or 0):
+                raise PanelError("管理员账号请在首页的账号安全中操作")
             db.execute(
                 "UPDATE users SET password_hash=?,must_change_password=1,updated_at=? WHERE id=?",
                 (self._password_hash(temporary), now(), user_id),
@@ -1686,6 +1764,8 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
             user = db.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
             if not user:
                 raise PanelError("用户不存在")
+            if int(user["is_admin"] or 0):
+                raise PanelError("管理员账号不能删除")
             db.execute("UPDATE users SET status='disabled',updated_at=? WHERE id=?", (now(), user_id))
             db.execute("DELETE FROM user_sessions WHERE user_id=?", (user_id,))
             routes = db.execute("SELECT * FROM routes WHERE owner_user_id=? ORDER BY id", (user_id,)).fetchall()
@@ -1712,13 +1792,14 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
 
     def reconcile_inactive_users(self) -> None:
         with self._connect() as db:
-            rows = db.execute("SELECT id FROM users WHERE status!='active' OR (expires_at IS NOT NULL AND expires_at <= ?)", (now(),)).fetchall()
+            rows = db.execute("SELECT id FROM users WHERE is_admin=0 AND (status!='active' OR (expires_at IS NOT NULL AND expires_at <= ?))", (now(),)).fetchall()
             for row in rows:
                 db.execute("DELETE FROM user_sessions WHERE user_id=?", (row["id"],))
         for row in rows:
             self._suspend_owned_routes(int(row["id"]))
 
-    def users_dashboard(self, notice: str = "", error: str = "") -> web.Response:
+    def users_dashboard(self, notice: str = "", error: str = "", csrf_token: str = "") -> web.Response:
+        csrf_token = html.escape(csrf_token, quote=True)
         with self._connect() as db:
             users = db.execute(
                 "SELECT users.*,COUNT(routes.id) AS route_count FROM users LEFT JOIN routes ON routes.owner_user_id=users.id "
@@ -1733,12 +1814,17 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
             user_id = int(user["id"])
             status = self._user_status_label(user)
             expiry_value = html.escape((user["expires_at"] or "")[:10], quote=True)
-            update_token = self._csrf("user-update:" + str(user_id))
-            action_token = self._csrf("user-action:" + str(user_id))
+            update_token = csrf_token
+            action_token = csrf_token
             usage = self._format_traffic_usage(user_usage.get(user_id))
-            buttons = (f"<form class='inline' method='post' action='{ADMIN_PREFIX}/users/{user_id}/{'disable' if status == '正常' else 'enable'}'><input type='hidden' name='csrf' value='{action_token}'><button class='{'danger' if status == '正常' else ''}'>{'停用并下线' if status == '正常' else '启用并恢复'}</button></form> "
-                       f"<form class='inline' method='post' action='{ADMIN_PREFIX}/users/{user_id}/reset-password'><input type='hidden' name='csrf' value='{action_token}'><button class='secondary'>重置密码</button></form>")
-            edit = f"""<details><summary>编辑额度、有效期和备注</summary><form class='compact' method='post' action='{ADMIN_PREFIX}/users/{user_id}/update'><input type='hidden' name='csrf' value='{update_token}'><label>线路额度<input required name='route_quota' type='number' min='1' max='1000' value='{int(user['route_quota'])}'></label><label>有效期（留空为永久）<input name='expires_at' type='date' value='{expiry_value}'></label><label>备注<input name='notes' maxlength='500' value='{html.escape(user['notes'], quote=True)}'></label><button>保存</button></form><details><summary>删除用户及其线路</summary><form class='compact' method='post' action='{ADMIN_PREFIX}/users/{user_id}/delete'><input type='hidden' name='csrf' value='{action_token}'><label><input required type='checkbox'> 我确认删除账号及其全部线路</label><button class='danger'>确认删除</button></form></details></details>"""
+            if int(user["is_admin"] or 0):
+                status = "管理员"
+                buttons = "<span class='muted'>管理员账号请在首页的“账号安全”中改密</span>"
+                edit = "<span class='muted'>管理员账号不可在此停用、删除或修改额度</span>"
+            else:
+                buttons = (f"<form class='inline' method='post' action='{ADMIN_PREFIX}/users/{user_id}/{'disable' if status == '正常' else 'enable'}'><input type='hidden' name='csrf' value='{action_token}'><button class='{'danger' if status == '正常' else ''}'>{'停用并下线' if status == '正常' else '启用并恢复'}</button></form> "
+                           f"<form class='inline' method='post' action='{ADMIN_PREFIX}/users/{user_id}/reset-password'><input type='hidden' name='csrf' value='{action_token}'><button class='secondary'>重置密码</button></form>")
+                edit = f"""<details><summary>编辑额度、有效期和备注</summary><form class='compact' method='post' action='{ADMIN_PREFIX}/users/{user_id}/update'><input type='hidden' name='csrf' value='{update_token}'><label>线路额度<input required name='route_quota' type='number' min='1' max='1000' value='{int(user['route_quota'])}'></label><label>有效期（留空为永久）<input name='expires_at' type='date' value='{expiry_value}'></label><label>备注<input name='notes' maxlength='500' value='{html.escape(user['notes'], quote=True)}'></label><button>保存</button></form><details><summary>删除用户及其线路</summary><form class='compact' method='post' action='{ADMIN_PREFIX}/users/{user_id}/delete'><input type='hidden' name='csrf' value='{action_token}'><label><input required type='checkbox'> 我确认删除账号及其全部线路</label><button class='danger'>确认删除</button></form></details></details>"""
             user_rows.append(f"<tr><td>{html.escape(user['username'])}</td><td><span class='tag'>{status}</span></td><td>{int(user['route_count'])}/{int(user['route_quota'])}</td><td>{usage}</td><td>{html.escape(self._display_expiry(user['expires_at']))}</td><td>{html.escape(user['last_login_at'] or '从未')}<br><span class='muted'>{html.escape(user['last_login_ip'] or '')}</span></td><td>{html.escape(user['notes'])}</td><td>{buttons}{edit}</td></tr>")
         event_rows = "".join(f"<tr><td>{html.escape(event['created_at'])}</td><td>{html.escape(event['username'])}</td><td>{'成功' if event['success'] else '失败'}</td><td>{html.escape(event['ip'])}</td></tr>" for event in events) or "<tr><td colspan='4' class='muted'>暂无记录</td></tr>"
         content = f"""
@@ -1746,7 +1832,7 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
 <section><h2>最近登录记录</h2><table><thead><tr><th>时间</th><th>用户</th><th>结果</th><th>IP</th></tr></thead><tbody>{event_rows}</tbody></table></section>"""
         return self._page(content, notice, error, active="users")
 
-    def invites_dashboard(self, notice: str = "", error: str = "") -> web.Response:
+    def invites_dashboard(self, notice: str = "", error: str = "", csrf_token: str = "") -> web.Response:
         with self._connect() as db:
             invites = db.execute("SELECT * FROM invites ORDER BY id DESC LIMIT 100").fetchall()
             redemptions = db.execute("SELECT * FROM invite_redemptions ORDER BY invite_id DESC,id ASC").fetchall()
@@ -1757,8 +1843,8 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
         for invite in invites:
             invite_id = int(invite["id"])
             state = "已撤销" if invite["revoked_at"] else ("已到期" if invite["expires_at"] <= now() else ("已用完" if int(invite["used_count"]) >= int(invite["max_uses"]) else "可用"))
-            revoke = "" if state != "可用" else f"<form class='inline' method='post' action='{ADMIN_PREFIX}/invites/{invite_id}/revoke'><input type='hidden' name='csrf' value='{self._csrf('invite-revoke:' + str(invite_id))}'><button class='secondary'>撤销</button></form>"
-            delete = f"<details><summary>删除邀请码</summary><form class='compact' method='post' action='{ADMIN_PREFIX}/invites/{invite_id}/delete'><input type='hidden' name='csrf' value='{self._csrf('invite-delete:' + str(invite_id))}'><label><input required type='checkbox'> 我确认删除邀请码及兑换记录</label><button class='danger'>确认删除</button></form></details>"
+            revoke = "" if state != "可用" else f"<form class='inline' method='post' action='{ADMIN_PREFIX}/invites/{invite_id}/revoke'><input type='hidden' name='csrf' value='{html.escape(csrf_token, quote=True)}'><button class='secondary'>撤销</button></form>"
+            delete = f"<details><summary>删除邀请码</summary><form class='compact' method='post' action='{ADMIN_PREFIX}/invites/{invite_id}/delete'><input type='hidden' name='csrf' value='{html.escape(csrf_token, quote=True)}'><label><input required type='checkbox'> 我确认删除邀请码及兑换记录</label><button class='danger'>确认删除</button></form></details>"
             account_duration = "永久" if invite["account_days"] is None else f"{int(invite['account_days'])} 天"
             code = self._decrypt_invite_code(invite)
             code_html = (f"<div class='copy-control'><input class='invite-code' readonly aria-label='邀请码' value='{html.escape(code, quote=True)}'><button type='button' class='copy-value' data-copy='{html.escape(code, quote=True)}'>复制</button></div>" if code else "<span class='muted'>旧邀请码未保存全文</span>")
@@ -1769,7 +1855,7 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
             ) or "<span class='muted'>暂无</span>"
             invite_rows.append(f"<tr><td>{code_html}</td><td>{int(invite['used_count'])}/{int(invite['max_uses'])}</td><td>{redeemer_html}</td><td>{html.escape(self._display_expiry(invite['expires_at']))}</td><td>{account_duration} / {int(invite['route_quota'])} 条</td><td>{html.escape(invite['notes'])}</td><td>{state}<br>{revoke}{delete}</td></tr>")
         content = f"""
-<section><h2>创建邀请码</h2><p class='muted'>邀请码会加密保存，可长期在下方列表查看与复制。</p><form class='grid' method='post' action='{ADMIN_PREFIX}/invites'><label>可用次数<input required name='max_uses' type='number' min='1' max='10000' value='1'></label><label>邀请码有效天数<input required name='valid_days' type='number' min='1' max='3650' value='30'></label><label>新账号有效天数（0=永久）<input required name='account_days' type='number' min='0' max='3650' value='0'></label><label>新账号线路额度<input required name='route_quota' type='number' min='1' max='1000' value='10'></label><label>备注<input name='notes' maxlength='500'></label><p><input type='hidden' name='csrf' value='{self._csrf('invite-create')}'><button>创建邀请码</button></p></form></section>
+<section><h2>创建邀请码</h2><p class='muted'>邀请码会加密保存，可长期在下方列表查看与复制。</p><form class='grid' method='post' action='{ADMIN_PREFIX}/invites'><label>可用次数<input required name='max_uses' type='number' min='1' max='10000' value='1'></label><label>邀请码有效天数<input required name='valid_days' type='number' min='1' max='3650' value='30'></label><label>新账号有效天数（0=永久）<input required name='account_days' type='number' min='0' max='3650' value='0'></label><label>新账号线路额度<input required name='route_quota' type='number' min='1' max='1000' value='10'></label><label>备注<input name='notes' maxlength='500'></label><p><input type='hidden' name='csrf' value='{html.escape(csrf_token, quote=True)}'><button>创建邀请码</button></p></form></section>
 <section><h2>邀请码</h2><p class='muted'>删除不会影响已注册账号或其线路，但会清除该邀请码的兑换历史。</p><table><thead><tr><th>邀请码</th><th>使用</th><th>使用者 ID / 用户名</th><th>邀请码到期</th><th>新账号参数</th><th>备注</th><th>操作</th></tr></thead><tbody>{''.join(invite_rows) or "<tr><td colspan='7' class='muted'>暂无邀请码</td></tr>"}</tbody></table></section>"""
         return self._page(content, notice, error, active="invites")
 
@@ -2828,7 +2914,18 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
     async def handle(self, request: web.Request) -> web.StreamResponse:
         if not self.enabled:
             raise web.HTTPNotFound()
-        await self.require_authorized(request)
+        admin = self.require_admin(request)
+        csrf_token = str(admin["csrf_secret"])
+
+        def admin_dashboard(**kwargs):
+            return self.dashboard(csrf_token=csrf_token, **kwargs)
+
+        def admin_users(**kwargs):
+            return self.users_dashboard(csrf_token=csrf_token, **kwargs)
+
+        def admin_invites(**kwargs):
+            return self.invites_dashboard(csrf_token=csrf_token, **kwargs)
+
         try:
             route_page = max(1, int(request.query.get("page", "1")))
         except ValueError:
@@ -2837,12 +2934,12 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
             if request.path in {ADMIN_PREFIX, ADMIN_PREFIX + "/"}:
                 raise web.HTTPFound(ADMIN_PREFIX + "/nodes")
             if request.path == ADMIN_PREFIX + "/nodes":
-                return self.dashboard(route_page=route_page)
+                return admin_dashboard(route_page=route_page)
             if request.path == ADMIN_PREFIX + "/users":
-                return self.users_dashboard()
+                return admin_users()
             if request.path == ADMIN_PREFIX + "/invites":
                 notice = "邀请码已创建，可在下方列表长期查看。" if request.query.get("created") == "1" else ""
-                return self.invites_dashboard(notice=notice)
+                return admin_invites(notice=notice)
             raise web.HTTPNotFound()
         if request.path.startswith(ADMIN_PREFIX + "/invites"):
             view = "invites"
@@ -2855,34 +2952,34 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                 raise web.HTTPMethodNotAllowed(request.method, ["GET", "POST"])
             data = await request.post()
             if request.path == ADMIN_PREFIX + "/invites":
-                self._check_csrf("invite-create", data)
+                self._check_user_csrf(admin, data)
                 await asyncio.to_thread(self._create_invite, data)
                 raise web.HTTPSeeOther(ADMIN_PREFIX + "/invites?created=1")
             invite_match = re.fullmatch(re.escape(ADMIN_PREFIX) + r"/invites/(\d+)/(revoke|delete)", request.path)
             if invite_match:
                 invite_id, action = int(invite_match.group(1)), invite_match.group(2)
-                self._check_csrf(f"invite-{action}:{invite_id}", data)
+                self._check_user_csrf(admin, data)
                 if action == "delete":
                     redemption_count = await asyncio.to_thread(self._delete_invite, invite_id)
-                    return self.invites_dashboard(notice=f"邀请码已删除；已清除 {redemption_count} 条兑换记录。")
+                    return admin_invites(notice=f"邀请码已删除；已清除 {redemption_count} 条兑换记录。")
                 with self._connect() as db:
                     changed = db.execute("UPDATE invites SET revoked_at=? WHERE id=? AND revoked_at IS NULL", (now(), invite_id)).rowcount
                 if not changed:
                     raise PanelError("邀请码不存在或已撤销")
-                return self.invites_dashboard(notice="邀请码已撤销。")
+                return admin_invites(notice="邀请码已撤销。")
             user_match = re.fullmatch(re.escape(ADMIN_PREFIX) + r"/users/(\d+)/(update|enable|disable|reset-password|delete)", request.path)
             if user_match:
                 user_id, action = int(user_match.group(1)), user_match.group(2)
-                self._check_csrf(f"user-update:{user_id}" if action == "update" else f"user-action:{user_id}", data)
+                self._check_user_csrf(admin, data)
                 if action == "update":
                     should_resume = await asyncio.to_thread(self._update_user, user_id, data)
                     errors = await asyncio.to_thread(self._resume_owned_routes, user_id) if should_resume else []
                     suffix = "；线路恢复失败：" + "；".join(errors[:2]) if errors else ""
-                    return self.users_dashboard(notice="用户信息已保存" + suffix)
+                    return admin_users(notice="用户信息已保存" + suffix)
                 if action in {"enable", "disable"}:
                     errors = await asyncio.to_thread(self._set_user_enabled, user_id, action == "enable")
                     suffix = "；部分线路处理失败：" + "；".join(errors[:2]) if errors else ""
-                    return self.users_dashboard(notice=("用户已启用并恢复线路" if action == "enable" else "用户已停用并下线线路") + suffix)
+                    return admin_users(notice=("用户已启用并恢复线路" if action == "enable" else "用户已停用并下线线路") + suffix)
                 if action == "reset-password":
                     try:
                         temporary = await self.hash_limiter.run(self._reset_user_password, user_id)
@@ -2890,11 +2987,11 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                         raise web.HTTPServiceUnavailable(
                             text="password service is busy", headers={"Retry-After": "3"}
                         ) from exc
-                    return self.users_dashboard(notice="临时密码（仅显示一次，用户登录后必须修改）：" + temporary)
+                    return admin_users(notice="临时密码（仅显示一次，用户登录后必须修改）：" + temporary)
                 await asyncio.to_thread(self._delete_user_and_routes, user_id)
-                return self.users_dashboard(notice="用户及其全部线路已删除。")
+                return admin_users(notice="用户及其全部线路已删除。")
             if request.path == ADMIN_PREFIX + "/nodes":
-                self._check_csrf("node-create", data)
+                self._check_user_csrf(admin, data)
                 name = str(data.get("name", "")).strip()
                 if not SAFE_NAME.fullmatch(name):
                     raise PanelError("节点名称必须为 1–48 位中文、字母、数字、空格、连字符或下划线")
@@ -2993,11 +3090,11 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                     raise
                 location = f"已识别为 {country_flag} {country_name}（{country_code}）；" if country_code else "未能识别地区，可稍后在节点名称中标注地区；"
                 probe_url = self._public_url(candidate, domain_suffix).rstrip("/") + "/__health"
-                return self.dashboard(notice=security_notice + port_notice + location + f"节点已自动部署并添加；公网探测地址：{probe_url}")
+                return admin_dashboard(notice=security_notice + port_notice + location + f"节点已自动部署并添加；公网探测地址：{probe_url}")
             node_delete_match = re.fullmatch(re.escape(ADMIN_PREFIX) + r"/nodes/(\d+)/delete", request.path)
             if node_delete_match:
                 node_id = int(node_delete_match.group(1))
-                self._check_csrf(f"node-delete:{node_id}", data)
+                self._check_user_csrf(admin, data)
                 with self._connect() as db:
                     node = db.execute("SELECT * FROM nodes WHERE id = ?", (node_id,)).fetchone()
                     if not node:
@@ -3025,7 +3122,7 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                         self._remove_node_identity(node)
                         with self._connect() as db:
                             db.execute("DELETE FROM nodes WHERE id = ?", (node_id,))
-                        return self.dashboard(
+                        return admin_dashboard(
                             notice="后台节点记录已删除；远端 SSH 当前不可达，远端项目文件未清理。"
                         )
                     with self._connect() as db:
@@ -3037,19 +3134,19 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                 with self._connect() as db:
                     db.execute("UPDATE nodes SET state='decommissioned',state_step='complete',updated_at=? WHERE id=?", (now(), node_id))
                     db.execute("DELETE FROM nodes WHERE id = ?", (node_id,))
-                return self.dashboard(notice="节点已删除。")
+                return admin_dashboard(notice="节点已删除。")
             node_match = re.fullmatch(re.escape(ADMIN_PREFIX) + r"/nodes/(\d+)/check", request.path)
             if node_match:
                 node_id = int(node_match.group(1))
-                self._check_csrf(f"node-check:{node_id}", data)
+                self._check_user_csrf(admin, data)
                 with self._connect() as db:
                     node = db.execute("SELECT * FROM nodes WHERE id = ?", (node_id,)).fetchone()
                 if not node:
                     raise PanelError("节点不存在")
                 message = await asyncio.to_thread(self._check_node, node)
-                return self.dashboard(notice=message)
+                return admin_dashboard(notice=message)
             if request.path == ADMIN_PREFIX + "/routes":
-                self._check_csrf("route-create", data)
+                self._check_user_csrf(admin, data)
                 name = str(data.get("name", "")).strip().lower()
                 if not SAFE_SLUG.fullmatch(name):
                     raise PanelError("线路名称必须为 2–32 位小写字母、数字或连字符")
@@ -3077,11 +3174,11 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                     )
                     route = db.execute("SELECT * FROM routes WHERE id = ?", (cursor.lastrowid,)).fetchone()
                 status = await asyncio.to_thread(self._deploy_and_verify, node, route)
-                return self.dashboard(notice=f"线路已创建、下发并通过公网验证（HTTP {status}）。", route_page=route_page)
+                return admin_dashboard(notice=f"线路已创建、下发并通过公网验证（HTTP {status}）。", route_page=route_page)
             route_match = re.fullmatch(re.escape(ADMIN_PREFIX) + r"/routes/(\d+)/(deploy|delete)", request.path)
             if route_match:
                 route_id, action = int(route_match.group(1)), route_match.group(2)
-                self._check_csrf(f"route-{action}:{route_id}", data)
+                self._check_user_csrf(admin, data)
                 with self._connect() as db:
                     route = db.execute("SELECT * FROM routes WHERE id = ?", (route_id,)).fetchone()
                     if not route:
@@ -3089,23 +3186,23 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                     node = db.execute("SELECT * FROM nodes WHERE id = ?", (route["node_id"],)).fetchone()
                 if action == "deploy":
                     status = await asyncio.to_thread(self._deploy_and_verify, node, route)
-                    return self.dashboard(notice=f"线路已下发并通过公网验证（HTTP {status}）。", route_page=route_page)
+                    return admin_dashboard(notice=f"线路已下发并通过公网验证（HTTP {status}）。", route_page=route_page)
                 await asyncio.to_thread(self._delete_route_file, node, route)
                 with self._connect() as db:
                     db.execute("DELETE FROM routes WHERE id = ?", (route_id,))
-                return self.dashboard(notice="线路配置已移除。", route_page=route_page)
+                return admin_dashboard(notice="线路配置已移除。", route_page=route_page)
             raise web.HTTPNotFound()
         except web.HTTPException:
             raise
         except (PanelError, ValueError, sqlite3.Error) as exc:
             if view == "invites":
-                return self.invites_dashboard(error=str(exc))
-            return self.users_dashboard(error=str(exc)) if view == "users" else self.dashboard(error=str(exc), route_page=route_page)
+                return admin_invites(error=str(exc))
+            return admin_users(error=str(exc)) if view == "users" else admin_dashboard(error=str(exc), route_page=route_page)
         except subprocess.TimeoutExpired:
             if view == "invites":
-                return self.invites_dashboard(error="操作超时；没有确认配置已生效。")
-            return self.users_dashboard(error="操作超时；没有确认配置已生效。") if view == "users" else self.dashboard(error="操作超时；没有确认配置已生效。", route_page=route_page)
+                return admin_invites(error="操作超时；没有确认配置已生效。")
+            return admin_users(error="操作超时；没有确认配置已生效。") if view == "users" else admin_dashboard(error="操作超时；没有确认配置已生效。", route_page=route_page)
         except Exception as exc:
             if view == "invites":
-                return self.invites_dashboard(error=f"操作失败：{exc}")
-            return self.users_dashboard(error=f"操作失败：{exc}") if view == "users" else self.dashboard(error=f"操作失败：{exc}", route_page=route_page)
+                return admin_invites(error=f"操作失败：{exc}")
+            return admin_users(error=f"操作失败：{exc}") if view == "users" else admin_dashboard(error=f"操作失败：{exc}", route_page=route_page)

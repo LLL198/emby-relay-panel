@@ -10,7 +10,15 @@ from unittest.mock import patch
 from aiohttp import web
 
 from origin_security import SafeOriginResolution
-from panel import PanelError, ProxyPanel, SCHEMA_VERSION, USER_CSRF_COOKIE, USER_SESSION_COOKIE
+from panel import (
+    PanelError,
+    ProxyPanel,
+    SCHEMA_VERSION,
+    SESSION_EPHEMERAL_SECONDS,
+    SESSION_REMEMBER_SECONDS,
+    USER_CSRF_COOKIE,
+    USER_SESSION_COOKIE,
+)
 
 
 class PanelSecurityIntegrationTests(unittest.TestCase):
@@ -64,6 +72,52 @@ class PanelSecurityIntegrationTests(unittest.TestCase):
         self.assertIn("ssh_host_fingerprint", node_columns)
         self.assertIn("internal_https_port", node_columns)
         self.panel.setup()
+
+    def test_setup_seeds_one_admin_and_reserves_username(self):
+        with closing(self.connect()) as db:
+            admin = db.execute("SELECT * FROM users WHERE is_admin=1").fetchall()
+        self.assertEqual(len(admin), 1)
+        self.assertEqual(admin[0]["username_norm"], "admin")
+        authenticated = self.panel._authenticate_user("admin", "test-admin-password-not-for-production", "127.0.0.1")
+        self.assertEqual(int(authenticated["is_admin"]), 1)
+        with self.assertRaises(PanelError):
+            self.panel._register_user("not-a-real-invite", "admin", "a-password-that-is-long-enough", "127.0.0.1")
+
+    def test_admin_role_is_required_for_backend_and_cannot_be_managed_as_user(self):
+        with closing(self.connect()) as db:
+            admin = db.execute("SELECT * FROM users WHERE is_admin=1").fetchone()
+            regular = db.execute("INSERT INTO users (username,username_norm,password_hash,status,created_at,updated_at) VALUES ('bob','bob','unused','active',?,?)", ("2026-01-01", "2026-01-01")).lastrowid
+            db.commit()
+            regular_user = db.execute("SELECT * FROM users WHERE id=?", (regular,)).fetchone()
+        with patch.object(self.panel, "require_user", return_value=regular_user):
+            with self.assertRaises(web.HTTPNotFound):
+                self.panel.require_admin(object())
+        with patch.object(self.panel, "require_user", return_value=admin):
+            self.assertEqual(self.panel.require_admin(object())["id"], admin["id"])
+        with self.assertRaises(PanelError):
+            self.panel._update_user(int(admin["id"]), {"route_quota": "1", "expires_at": "", "notes": ""})
+        with self.assertRaises(PanelError):
+            self.panel._set_user_enabled(int(admin["id"]), False)
+        with self.assertRaises(PanelError):
+            self.panel._delete_user_and_routes(int(admin["id"]))
+
+    def test_remembered_sessions_and_env_reset(self):
+        with closing(self.connect()) as db:
+            admin_id = int(db.execute("SELECT id FROM users WHERE is_admin=1").fetchone()[0])
+        token, _, lifetime = self.panel._create_user_session(admin_id, True)
+        self.assertEqual(lifetime, SESSION_REMEMBER_SECONDS)
+        with closing(self.connect()) as db:
+            self.assertIsNotNone(db.execute("SELECT 1 FROM user_sessions WHERE token_hash=?", (self.panel._session_hash(token),)).fetchone())
+        _, _, ephemeral_lifetime = self.panel._create_user_session(admin_id, False)
+        self.assertEqual(ephemeral_lifetime, SESSION_EPHEMERAL_SECONDS)
+        with patch.dict(os.environ, {"ADMIN_PASSWORD": "emergency-reset-password"}, clear=False):
+            replacement = ProxyPanel(lambda value: value)
+            replacement.setup()
+        with closing(self.connect()) as db:
+            admin = db.execute("SELECT * FROM users WHERE is_admin=1").fetchone()
+            sessions = db.execute("SELECT COUNT(*) FROM user_sessions WHERE user_id=?", (admin["id"],)).fetchone()[0]
+        self.assertTrue(self.panel._password_matches("emergency-reset-password", admin["password_hash"]))
+        self.assertEqual(sessions, 0)
 
     def test_first_ssh_host_key_warning_does_not_fail_root_check(self):
         with patch.object(self.panel, "_ssh_args", return_value=[]), \
