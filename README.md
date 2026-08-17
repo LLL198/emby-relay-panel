@@ -57,7 +57,6 @@ python3 -m venv /opt/uniproxy/.venv
 - `uniproxy.service`：主控机 systemd 服务模板。
 - `deploy/`：主站 Nginx 示例、节点 Nginx 模板、日志轮转配置。
 - `origin_security.py`：源站 HTTPS 和公网地址校验。
-- `tests/`：安全、数据库和回归测试。
 
 项目品牌统一为 `emby-relay-panel`；`uniproxy` 出现在服务名、安装路径、日志和节点隔离用户中，是为了兼容已部署实例的运行时标识，不代表项目仍使用旧品牌。
 
