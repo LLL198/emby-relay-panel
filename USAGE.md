@@ -1,300 +1,287 @@
-# emby-relay-panel 新手教程
+# emby-relay-panel 部署手册
 
-这份教程按“照着填就能用”的方式写。所有域名、IP、密码都是示例，请换成自己的内容。
+本文给“拿到 Git 仓库、自己部署一套面板”的管理员使用。所有域名、IP、密码和 Token 都是示例，必须替换成自己的值。
 
-## 1. 普通用户：注册并生成线路
+## 1. 准备资源
 
-如果管理员已经把主站搭好，你只需要看这一节。
+### 1.1 主控机
 
-### 1.1 注册和登录
+- Debian/Ubuntu 22.04+、Debian 13，或 Alpine 3.20+。
+- 公网 IP，安全组放行 TCP 80 和 443。
+- 一个主站域名，例如 `sh.example.com`，DNS A/AAAA 记录指向主控机。
+- 建议至少 1 GB 内存；线路和播放器流量主要消耗节点带宽，不会全部经过主控机。
 
-1. 打开管理员发来的主站，例如 `https://sh.example.com/`。
-2. 点击“邀请码注册”。
-3. 填写邀请码、用户名、密码和确认密码。
-4. 点击“注册并登录”。注册成功后会自动登录。
-5. 以后从同一个登录页登录。默认会保持登录 90 天，也可以取消勾选。
+### 1.2 Cloudflare
 
-管理员账号也使用这个登录页；普通用户不会看到管理后台入口。
+节点域名由 `AUTO_NODE_ZONE` 下面的子域组成，例如 Zone 为 `example.com` 时，程序会创建 `n-xxx.example.com` 和 `*.n-xxx.example.com`。
 
-### 1.2 生成访问地址
+创建 API Token 时只给：
 
-登录后，在首页填写：
+- Zone - Zone - Read
+- Zone - DNS - Edit
+- Zone Resources 限制为实际的 `example.com`
 
-| 位置 | 填什么 |
-|---|---|
-| 原始网站地址 | 完整的 `https://域名`，例如 `https://emby.example.com` |
-| 节点 | 选择一个节点，先点“重新测试延迟”可以看延迟 |
-| 线路备注 | 可选，例如“手机”“电视”“家庭网络” |
+`AUTO_NODE_ZONE` 填 Zone 名称（`example.com`），不要填主站完整域名（`sh.example.com`）。
 
-点击“生成访问地址”，然后在“我的线路”中复制 **反代线路（访问地址）**。
+### 1.3 节点
 
-播放器必须填复制出来的完整 `https://...` 地址。不要填原线路、主站地址、后台地址，也不要把地址后的空格一起复制。
+每台节点需要：
 
-## 2. 管理员：第一次登录
+- 可从主控机连到的 SSH 地址和端口；自动部署阶段需要 root SSH。
+- VPS：填写节点公网 HTTPS 端口和节点内部监听端口，通常都是 `443`。
+- NAT：填写服务商映射的公网端口和内部端口。例如 `30000 -> 80`，公网端口填 `30000`，内部端口填 `80`。
+- 如果节点已经安装并监听 Nginx，程序会读取它实际的 HTTPS/HTTP 监听端口；检测到已有 Nginx 后，表单中的内部端口会被忽略。公网端口仍必须填写服务商映射端口。
 
-管理员和普通用户共用登录页：
+## 2. 安装主控机依赖
 
-1. 打开主站首页并登录管理员账号。
-2. 进入普通用户首页。
-3. 右上角点击“管理后台”。
+以下命令在主控机执行。
 
-管理员账号不是通过邀请码注册的。第一次部署时，账号来自主控机环境文件：
-
-```dotenv
-ADMIN_USERNAME=admin
-ADMIN_PASSWORD=请换成强密码
-```
-
-首次启动会自动创建这个管理员。管理员可以在首页“账号安全”修改密码；修改后所有旧会话都会失效。以后如果明确修改环境文件里的 `ADMIN_USERNAME` 或 `ADMIN_PASSWORD`，重启服务会作为应急方式同步新账号密码。
-
-## 3. 管理员：添加节点
-
-进入 **管理后台 → 节点面板 → 新增节点**。
-
-### 3.1 表单怎么填
-
-| 表单项 | 普通 VPS | NAT 机器 |
-|---|---|---|
-| 节点名称 | 自己容易认出的名字，例如 `香港 1` | 同左 |
-| 网络类型 | 选“普通 VPS” | 选“NAT” |
-| 服务器公网 IP | SSH 连接用的公网 IP | 服务商提供的入口 IP，不要填内网 IP |
-| SSH 端口 | 通常是 `22` | 填服务商给的 SSH 入口端口 |
-| 公网 HTTPS 端口 | 通常 `443` | 填服务商映射的公网端口 |
-| 内部 HTTPS 端口 | 通常 `443` | 填映射目标端口 |
-| SSH 密码 / 私钥 | 二选一 | 二选一 |
-
-密码和私钥不能同时填，也不能都留空。
-
-### 3.2 端口例子
-
-普通 VPS：
-
-```text
-公网 HTTPS 端口：443
-内部 HTTPS 端口：443
-```
-
-NAT 服务商如果给你：
-
-```text
-公网 TCP 30000 → 机器内部 TCP 80
-```
-
-就填写：
-
-```text
-公网 HTTPS 端口：30000
-内部 HTTPS 端口：80
-```
-
-如果远端已经安装 Nginx，面板会先读取它的监听端口，并优先使用检测到的端口，忽略表单里填写的内部端口。部署成功提示里的“最终采用端口”才是最终结果，请确认服务商映射到这个端口。
-
-### 3.3 点击自动部署后
-
-面板会自动：
-
-1. 通过 SSH 登录节点；
-2. 安装或准备 Nginx、OpenSSL、CA 证书等依赖；
-3. 创建节点域名和 HTTPS 证书；
-4. 写入 Nginx 配置并执行 `nginx -t`；
-5. 从主控机检查公网访问。
-
-第一次部署可能需要几十秒。失败时先看错误最后一行，优先检查 SSH 端口、NAT 映射、密码和安全组。
-
-## 4. 管理员：创建线路和邀请码
-
-### 4.1 创建管理员线路
-
-进入 **节点面板 → 新增线路**，填写三项：
-
-| 表单项 | 填写示例 |
-|---|---|
-| 线路名称 | `emby-hk`，只能用小写字母、数字和连字符 |
-| 源站地址 | `https://emby.example.com`，不要填账号、密码、路径或查询参数 |
-| 部署节点 | 选择刚添加的节点 |
-
-点击“创建、下发并验证”。成功后复制公开地址。
-
-### 4.2 创建邀请码
-
-进入 **邀请码管理**：
-
-1. 设置可用次数、邀请码有效天数、新账号有效天数和线路额度。
-2. 点击“创建邀请码”。
-3. 列表会长期显示邀请码、使用次数、使用者 ID 和用户名，可以点击复制。
-4. 不再需要的邀请码可以撤销或删除。
-
-### 4.3 用户管理
-
-进入 **用户管理** 可以查看：
-
-- 账号状态和有效期；
-- 已用线路数和线路额度；
-- 今日、本月和累计流量；
-- 最近登录时间和 IP。
-
-可以停用、恢复、重置普通用户密码、修改额度和删除普通用户。管理员账号不能在这里删除或停用，只能在首页“账号安全”改密码。
-
-## 5. 管理员：第一次部署主控机
-
-已经有可用面板的管理员可以跳过这一节。主控机建议使用 Debian、Ubuntu 或 Alpine，并准备一个已经解析到主控机的域名。
-
-### 5.1 安装依赖
-
-Debian / Ubuntu：
+### Debian/Ubuntu
 
 ```bash
-sudo apt update
-sudo apt install -y git python3 python3-pip nginx openssl curl openssh-client sshpass
-python3 -m pip install --break-system-packages aiohttp cryptography
+apt-get update
+apt-get install -y git python3 python3-pip python3-venv nginx openssl curl openssh-client sshpass ca-certificates
 ```
 
-Alpine：
+### Alpine
 
 ```bash
-sudo apk add git python3 py3-pip nginx openssl curl openssh-client sshpass
-python3 -m pip install --break-system-packages aiohttp cryptography
+apk add --no-cache git python3 py3-pip nginx openssl curl openssh-client sshpass ca-certificates
 ```
 
-### 5.2 下载项目
+若看到 `apt ... lock`，说明另一项系统更新正在运行，先等待它结束再执行安装。若看到 `openssl: not found`，必须在**报错的那台机器**安装 `openssl`。
+
+## 3. 下载项目和 Python 依赖
 
 ```bash
-cd /opt
-sudo git clone https://github.com/LLL198/emby-relay-panel.git uniproxy
+install -d -m 0755 /opt
+git clone https://github.com/LLL198/emby-relay-panel.git /opt/uniproxy
 cd /opt/uniproxy
+python3 -m venv /opt/uniproxy/.venv
+/opt/uniproxy/.venv/bin/pip install --upgrade pip
+/opt/uniproxy/.venv/bin/pip install aiohttp cryptography
 ```
 
-### 5.3 创建主控配置
-
-先生成三个随机值：
+如果系统禁止创建 venv，可使用系统 Python 安装 `aiohttp` 和 `cryptography`，但生产环境更推荐 venv。确认代码没有明显语法错误：
 
 ```bash
-python3 -c "import secrets; print(secrets.token_urlsafe(32))"
-python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+/opt/uniproxy/.venv/bin/python -m py_compile panel.py uniproxy.py origin_security.py
 ```
 
-创建 `/root/.secrets/uniproxy-panel.env`：
+## 4. 安装并检查 acme.sh
+
+主控机需要用 `acme.sh` 为新节点申请证书。安装后检查可执行文件是否存在：
+
+```bash
+curl https://get.acme.sh | sh
+/root/.acme.sh/acme.sh --version
+```
+
+如果路径不存在，先确认安装脚本执行用户和 `ACME_HOME`；不要启动面板后才处理。`acme.sh` 运行时报 `openssl: not found` 时，在报错机器安装 `openssl` 并重新检查。
+
+## 5. 创建秘密环境文件
+
+生成随机值（每次输出都不同）：
+
+```bash
+python3 - <<'PY'
+from cryptography.fernet import Fernet
+import secrets
+print('AGENT_TOKEN=' + secrets.token_urlsafe(32))
+print('INVITE_CODE_ENCRYPTION_KEY=' + Fernet.generate_key().decode())
+print('NODE_CREDENTIAL_ENCRYPTION_KEY=' + Fernet.generate_key().decode())
+print('AUTH_THROTTLE_SECRET=' + secrets.token_urlsafe(32))
+PY
+```
+
+创建 `/root/.secrets/uniproxy-panel.env`（不要提交 Git）：
 
 ```dotenv
 ADMIN_USERNAME=admin
-ADMIN_PASSWORD=换成强密码
-AGENT_TOKEN=填第一条命令的结果
-INVITE_CODE_ENCRYPTION_KEY=填第二条命令的结果
-NODE_CREDENTIAL_ENCRYPTION_KEY=填第三条命令的结果
+ADMIN_PASSWORD=换成随机长密码
+AGENT_TOKEN=上一步生成的值
+INVITE_CODE_ENCRYPTION_KEY=上一步生成的Fernet值
+NODE_CREDENTIAL_ENCRYPTION_KEY=上一步生成的Fernet值
+AUTH_THROTTLE_SECRET=上一步生成的值
+
 PANEL_DB_PATH=/var/lib/uniproxy/panel.db
+TRAFFIC_LOG_PATH=/var/log/uniproxy-traffic.log
+PROXY_DOMAIN_SUFFIX=sh.example.com
+AUTO_NODE_ZONE=example.com
+PANEL_PUBLIC_ORIGIN=https://sh.example.com
+PUBLIC_HTTPS_PORT=443
+PUBLIC_HTTP_PORT=80
+TLS_CERT_FILE=/etc/letsencrypt/live/sh.example.com/fullchain.pem
+TLS_KEY_FILE=/etc/letsencrypt/live/sh.example.com/privkey.pem
 ```
 
-设置权限：
+创建目录并限制权限：
 
 ```bash
-sudo install -d -m 700 /root/.secrets /var/lib/uniproxy
-sudo chmod 600 /root/.secrets/uniproxy-panel.env
+install -d -m 0700 /root/.secrets /var/lib/uniproxy
+chown root:root /root/.secrets/uniproxy-panel.env
+chmod 0600 /root/.secrets/uniproxy-panel.env
 ```
 
-### 5.4 Cloudflare DNS Token
+`ADMIN_PASSWORD` 不能为空。两个 Fernet 密钥不能互换，也不能使用管理员密码代替。丢失密钥可能导致已有邀请码或节点凭据无法解密。
 
-如果需要自动创建节点域名和证书，在 Cloudflare 创建自定义 API Token，只给当前区域：
+## 6. 配置 Cloudflare Token 文件
 
-```text
-区域 → 区域 → 读取
-区域 → DNS → 编辑
-区域资源 → 包括 → 特定区域 → 你的主域名
-```
-
-Token 只放在主控机的 root 文件中，绝对不要放进 Git、截图或聊天记录。项目使用主控机集中签发证书，节点不应保存 Cloudflare Token。
-
-### 5.5 配置域名和启动
-
-编辑 `uniproxy.service`，至少修改以下值：
-
-```ini
-Environment=PROXY_DOMAIN_SUFFIX=sh.example.com
-Environment=AUTO_NODE_ZONE=example.com
-Environment=PANEL_PUBLIC_ORIGIN=https://sh.example.com
-Environment=TLS_CERT_FILE=/etc/letsencrypt/live/sh.example.com/fullchain.pem
-Environment=TLS_KEY_FILE=/etc/letsencrypt/live/sh.example.com/privkey.pem
-```
-
-主站 Nginx 需要把 HTTPS 请求转发到 `127.0.0.1:8787`。可以参考 `deploy/` 中的配置，先把示例域名替换成自己的域名，再检查配置：
+在主控机创建 `/opt/uniproxy/acme-account.conf`，文件只保留下面一行：
 
 ```bash
-sudo nginx -t
-sudo install -m 644 uniproxy.service /etc/systemd/system/uniproxy.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now uniproxy
-sudo systemctl reload nginx
-sudo systemctl status uniproxy --no-pager
+SAVED_CF_Token='你的Cloudflare API Token'
 ```
-
-然后打开 `https://你的主站域名/login`，使用环境文件里的管理员账号登录。
-
-## 6. 常见报错
-
-### `invalid request origin`
-
-这是旧版本常见提示。先确认使用当前主域名的 HTTPS 地址，不要用 IP、旧域名或节点域名；刷新页面并重新登录。如果更新后仍然出现，确认主控服务已经重启并且浏览器没有停留在旧页面。
-
-### `没有找到可管理的 DNS 区域`
-
-检查 Cloudflare Token 是否有“区域读取”和“DNS 编辑”权限，资源范围是否选中了正确的主域名。修改 Token 后要重启主控服务。
-
-### `openssl: not found`
-
-在报错的节点安装 OpenSSL：
 
 ```bash
-# Debian / Ubuntu
-sudo apt update && sudo apt install -y openssl
-
-# Alpine
-sudo apk add openssl
+chown root:root /opt/uniproxy/acme-account.conf
+chmod 0600 /opt/uniproxy/acme-account.conf
 ```
 
-### `Could not get lock /var/lib/apt/lists/lock`
+不要把 Token 写进 systemd、Nginx 配置、截图或 Git。程序只从主控机读取它，节点部署流程不会把该 Token 复制到节点。Token 失效或权限不含 DNS Edit 时，添加节点会提示 Cloudflare DNS 错误。
 
-节点正在自动更新。等待一两分钟后重试，不要手动删除 lock 文件。
+## 7. 准备主站 TLS 和 Nginx
 
-### `nginx -t` 或 `ca-bundle.pem` 失败
-
-先在节点检查：
+主站证书需要在启动服务前准备好。例如证书文件应存在：
 
 ```bash
-sudo nginx -t
-sudo journalctl -u nginx -n 100 --no-pager
+test -s /etc/letsencrypt/live/sh.example.com/fullchain.pem
+test -s /etc/letsencrypt/live/sh.example.com/privkey.pem
 ```
 
-旧节点可能还没有系统 CA 文件。把主控更新到最新版后，在节点面板点击“检查”或重新下发线路。
-
-### `524`、超时、拖动视频断流
-
-先检查：
-
-1. NAT 公网端口是否确实映射到最终采用的内部端口；
-2. 服务商是否限速；
-3. 节点是否内存太小（建议至少 128 MB，播放和证书任务并发时建议更高）；
-4. 源站是否允许节点出口 IP。
-
-### 节点删除时 SSH 连接失败
-
-如果机器已经删除或 SSH 端口失效，管理员可以选择从面板移除记录。主控记录和 DNS 会被清理，但远端机器不可达时，远端残留文件无法自动删除。
-
-## 7. 更新和安全
-
-更新前先备份数据库：
+复制并修改服务模板：
 
 ```bash
-sudo cp -p /var/lib/uniproxy/panel.db \
-  "/var/lib/uniproxy/panel.db.backup-$(date -u +%Y%m%dT%H%M%SZ)"
+cp /opt/uniproxy/uniproxy.service /etc/systemd/system/uniproxy.service
 ```
 
-从 GitHub 更新并重启：
+检查模板里的 `PROXY_DOMAIN_SUFFIX`、`AUTO_NODE_ZONE`、`PANEL_PUBLIC_ORIGIN`、`TLS_CERT_FILE` 和 `TLS_KEY_FILE` 与自己的域名一致。保持面板只监听本机：
+
+```dotenv
+LISTEN_HOST=127.0.0.1
+LISTEN_PORT=8787
+```
+
+本手册使用上面创建的虚拟环境，因此把服务的启动行改为：
+
+```bash
+sed -i 's#^ExecStart=.*#ExecStart=/opt/uniproxy/.venv/bin/python /opt/uniproxy/uniproxy.py#' /etc/systemd/system/uniproxy.service
+```
+
+如果你不使用虚拟环境，就把 `aiohttp` 和 `cryptography` 安装到 `/usr/bin/python3` 对应的系统环境，并保留原来的 `ExecStart`。
+
+不要把 8787 直接暴露到公网。
+
+### 使用示例 Nginx 配置
+
+`deploy/sh.996878.xyz.nginx` 是 `sh.996878.xyz` 的示例。复制后至少修改：
+
+- `server_name`
+- 主站证书和私钥路径
+- 上游 `127.0.0.1:8787`（如果你修改了监听端口则同步修改）
+
+同时加载 `deploy/00-uniproxy-security.conf` 中的限速区。`deploy/01-cloudflare-realip.conf` 只有在主站确实经过 Cloudflare 时才启用。
+
+Debian/Ubuntu 常见安装方式（确认 `/etc/nginx/nginx.conf` 包含 `conf.d/*.conf`）：
+
+```bash
+install -m 0644 /opt/uniproxy/deploy/00-uniproxy-security.conf /etc/nginx/conf.d/00-uniproxy-security.conf
+cp /opt/uniproxy/deploy/sh.996878.xyz.nginx /etc/nginx/conf.d/sh.example.com.nginx
+```
+
+Alpine 通常使用 `/etc/nginx/http.d/`；把两个文件放到 Nginx 主配置实际 `include` 的目录即可。仓库不再附带旧域名跳转配置；如需迁移旧域名，请按自己的域名另写一个只做 301 的 server 块。
+
+示例配置默认启用了 Cloudflare Origin Pull：
+
+```nginx
+ssl_client_certificate /etc/nginx/certs/cloudflare-origin-pull-ca.pem;
+ssl_verify_client on;
+```
+
+如果你没有安装 Cloudflare Origin Pull CA，就删除这两行；否则 `nginx -t` 会因证书文件不存在而失败。修改后执行：
+
+```bash
+nginx -t
+systemctl reload nginx
+```
+
+## 8. 启动和首次登录
+
+```bash
+systemctl daemon-reload
+systemctl enable --now uniproxy
+systemctl status uniproxy --no-pager
+journalctl -u uniproxy -n 100 --no-pager
+```
+
+第一次成功启动时，程序会用 `ADMIN_USERNAME`/`ADMIN_PASSWORD` 创建管理员账号。之后管理员和普通用户共用 `/login`；管理员登录到用户首页后，会看到进入管理后台的入口。普通用户没有后台权限，即使手动访问 `/_admin` 也会被后端拒绝。
+
+如果服务启动前环境变量或证书不完整，面板会处于未启用状态；先看 `journalctl -u uniproxy`，不要反复删除数据库。
+
+## 9. 添加节点和生成线路
+
+1. 管理员登录，打开“节点面板”，点击“新增节点”。
+2. 选择 `VPS` 或 `NAT`。
+3. 填写节点名称、SSH 地址、SSH 端口、认证方式，以及公网 HTTPS 端口/内部端口。
+4. NAT 示例：服务商设置 `30000 -> 80`，就填公网端口 `30000`、内部端口 `80`。成功后页面会显示实际使用的内部端口。
+5. 提交后，主控机会创建节点 DNS、申请节点证书、通过 SSH 安装并测试 Nginx。首次部署需要几分钟。
+6. 添加完成后，在“邀请码管理”创建邀请码，再把邀请码发给使用者。
+
+普通用户注册后，在首页填完整源站地址（建议 `https://emby.example.com`）、选择节点并生成线路。线路地址可以复制到播放器；用户备注只用于自己的记录。
+
+### 源站格式
+
+使用完整的 `https://域名`。不要填带路径、查询参数、用户名密码的 URL；不要把面板域名、节点域名或内网地址当作源站。非标准端口只有在面板允许列表中才会接受。
+
+## 10. 升级、备份和回滚
+
+升级前先备份数据库和环境文件：
+
+```bash
+install -d -m 0700 /var/lib/uniproxy/backups
+cp -a /var/lib/uniproxy/panel.db /var/lib/uniproxy/backups/panel.db.$(date +%Y%m%d-%H%M%S)
+cp -a /root/.secrets/uniproxy-panel.env /var/lib/uniproxy/backups/
+```
+
+更新代码并重启：
 
 ```bash
 cd /opt/uniproxy
-sudo git pull --ff-only origin main
-sudo systemctl restart uniproxy
-sudo nginx -t && sudo systemctl reload nginx
+git fetch origin
+git pull --ff-only origin main
+/opt/uniproxy/.venv/bin/pip install -U aiohttp cryptography
+systemctl restart uniproxy
+nginx -t && systemctl reload nginx
 ```
 
-永远不要提交或公开：管理员密码、用户密码、Cloudflare Token、数据库、证书、SSH 密钥和节点备份。
+如果新版本无法启动，先查看 `journalctl -u uniproxy` 和 `nginx -t`，再使用已确认的 Git 提交和数据库备份回滚。不要在生产机执行不加确认的 `git reset --hard`。
+
+## 11. 常见报错
+
+| 报错 | 处理方式 |
+|---|---|
+| `acme.sh: not found` | 在主控机安装 acme.sh，确认 `/root/.acme.sh/acme.sh` 可执行。 |
+| `openssl: not found` | 在显示该日志的机器安装 `openssl`。主控机和节点都可能缺少。 |
+| `没有可管理的 DNS 区域` / `invalid domain` | 检查 Token 的 Zone Read/DNS Edit 权限，以及 `AUTO_NODE_ZONE` 是否填根 Zone。 |
+| `SSL_CTX_load_verify_locations ... ca-bundle.pem` | 旧节点缺少 CA bundle。重新用当前版本部署节点，或在节点安装系统 CA 后再测试 Nginx。 |
+| `getgrnam("uniproxy-nginx") failed` | 节点的隔离 Nginx 用户未创建完成。确认使用 root SSH，重新部署该节点。 |
+| NAT 节点探测失败或 Cloudflare 524 | 检查公网端口是否真的映射到页面显示的内部端口；小内存节点也可能被系统 OOM 杀掉。 |
+| `apt ... lock` | 另一个 apt/dpkg 正在运行，等待结束后重试，不要同时启动多个包管理器。 |
+| `netlink ... Operation not permitted` | NAT/容器没有管理 nftables 的权限。出站防护是加固项，不能在无权限的容器中强行安装；先保证 Nginx 部署成功。 |
+| `invalid request origin` | 更新到当前版本并重启主控服务，刷新旧页面；Nginx 的 `PANEL_PUBLIC_ORIGIN` 必须与浏览器访问的 HTTPS 主域完全一致。 |
+| `节点清理未完成` | 新版本会保留待重试记录。SSH 已经无法连接时，先在 Cloudflare 删除项目 DNS，再在后台重试或确认删除记录。 |
+
+查看详细日志：
+
+```bash
+journalctl -u uniproxy -f
+tail -f /var/log/nginx/error.log
+```
+
+## 12. 交付给使用者
+
+部署完成后只需要发给使用者三样东西：主站地址、邀请码、简短说明（注册 → 登录 → 填源站 → 选节点 → 复制线路）。不要把 Cloudflare Token、管理员密码、SSH 密码、数据库或证书私钥发给使用者。
+
+## 13. 关于旧版内部名称
+
+项目品牌已统一为 `emby-relay-panel`。为了兼容已经部署的节点和数据库，以下运行时标识暂时保留，不要手动改名：systemd 服务 `uniproxy`、安装目录 `/opt/uniproxy`、数据目录 `/var/lib/uniproxy`、节点隔离用户 `uniproxy-nginx` 以及相关日志路径。未来如果要迁移这些路径，必须按版本提供迁移脚本，不能直接批量替换。

@@ -1,4 +1,4 @@
-"""Reusable authentication security primitives for UniRelay.
+"""Reusable authentication security primitives for emby-relay-panel.
 
 This module intentionally has no dependency on aiohttp or the panel code.  It
 contains the stateful rate limiter, password policy, and the global work gate
