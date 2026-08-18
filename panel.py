@@ -141,6 +141,16 @@ th{color:#71717a}td{border-bottom-color:#f4f4f5}tbody tr:hover{background:#fafaf
 label{color:#3f3f46}input,select,textarea{border-color:#e4e4e7;border-radius:6px;background:#fff;color:#18181b}input:hover,select:hover,textarea:hover{border-color:#a1a1aa}input:focus,select:focus,textarea:focus{border-color:#18181b;box-shadow:0 0 0 3px rgba(24,24,27,.1)}input[type=checkbox]{accent-color:#18181b}
 button{border-radius:6px;background:#18181b;box-shadow:none}button:hover{background:#27272a;filter:none;box-shadow:none}button.danger{background:#dc2626;box-shadow:none}button.secondary,button.copy-value{border:1px solid #e4e4e7;background:#fff;color:#3f3f46;box-shadow:none}.compact{background:#fafafa}.pagination a{border-radius:6px;background:#f4f4f5;color:#18181b}.pagination span{border-radius:6px;background:#fafafa}
 @media(max-width:720px){aside{border-right:0;border-bottom:1px solid #e4e4e7}main{padding:24px 14px 42px}}
+
+/* Overview shell inspired by compact Shadcn admin dashboards. */
+.admin-topbar{display:flex;align-items:center;justify-content:space-between;gap:18px;margin:-10px 0 30px;padding-bottom:18px;border-bottom:1px solid #f0f0f2}
+.admin-search{display:flex;align-items:center;gap:9px;width:min(100%,270px);height:34px;padding:0 11px;border:1px solid #e4e4e7;border-radius:6px;background:#fff;color:#a1a1aa;font-size:12px}
+.admin-search .search-icon{color:#71717a;font-size:14px}.admin-search kbd{margin-left:auto;padding:2px 5px;border:1px solid #e4e4e7;border-radius:4px;background:#fafafa;color:#a1a1aa;font:10px ui-monospace,SFMono-Regular,Consolas,monospace}
+.admin-tools{display:flex;align-items:center;gap:8px;color:#a1a1aa}.tool-button{display:grid;place-items:center;width:30px;height:30px;border:1px solid transparent;border-radius:6px;background:transparent;color:#71717a;font-size:14px}.tool-button:hover{border-color:#e4e4e7;background:#fafafa;color:#18181b;transform:none}
+.overview-intro{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;margin-bottom:22px}.overview-intro h1{margin:0;color:#18181b;font-size:27px;letter-spacing:-.045em}.overview-intro p{margin:6px 0 0;color:#71717a;font-size:12px}.overview-live{display:inline-flex;align-items:center;gap:7px;padding:7px 10px;border:1px solid #e4e4e7;border-radius:6px;background:#fff;color:#52525b;font-size:11px;font-weight:650}.overview-live i{width:7px;height:7px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 3px #dcfce7}
+.overview-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:18px}.metric-card{min-height:108px;padding:16px;border:1px solid #e4e4e7;border-radius:8px;background:#fff}.metric-card header{display:flex;align-items:center;justify-content:space-between;margin-bottom:13px;color:#71717a;font-size:11px}.metric-icon{display:grid;place-items:center;width:25px;height:25px;border-radius:6px;background:#f4f4f5;color:#52525b;font-size:12px}.metric-card strong{display:block;color:#18181b;font-size:23px;line-height:1.1;letter-spacing:-.04em}.metric-card small{display:block;margin-top:7px;color:#a1a1aa;font-size:10px}.overview-columns{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(240px,.8fr);gap:18px}.overview-panel{margin-top:0;min-height:0}.panel-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:14px}.panel-heading h2{margin:0}.panel-heading p{margin:4px 0 0;color:#a1a1aa;font-size:11px}.panel-heading .panel-count{color:#a1a1aa;font-size:11px}.node-overview-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.node-overview{padding:13px;border:1px solid #f0f0f2;border-radius:7px;background:#fff}.node-overview header{display:flex;align-items:center;justify-content:space-between;gap:10px}.node-overview-title{display:flex;align-items:center;gap:8px;color:#27272a;font-size:12px;font-weight:700}.node-overview-title .flag{font-size:17px}.node-state{color:#22a35a;font-size:10px}.node-state.offline{color:#a1a1aa}.node-overview-meta{display:flex;justify-content:space-between;gap:10px;margin-top:11px;color:#71717a;font-size:10px}.node-progress{height:4px;margin-top:10px;overflow:hidden;border-radius:99px;background:#f4f4f5}.node-progress span{display:block;width:var(--progress,36%);height:100%;border-radius:inherit;background:#a1a1aa}.overview-list{display:grid;gap:0}.overview-list-item{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid #f4f4f5}.overview-list-item:last-child{border-bottom:0}.overview-list-item strong{display:block;color:#27272a;font-size:12px}.overview-list-item small{display:block;margin-top:3px;color:#a1a1aa;font-size:10px}.overview-list-item .list-value{color:#52525b;font-size:11px;font-weight:650;text-align:right}.empty-state{padding:34px 12px;color:#a1a1aa;text-align:center;font-size:12px}
+@media(max-width:980px){.overview-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.overview-columns{grid-template-columns:1fr}}
+@media(max-width:720px){.admin-topbar{margin:-4px 0 22px}.admin-search{width:100%}.admin-tools{display:none}.overview-intro{display:block}.overview-live{margin-top:14px}.overview-metrics{gap:8px}.metric-card{min-height:96px;padding:13px}.metric-card strong{font-size:20px}.node-overview-grid{grid-template-columns:1fr}}
 """
 
 # Some media origins redirect large files to a dedicated, known storage host.
@@ -1588,12 +1598,14 @@ class ProxyPanel:
         if error:
             message += f"<p class='error'>{html.escape(error)}</p>"
         nonce = secrets.token_urlsafe(16)
+        overview_class = " active" if active == "overview" else ""
         nodes_class = " active" if active == "nodes" else ""
         routes_class = " active" if active == "routes" else ""
         users_class = " active" if active == "users" else ""
         invites_class = " active" if active == "invites" else ""
-        page_title = {"nodes": "节点面板", "routes": "线路管理", "users": "用户管理", "invites": "邀请码管理"}.get(active, "管理后台")
+        page_title = {"overview": "运行概览", "nodes": "节点面板", "routes": "线路管理", "users": "用户管理", "invites": "邀请码管理"}.get(active, "管理后台")
         page_subtitle = {
+            "overview": "统一查看节点、线路和流量运行状态。",
             "nodes": "线路只影响新请求；正在播放的 Emby 连接不会被自动迁移。",
             "routes": "创建、验证、重新下发或移除反代线路。",
             "users": "账号、额度、到期状态与登录记录。",
@@ -1604,15 +1616,20 @@ class ProxyPanel:
 <title>Emby Relay · {html.escape(page_title)}</title><style>{ADMIN_UI_CSS}</style></head><body>
 <div class='layout'><aside>
   <a class='brand' href='/'><span class='brand-symbol'>R</span><span class='brand-copy'><strong>Emby Relay</strong><small>Admin Console</small></span></a>
-  <p class='side-label'>控制台</p>
+  <p class='side-label'>监控</p>
   <nav aria-label='后台模块'>
+    <a class='{overview_class}' href='{ADMIN_PREFIX}/overview'><span class='nav-icon'>O</span>运行概览</a>
     <a class='{nodes_class}' href='{ADMIN_PREFIX}/nodes'><span class='nav-icon'>N</span>节点面板</a>
+  </nav>
+  <p class='side-label'>管理</p>
+  <nav aria-label='管理模块'>
     <a class='{routes_class}' href='{ADMIN_PREFIX}/routes'><span class='nav-icon'>R</span>线路管理</a>
     <a class='{users_class}' href='{ADMIN_PREFIX}/users'><span class='nav-icon'>U</span>用户管理</a>
     <a class='{invites_class}' href='{ADMIN_PREFIX}/invites'><span class='nav-icon'>I</span>邀请码管理</a>
   </nav>
   <p class='side-note'>节点和线路操作只影响新连接。<a href='/'>← 返回用户界面</a></p>
 </aside><main>
+  <div class='admin-topbar'><div class='admin-search'><span class='search-icon'>⌕</span><span>搜索页面</span><kbd>⌘ K</kbd></div><div class='admin-tools'><span class='tool-button' aria-label='系统设置'>⚙</span><span class='tool-button' aria-label='全屏'>↗</span><span class='tool-button' aria-label='主题'>◐</span></div></div>
   <header class='admin-header'><div><span class='admin-kicker'>Control Center</span><h1>{page_title}</h1><p class='muted'>{page_subtitle}</p></div><a class='view-site' href='/'>查看用户界面 ↗</a></header>"""
         copy_script = """<script nonce='__CSP_NONCE__'>
 async function copyPanelValue(value) { try { if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(value); return true; } const field = document.createElement('textarea'); field.value = value; field.readOnly = true; field.style.cssText = 'position:fixed;opacity:0'; document.body.append(field); field.select(); const copied = document.execCommand('copy'); field.remove(); return copied; } catch (error) { return false; } }
@@ -1626,6 +1643,63 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
             "Content-Security-Policy": f"default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-{nonce}'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
         })
         return response
+
+    def overview_dashboard(self, notice: str = "", error: str = "", csrf_token: str = "") -> web.Response:
+        with self._connect() as db:
+            nodes = db.execute("SELECT * FROM nodes ORDER BY id").fetchall()
+            route_total = int(db.execute("SELECT COUNT(*) FROM routes").fetchone()[0])
+            deployed_routes = int(db.execute("SELECT COUNT(*) FROM routes WHERE deployed=1").fetchone()[0])
+            user_total = int(db.execute("SELECT COUNT(*) FROM users WHERE is_admin=0").fetchone()[0])
+            invite_total = int(db.execute("SELECT COUNT(*) FROM invites WHERE revoked_at IS NULL AND expires_at > ?", (now(),)).fetchone()[0])
+            recent_routes = db.execute(
+                "SELECT routes.name,routes.public_host,routes.deployed,nodes.name AS node_name "
+                "FROM routes JOIN nodes ON nodes.id=routes.node_id ORDER BY routes.updated_at DESC, routes.id DESC LIMIT 6"
+            ).fetchall()
+        node_usage = self._traffic_summaries("node_traffic_daily", "node_id")
+        node_count = len(nodes)
+        online_nodes = sum(1 for node in nodes if str(node["state"] or "active") == "active")
+        today_total = sum(int(item.get("today_rx", 0)) + int(item.get("today_tx", 0)) for item in node_usage.values())
+        month_total = sum(int(item.get("month_total", 0)) for item in node_usage.values())
+        max_node_total = max((int(item.get("all_total", 0)) for item in node_usage.values()), default=0)
+
+        node_cards = []
+        locations: dict[str, int] = {}
+        for node in nodes:
+            node_id = int(node["id"])
+            usage = node_usage.get(node_id, {})
+            total = int(usage.get("all_total", 0))
+            progress = min(100, max(8, round(total * 100 / max_node_total))) if max_node_total else 8
+            location = " ".join(filter(None, (node["country_flag"], node["country_name"]))) or "未识别地区"
+            locations[location] = locations.get(location, 0) + 1
+            active = str(node["state"] or "active") == "active"
+            state_label = "在线" if active else "离线"
+            state_class = "" if active else " offline"
+            node_cards.append(
+                f"<article class='node-overview'><header><div class='node-overview-title'><span class='flag'>{html.escape(node['country_flag'] or '◌')}</span><span>{html.escape(node['name'])}</span></div><span class='node-state{state_class}'>{state_label}</span></header>"
+                f"<div class='node-overview-meta'><span>{html.escape(location)}</span><span>{self._format_bytes(total)} 累计</span></div><div class='node-progress' style='--progress:{progress}%;'><span></span></div></article>"
+            )
+        node_grid = "".join(node_cards) or "<div class='empty-state'>暂无节点，请先在节点面板添加服务器。</div>"
+        location_rows = "".join(
+            f"<div class='overview-list-item'><span><strong>{html.escape(location)}</strong><small>节点位置</small></span><span class='list-value'>{count} 个</span></div>"
+            for location, count in sorted(locations.items(), key=lambda item: (-item[1], item[0]))
+        ) or "<div class='empty-state'>暂无地区数据</div>"
+        route_rows = "".join(
+            f"<div class='overview-list-item'><span><strong>{html.escape(route['name'])}</strong><small>{html.escape(route['node_name'])}</small></span><span class='list-value'>{'已下发' if route['deployed'] else '待处理'}</span></div>"
+            for route in recent_routes
+        ) or "<div class='empty-state'>暂无线路</div>"
+        content = f"""
+<div class='overview-intro'><div><p>实时流量、线路请求与节点健康状态</p></div><span class='overview-live'><i></i>网关在线</span></div>
+<div class='overview-metrics'>
+  <article class='metric-card'><header><span>今日总流量</span><span class='metric-icon'>↓</span></header><strong>{self._format_bytes(today_total)}</strong><small>节点入站与出站合计</small></article>
+  <article class='metric-card'><header><span>本月总流量</span><span class='metric-icon'>↗</span></header><strong>{self._format_bytes(month_total)}</strong><small>按北京时间统计</small></article>
+  <article class='metric-card'><header><span>活跃线路</span><span class='metric-icon'>⌁</span></header><strong>{deployed_routes}<small style='display:inline;margin:0 0 0 4px;font-size:11px;color:#a1a1aa'>/ {route_total}</small></strong><small>已下发 / 全部线路</small></article>
+  <article class='metric-card'><header><span>在线节点</span><span class='metric-icon'>⌾</span></header><strong>{online_nodes}<small style='display:inline;margin:0 0 0 4px;font-size:11px;color:#a1a1aa'>/ {node_count}</small></strong><small>{user_total} 个普通用户 · {invite_total} 个可用邀请码</small></article>
+</div>
+<div class='overview-columns'>
+  <section class='overview-panel'><div class='panel-heading'><div><h2>节点概览</h2><p>按节点查看位置、状态和累计用量</p></div><span class='panel-count'>{node_count} 个节点</span></div><div class='node-overview-grid'>{node_grid}</div></section>
+  <div class='overview-side'><section class='overview-panel'><div class='panel-heading'><div><h2>地区分布</h2><p>节点所在地区</p></div></div><div class='overview-list'>{location_rows}</div></section><section class='overview-panel'><div class='panel-heading'><div><h2>最近线路</h2><p>最近更新的访问入口</p></div><a class='panel-count' href='{ADMIN_PREFIX}/routes'>查看全部</a></div><div class='overview-list'>{route_rows}</div></section></div>
+</div>"""
+        return self._page(content, notice, error, active="overview")
 
     def dashboard(self, notice: str = "", error: str = "", route_page: int = 1, csrf_token: str = "") -> web.Response:
         csrf_token = html.escape(csrf_token, quote=True)
@@ -3031,6 +3105,9 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
         admin = self.require_admin(request)
         csrf_token = str(admin["csrf_secret"])
 
+        def admin_overview(**kwargs):
+            return self.overview_dashboard(csrf_token=csrf_token, **kwargs)
+
         def admin_dashboard(**kwargs):
             return self.dashboard(csrf_token=csrf_token, **kwargs)
 
@@ -3049,7 +3126,9 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
             route_page = 1
         if request.method == "GET":
             if request.path in {ADMIN_PREFIX, ADMIN_PREFIX + "/"}:
-                raise web.HTTPFound(ADMIN_PREFIX + "/nodes")
+                raise web.HTTPFound(ADMIN_PREFIX + "/overview")
+            if request.path == ADMIN_PREFIX + "/overview":
+                return admin_overview()
             if request.path == ADMIN_PREFIX + "/nodes":
                 return admin_dashboard()
             if request.path == ADMIN_PREFIX + "/routes":
