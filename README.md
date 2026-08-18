@@ -41,7 +41,7 @@ curl -fsSL https://raw.githubusercontent.com/LLL198/emby-relay-panel/main/deploy
 
 ## 快速部署
 
-不要直接把生产密码写进仓库。克隆代码、安装依赖、创建环境文件、配置主站 Nginx 后，再启动 `uniproxy.service`。详细的可复制命令和每个字段的含义都在 [USAGE.md](USAGE.md)。
+克隆代码、安装依赖、创建环境文件、配置主站 Nginx 后，再启动 `uniproxy.service`。详细的可复制命令和每个字段的含义都在 [USAGE.md](USAGE.md)。
 
 ```bash
 git clone https://github.com/LLL198/emby-relay-panel.git /opt/uniproxy
@@ -70,7 +70,6 @@ python3 -m venv /opt/uniproxy/.venv
 
 ## 安全注意事项
 
-- `.env`、`panel.db`、`acme-account.conf`、SSH 私钥、证书私钥和日志都不应提交到 Git。
 - 生产环境必须尽快替换默认密码；`AGENT_TOKEN` 和两个 Fernet 密钥要使用随机高熵值，并设置环境文件为 `root:root`、`0600`。
 - Cloudflare Token 文件只放在主控机；节点部署接收证书，不需要把该 Token 复制到节点。
 - 生产环境请使用 HTTPS；不要把 Python 面板端口 `8787` 直接暴露到公网。
