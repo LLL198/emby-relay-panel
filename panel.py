@@ -69,6 +69,80 @@ TRAFFIC_TIMEZONE = timezone(timedelta(hours=8))
 SSH_READY_ATTEMPTS = 4
 SSH_READY_RETRY_SECONDS = 3
 
+AUTH_UI_CSS = r"""
+:root{color-scheme:light;--ink:#172033;--muted:#6d788d;--line:#dfe5ef;--surface:#fff;--accent:#3aba6f;--accent-dark:#248c52;--navy:#101827}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;padding:32px;background:#f2f5f9;color:var(--ink);font:14px/1.55 "PingFang SC","Microsoft YaHei",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+body:before{content:"";position:fixed;inset:0;pointer-events:none;background:radial-gradient(circle at 12% 15%,rgba(58,186,111,.12),transparent 26%),radial-gradient(circle at 88% 82%,rgba(82,109,255,.1),transparent 28%)}
+a{color:#2875d2;text-decoration:none;font-weight:650}
+.auth-shell{position:relative;display:grid;grid-template-columns:minmax(280px,.88fr) minmax(360px,1.12fr);width:min(100%,920px);min-height:590px;margin:0 auto;overflow:hidden;border:1px solid rgba(218,225,236,.9);border-radius:28px;background:rgba(255,255,255,.94);box-shadow:0 30px 80px rgba(31,42,68,.14)}
+.auth-intro{position:relative;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden;padding:42px;color:#fff;background:linear-gradient(155deg,#111c2e 0%,#17243a 58%,#163f35 100%)}
+.auth-intro:before,.auth-intro:after{content:"";position:absolute;border-radius:50%;pointer-events:none}
+.auth-intro:before{width:260px;height:260px;right:-110px;top:-100px;border:1px solid rgba(112,231,162,.22);box-shadow:0 0 0 38px rgba(112,231,162,.045),0 0 0 76px rgba(112,231,162,.03)}
+.auth-intro:after{width:160px;height:160px;left:-80px;bottom:38px;background:radial-gradient(circle,rgba(67,199,123,.22),transparent 70%)}
+.brand-lockup{position:relative;z-index:1;display:flex;align-items:center;gap:12px}
+.brand-mark{display:grid;place-items:center;width:42px;height:42px;border:1px solid rgba(255,255,255,.14);border-radius:13px;background:linear-gradient(145deg,#58d589,#2fae65);box-shadow:0 10px 28px rgba(34,197,94,.22);font-size:19px;font-weight:900}
+.brand-copy{display:grid;line-height:1.15}.brand-copy strong{font-size:16px;letter-spacing:.02em}.brand-copy small{margin-top:4px;color:#9fb0c8;font-size:10px;letter-spacing:.18em;text-transform:uppercase}
+.intro-copy{position:relative;z-index:1;margin:auto 0}.intro-kicker{display:block;margin-bottom:15px;color:#70dfa0;font-size:11px;font-weight:800;letter-spacing:.16em;text-transform:uppercase}.intro-copy h2{max-width:300px;margin:0 0 16px;font-size:34px;line-height:1.18;letter-spacing:-.045em}.intro-copy p{max-width:310px;margin:0;color:#afbdd0;line-height:1.8}
+.intro-foot{position:relative;z-index:1;color:#8292aa;font-size:11px}
+.auth-panel{display:grid;place-items:center;padding:48px 58px;background:rgba(255,255,255,.9)}
+.auth-card{width:100%;max-width:400px}.auth-card>h1{margin:0 0 8px;font-size:30px;line-height:1.2;letter-spacing:-.035em}.auth-card>p{margin:0 0 24px}.muted{color:var(--muted)}
+label{display:grid;gap:7px;margin-top:16px;color:#38445a;font-size:12px;font-weight:750;letter-spacing:.01em}
+input{width:100%;height:46px;padding:0 14px;outline:none;border:1px solid var(--line);border-radius:12px;background:#f9fbfd;color:var(--ink);font:inherit;transition:.18s border-color,.18s box-shadow,.18s background}
+input:hover{border-color:#c6cfdd}input:focus{border-color:#55b980;background:#fff;box-shadow:0 0 0 4px rgba(58,186,111,.12)}
+label.checkline{display:flex;align-items:center;gap:9px;margin-top:18px;color:#68758a;font-weight:550;letter-spacing:0}label.checkline input{width:16px;height:16px;margin:0;accent-color:var(--accent)}
+button{width:100%;height:47px;margin-top:22px;border:0;border-radius:12px;background:linear-gradient(135deg,#3fc277,#2da461);box-shadow:0 10px 24px rgba(45,164,97,.22);color:#fff;font:inherit;font-weight:800;cursor:pointer;transition:.18s transform,.18s box-shadow}button:hover{transform:translateY(-1px);box-shadow:0 14px 28px rgba(45,164,97,.28)}button:active{transform:translateY(0)}
+.links{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:22px 0 0;padding-top:18px;border-top:1px solid #edf0f5;color:#7c8799;font-size:12px}
+.error,.notice{margin:0 0 18px;padding:11px 13px;border:1px solid;border-radius:11px;font-size:12px}.error{border-color:#fecdd3;background:#fff1f2;color:#be123c}.notice{border-color:#bbf7d0;background:#f0fdf4;color:#15803d}
+@media(max-width:760px){body{padding:16px}.auth-shell{display:block;min-height:0;border-radius:22px}.auth-intro{min-height:174px;padding:26px}.intro-copy{margin:32px 0 0}.intro-copy h2{margin-bottom:8px;font-size:25px}.intro-copy p,.intro-foot{display:none}.auth-panel{padding:32px 24px 36px}.auth-card>h1{font-size:27px}}
+
+/* Shadcn-inspired neutral theme: restrained borders, flat surfaces and a black primary action. */
+body{background:#fafafa;color:#18181b;font-family:Inter,"PingFang SC","Microsoft YaHei",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+body:before{content:none}
+.auth-shell{display:block;width:min(100%,430px);min-height:0;border:1px solid #e4e4e7;border-radius:12px;background:#fff;box-shadow:0 8px 24px rgba(24,24,27,.06)}
+.auth-intro{display:block;min-height:0;overflow:visible;padding:32px 32px 0;color:#18181b;background:transparent}
+.auth-intro:before,.auth-intro:after{content:none}
+.brand-lockup{justify-content:center;gap:10px}.brand-mark{width:36px;height:36px;border:0;border-radius:8px;background:#18181b;box-shadow:none;color:#fafafa;font-size:15px}.brand-copy strong{font-size:14px}.brand-copy small{color:#71717a;letter-spacing:.12em}
+.intro-copy{margin:38px 0 0;text-align:center}.intro-kicker,.intro-foot{display:none}.intro-copy h2{max-width:none;margin:0 0 9px;color:#18181b;font-size:25px;line-height:1.25;letter-spacing:-.04em}.intro-copy p{max-width:none;margin:0;color:#71717a;font-size:13px;line-height:1.7}
+.auth-panel{display:block;padding:28px 32px 32px;background:#fff}.auth-card{max-width:none}.auth-card>h1{margin-bottom:7px;color:#18181b;font-size:21px;letter-spacing:-.025em;text-align:center}.auth-card>p{margin-bottom:20px;color:#71717a;font-size:13px;text-align:center}
+label{color:#3f3f46;font-size:12px;font-weight:650}input{height:40px;border-color:#e4e4e7;border-radius:6px;background:#fff;color:#18181b}input:hover{border-color:#a1a1aa}input:focus{border-color:#18181b;box-shadow:0 0 0 3px rgba(24,24,27,.1)}label.checkline{color:#71717a}label.checkline input{accent-color:#18181b}
+button{height:40px;border-radius:6px;background:#18181b;box-shadow:none;font-size:13px}button:hover{background:#27272a;box-shadow:none;filter:none}button:active{transform:none}.links{justify-content:center;margin-top:20px;padding-top:16px;border-top:0;color:#71717a}.links a{color:#18181b}.error,.notice{border-radius:6px}.error{border-color:#fecaca;background:#fef2f2;color:#b91c1c}.notice{border-color:#d4d4d8;background:#f4f4f5;color:#3f3f46}
+@media(max-width:760px){.auth-intro{padding:25px 24px 0}.intro-copy{margin-top:30px}.auth-panel{padding:24px 24px 28px}}
+"""
+
+ADMIN_UI_CSS = r"""
+:root{color-scheme:light;--ink:#172033;--muted:#6d788d;--line:#e2e7ef;--surface:#fff;--canvas:#f3f5f8;--accent:#32b66a;--accent-soft:#e9f8ef;--navy:#111927;--danger:#d84a5b}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:var(--canvas);color:var(--ink);font:14px/1.55 "PingFang SC","Microsoft YaHei",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+.layout{display:grid;grid-template-columns:250px minmax(0,1fr);min-height:100vh}
+aside{position:sticky;top:0;display:flex;flex-direction:column;height:100vh;padding:26px 18px;background:linear-gradient(180deg,#111927,#151f31);color:#fff}
+.brand{display:flex;align-items:center;gap:11px;margin:0 8px 34px;color:#fff;text-decoration:none}.brand-symbol{display:grid;place-items:center;width:38px;height:38px;border-radius:12px;background:linear-gradient(145deg,#54d487,#2dab64);box-shadow:0 8px 22px rgba(49,182,106,.22);font-weight:900}.brand-copy{display:grid;line-height:1.15}.brand-copy strong{font-size:14px;letter-spacing:.02em}.brand-copy small{margin-top:4px;color:#8191aa;font-size:9px;letter-spacing:.18em;text-transform:uppercase}
+.side-label{margin:0 12px 9px;color:#64748b;font-size:9px;font-weight:800;letter-spacing:.16em;text-transform:uppercase}
+aside nav{display:grid;gap:6px}aside nav a{display:flex;align-items:center;gap:11px;padding:11px 12px;border-radius:11px;color:#96a4b9;text-decoration:none;font-size:13px;font-weight:700;transition:.16s background,.16s color}.nav-icon{display:grid;place-items:center;width:25px;height:25px;border-radius:8px;background:rgba(255,255,255,.055);font-size:11px}aside nav a:hover{background:rgba(255,255,255,.055);color:#dce4ef}aside nav a.active{background:rgba(58,190,113,.14);color:#6ddd9d}.active .nav-icon{background:rgba(58,190,113,.18)}
+.side-note{margin:auto 10px 0;padding:14px;border:1px solid rgba(255,255,255,.07);border-radius:12px;background:rgba(255,255,255,.035);color:#7f8da2;font-size:11px;line-height:1.7}.side-note a{display:block;margin-top:8px;color:#aab7ca;text-decoration:none;font-weight:700}
+main{width:100%;max-width:1400px;margin:0 auto;padding:38px 40px 64px}.admin-header{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;margin-bottom:24px}.admin-kicker{display:block;margin-bottom:5px;color:#2ba35f;font-size:10px;font-weight:850;letter-spacing:.15em;text-transform:uppercase}.admin-header h1{margin:0;font-size:29px;line-height:1.2;letter-spacing:-.04em}.admin-header p{margin:8px 0 0}.view-site{display:inline-flex;align-items:center;height:38px;padding:0 14px;border:1px solid #dce2eb;border-radius:10px;background:#fff;color:#536075;text-decoration:none;font-size:12px;font-weight:750;box-shadow:0 3px 10px rgba(31,42,68,.04)}
+section{margin-top:18px;padding:21px;border:1px solid var(--line);border-radius:16px;background:var(--surface);box-shadow:0 8px 28px rgba(31,42,68,.055)}section h2{margin:0 0 5px;font-size:16px;letter-spacing:-.015em}section>p.muted{margin:0 0 18px}section>form{margin-top:16px}
+.muted{color:var(--muted)}.notice,.error{margin:0 0 14px;padding:12px 14px;border:1px solid;border-radius:11px;font-size:12px}.notice{border-color:#bbf7d0;background:#f0fdf4;color:#15803d}.error{border-color:#fecdd3;background:#fff1f2;color:#be123c}.ok{color:#16834c;font-weight:700}.off{color:#b76a18;font-weight:700}.tag{display:inline-flex;align-items:center;padding:3px 8px;border-radius:999px;background:var(--accent-soft);color:#17834c;font-size:11px;font-weight:750}
+table{width:100%;border-collapse:separate;border-spacing:0}th,td{padding:13px 10px;border-bottom:1px solid #edf0f4;text-align:left;vertical-align:top}th{color:#7b8798;font-size:10px;font-weight:800;letter-spacing:.07em;text-transform:uppercase}tbody tr:last-child td{border-bottom:0}tbody tr{transition:.14s background}tbody tr:hover{background:#fafbfd}code{color:#42506a;font:11px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace;word-break:break-all}
+.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:13px}.grid>p{display:flex;align-items:flex-end;margin:0}.grid>p button{width:100%}label{display:grid;align-content:start;gap:6px;color:#536075;font-size:11px;font-weight:750}input,select,textarea{width:100%;min-width:0;padding:10px 11px;outline:0;border:1px solid #dce2eb;border-radius:10px;background:#fbfcfe;color:var(--ink);font:inherit;transition:.16s border-color,.16s box-shadow}input:not([type=file]),select{height:42px}input[type=checkbox]{width:auto;height:auto;accent-color:var(--accent)}input:hover,select:hover,textarea:hover{border-color:#c6cfdb}input:focus,select:focus,textarea:focus{border-color:#54b77e;background:#fff;box-shadow:0 0 0 3px rgba(50,182,106,.11)}textarea{min-height:78px;resize:vertical}input.invite-code{width:250px;max-width:100%;font:11px ui-monospace,SFMono-Regular,Consolas,monospace}
+button{min-height:36px;padding:8px 12px;border:0;border-radius:9px;background:#2fae65;box-shadow:0 5px 14px rgba(47,174,101,.17);color:#fff;font:inherit;font-size:12px;font-weight:750;cursor:pointer;transition:.15s transform,.15s filter}button:hover{transform:translateY(-1px);filter:brightness(.97)}button.danger{background:#d84a5b;box-shadow:0 5px 14px rgba(216,74,91,.14)}button.secondary,button.copy-value{background:#667388;box-shadow:none}form.inline{display:inline-flex;margin:2px 3px 2px 0}.copy-control{display:flex;align-items:center;gap:7px}.copy-control button{flex:0 0 auto}.compact{display:flex;flex-wrap:wrap;align-items:flex-end;gap:9px;margin-top:10px;padding:12px;border-radius:11px;background:#f7f9fc}.compact label{min-width:130px;flex:1}
+details{margin-top:7px}summary{color:#3972bb;font-size:12px;font-weight:650;cursor:pointer}.pagination{display:flex;align-items:center;justify-content:center;gap:10px;margin-top:18px}.pagination a,.pagination span{padding:7px 11px;border-radius:9px;font-size:11px}.pagination a{background:#edf7f1;color:#208850;text-decoration:none;font-weight:750}.pagination span{background:#f5f6f8;color:#9aa4b2}.pagination b{color:#778295;font-size:11px}
+@media(max-width:980px){.layout{grid-template-columns:210px minmax(0,1fr)}main{padding:30px 24px 50px}.grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:720px){.layout{display:block}aside{position:static;display:block;width:100%;height:auto;padding:14px}.brand{margin:0 4px 13px}.side-label,.side-note{display:none}aside nav{display:flex;overflow-x:auto;gap:6px;padding-bottom:2px}aside nav a{flex:0 0 auto;padding:8px 10px}.nav-icon{width:22px;height:22px}main{padding:24px 14px 42px}.admin-header{align-items:center}.admin-header h1{font-size:24px}.view-site{display:none}.grid{grid-template-columns:1fr}section{padding:16px;border-radius:14px;overflow:hidden}table{display:block;overflow-x:auto;white-space:nowrap;-webkit-overflow-scrolling:touch}th,td{padding:11px 9px}.compact{display:grid}.copy-control{min-width:260px}}
+
+/* Shadcn-inspired admin shell. */
+body{background:#fafafa;color:#18181b}
+aside{border-right:1px solid #e4e4e7;background:#fff;color:#18181b}
+.brand{color:#18181b}.brand-symbol{width:32px;height:32px;border-radius:7px;background:#18181b;box-shadow:none;color:#fafafa;font-size:13px}.brand-copy strong{font-size:13px}.brand-copy small{color:#71717a}
+.side-label{color:#a1a1aa}aside nav a{border-radius:6px;color:#71717a;font-weight:600}aside nav a:hover{background:#f4f4f5;color:#18181b}aside nav a.active{background:#f4f4f5;color:#18181b}.nav-icon{width:24px;height:24px;border-radius:5px;background:#f4f4f5;color:#71717a}.active .nav-icon{background:#e4e4e7;color:#18181b}.side-note{border-color:#e4e4e7;background:#fafafa;color:#71717a}.side-note a{color:#3f3f46}
+main{max-width:1400px;padding:32px 40px 56px}.admin-kicker{color:#71717a;letter-spacing:.12em}.admin-header h1{color:#18181b;font-size:24px}.admin-header p{color:#71717a}.view-site{border-color:#e4e4e7;border-radius:6px;color:#3f3f46;box-shadow:none}
+section{border-color:#e4e4e7;border-radius:8px;background:#fff;box-shadow:none}section h2{color:#18181b}.muted{color:#71717a}.notice,.error{border-radius:6px}.notice{border-color:#e4e4e7;background:#f4f4f5;color:#3f3f46}.error{border-color:#fecaca;background:#fef2f2;color:#b91c1c}.tag{border-radius:999px;background:#f4f4f5;color:#3f3f46}
+th{color:#71717a}td{border-bottom-color:#f4f4f5}tbody tr:hover{background:#fafafa}code{color:#3f3f46}
+label{color:#3f3f46}input,select,textarea{border-color:#e4e4e7;border-radius:6px;background:#fff;color:#18181b}input:hover,select:hover,textarea:hover{border-color:#a1a1aa}input:focus,select:focus,textarea:focus{border-color:#18181b;box-shadow:0 0 0 3px rgba(24,24,27,.1)}input[type=checkbox]{accent-color:#18181b}
+button{border-radius:6px;background:#18181b;box-shadow:none}button:hover{background:#27272a;filter:none;box-shadow:none}button.danger{background:#dc2626;box-shadow:none}button.secondary,button.copy-value{border:1px solid #e4e4e7;background:#fff;color:#3f3f46;box-shadow:none}.compact{background:#fafafa}.pagination a{border-radius:6px;background:#f4f4f5;color:#18181b}.pagination span{border-radius:6px;background:#fafafa}
+@media(max-width:720px){aside{border-right:0;border-bottom:1px solid #e4e4e7}main{padding:24px 14px 42px}}
+"""
+
 # Some media origins redirect large files to a dedicated, known storage host.
 # Keep this list explicit: accepting a host from the redirect URL would turn
 # every generated Nginx server into an unauthenticated forward proxy.
@@ -1329,10 +1403,17 @@ class ProxyPanel:
             messages += f"<p class='error'>{html.escape(error)}</p>"
         if notice:
             messages += f"<p class='notice'>{html.escape(notice)}</p>"
-        body = f"""<!doctype html><html lang='zh-CN'><meta charset='utf-8'>
-<meta name='viewport' content='width=device-width,initial-scale=1'><title>{html.escape(title)}</title><style>
-*{{box-sizing:border-box}}body{{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:radial-gradient(circle at 10% 10%,#dbeafe 0,transparent 34%),linear-gradient(135deg,#f8fafc,#e7eefb);font:14px system-ui,-apple-system,'Segoe UI',sans-serif;color:#1e293b}}main{{width:min(100%,430px)}}.brand{{margin:0 0 20px;text-align:center;color:#4c659e;font-weight:800;letter-spacing:.08em}}section{{padding:28px;border:1px solid rgba(255,255,255,.85);border-radius:20px;background:rgba(255,255,255,.78);box-shadow:0 18px 50px rgba(64,88,140,.14);backdrop-filter:blur(16px)}}h1{{margin:0 0 8px;font-size:25px}}p{{line-height:1.7}}.muted{{color:#64748b}}label{{display:grid;gap:6px;margin-top:14px;color:#475569;font-size:13px;font-weight:650}}label.checkline{{display:flex;align-items:center;gap:8px;font-weight:500}}input{{width:100%;padding:12px;border:1px solid #d6e0ef;border-radius:10px;background:#fff;font:inherit}}label.checkline input{{width:auto;padding:0}}button{{width:100%;margin-top:20px;padding:12px;border:0;border-radius:10px;background:linear-gradient(135deg,#2563eb,#4f46e5);color:#fff;font:inherit;font-weight:750;cursor:pointer}}a{{color:#315fbd;text-decoration:none}}.links{{display:flex;justify-content:space-between;gap:12px;margin-top:18px;font-size:13px}}.error,.notice{{padding:10px 12px;border-radius:10px}}.error{{background:#fff1f2;color:#b4233a}}.notice{{background:#ecfdf5;color:#047857}}</style>
-<main><p class='brand'>✦ 反代入口</p><section>{messages}{content}</section></main></html>"""
+        body = f"""<!doctype html><html lang='zh-CN'><head><meta charset='utf-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1'><meta name='theme-color' content='#111927'>
+<title>Emby Relay · {html.escape(title)}</title><style>{AUTH_UI_CSS}</style></head><body>
+<main class='auth-shell'>
+  <section class='auth-intro' aria-label='Emby Relay'>
+    <div class='brand-lockup'><span class='brand-mark'>R</span><span class='brand-copy'><strong>Emby Relay</strong><small>Relay Panel</small></span></div>
+    <div class='intro-copy'><span class='intro-kicker'>Private Media Access</span><h2>让每一次播放，走更合适的线路。</h2><p>统一管理节点与访问地址，为你的媒体服务选择更稳定的入口。</p></div>
+    <div class='intro-foot'>安全连接 · 独立线路 · 随时切换</div>
+  </section>
+  <section class='auth-panel'><div class='auth-card'>{messages}{content}</div></section>
+</main></body></html>"""
         response = web.Response(text=body, content_type="text/html")
         response.headers.update({
             "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY",
@@ -1508,26 +1589,36 @@ class ProxyPanel:
             message += f"<p class='error'>{html.escape(error)}</p>"
         nonce = secrets.token_urlsafe(16)
         nodes_class = " active" if active == "nodes" else ""
+        routes_class = " active" if active == "routes" else ""
         users_class = " active" if active == "users" else ""
         invites_class = " active" if active == "invites" else ""
-        page_title = {"nodes": "节点面板", "users": "用户管理", "invites": "邀请码管理"}.get(active, "管理后台")
+        page_title = {"nodes": "节点面板", "routes": "线路管理", "users": "用户管理", "invites": "邀请码管理"}.get(active, "管理后台")
         page_subtitle = {
             "nodes": "线路只影响新请求；正在播放的 Emby 连接不会被自动迁移。",
+            "routes": "创建、验证、重新下发或移除反代线路。",
             "users": "账号、额度、到期状态与登录记录。",
             "invites": "创建、查看、撤销或删除邀请码及其兑换记录。",
         }.get(active, "")
-        body = f"""<!doctype html><html lang='zh-CN'><meta charset='utf-8'>
-<meta name='viewport' content='width=device-width,initial-scale=1'><title>节点面板</title><style>
-  *{{box-sizing:border-box}}body{{margin:0;min-height:100vh;background:radial-gradient(circle at 10% 8%,#dbeafe 0,transparent 32%),radial-gradient(circle at 88% 18%,#ede9fe 0,transparent 30%),linear-gradient(135deg,#f8fafc,#e8eef9);color:#172033;font:14px system-ui,-apple-system,Segoe UI,sans-serif}}
-  .layout{{display:grid;grid-template-columns:224px minmax(0,1fr);min-height:100vh}}aside{{padding:28px 16px;border-right:1px solid rgba(203,213,225,.7);background:rgba(255,255,255,.53)}}.brand{{margin:0 10px 26px;color:#405b99;font-size:15px;font-weight:800;letter-spacing:.07em}}nav{{display:grid;gap:7px}}nav a{{padding:11px 12px;border-radius:10px;color:#53647e;text-decoration:none;font-weight:700}}nav a:hover,nav a.active{{color:#1d4ed8;background:#e8efff}}.side-note{{margin:22px 10px;color:#8190a6;font-size:12px;line-height:1.6}}
-  main{{max-width:1180px;width:100%;margin:0 auto;padding:38px 28px 56px}}h1{{margin:0;font-size:27px;letter-spacing:-.5px}}h2{{font-size:17px;margin:0 0 14px}}
-  section{{background:rgba(255,255,255,.68);border:1px solid rgba(255,255,255,.82);box-shadow:0 18px 50px rgba(70,85,120,.12);backdrop-filter:blur(16px);border-radius:16px;padding:18px;margin-top:18px}}table{{border-collapse:collapse;width:100%}}th,td{{padding:10px 8px;text-align:left;border-bottom:1px solid rgba(203,213,225,.55);vertical-align:top}}th{{font-size:12px;color:#64748b}}form.inline{{display:inline}}input,select,textarea{{padding:9px;border:1px solid rgba(148,163,184,.55);border-radius:8px;min-width:0;box-sizing:border-box;background:rgba(255,255,255,.72);font:inherit}}input.invite-code{{width:270px;max-width:100%;font:12px ui-monospace,SFMono-Regular,Consolas,monospace}}textarea{{min-height:70px;resize:vertical}}button{{padding:8px 11px;border:1px solid rgba(255,255,255,.55);border-radius:8px;background:linear-gradient(135deg,#2563eb,#4f46e5);box-shadow:0 5px 14px rgba(37,99,235,.2);color:#fff;cursor:pointer}}button.danger{{background:linear-gradient(135deg,#dc2626,#b91c1c)}}button.secondary{{background:#64748b;box-shadow:none}}button.copy-value{{margin-left:6px;padding:7px 9px;background:#64748b;box-shadow:none;font-size:12px}}.copy-control{{display:flex;align-items:center;gap:6px}}.copy-control button.copy-value{{margin-left:0;flex:0 0 auto}}button.action-check{{display:inline-block;opacity:1;cursor:pointer}}.grid{{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}}label{{display:grid;gap:5px;color:#475569;font-size:12px}}.muted{{color:#64748b}}.notice,.error{{padding:11px 13px;border-radius:10px}}.notice{{background:rgba(236,253,245,.78);color:#065f46}}.error{{background:rgba(254,242,242,.82);color:#991b1b}}.ok{{color:#047857}}.off{{color:#b45309}}code{{font-size:12px;word-break:break-all}}details{{margin-top:9px}}summary{{cursor:pointer;color:#315fbd}}.compact{{display:flex;flex-wrap:wrap;align-items:end;gap:8px}}.compact label{{min-width:120px;flex:1}}.tag{{display:inline-block;padding:3px 7px;border-radius:999px;background:#eff6ff;color:#2563eb;font-size:12px}}.pagination{{display:flex;align-items:center;justify-content:center;gap:12px;margin-top:15px}}.pagination a,.pagination span{{padding:6px 10px;border-radius:8px;font-size:12px}}.pagination a{{color:#1d4ed8;background:#eff6ff;text-decoration:none;font-weight:700}}.pagination span{{color:#94a3b8;background:#f8fafc}}.pagination b{{color:#64748b;font-size:12px}}@media(max-width:760px){{.layout{{display:block}}aside{{padding:12px;border-right:0;border-bottom:1px solid #dbe3f0}}.brand{{margin:0 8px 10px}}nav{{display:flex;gap:5px}}nav a{{padding:8px 10px}}.side-note{{display:none}}main{{padding:24px 14px 40px}}.grid{{grid-template-columns:1fr}}table{{display:block;overflow-x:auto;white-space:nowrap}}}}
-  </style><div class='layout'><aside><p class='brand'>✦ 管理后台</p><nav><a class='{nodes_class}' href='{ADMIN_PREFIX}/nodes'>节点面板</a><a class='{users_class}' href='{ADMIN_PREFIX}/users'>用户管理</a><a class='{invites_class}' href='{ADMIN_PREFIX}/invites'>邀请码管理</a></nav><p class='side-note'>节点和线路操作只影响新连接。</p></aside><main><h1>{page_title}</h1><p class='muted'>{page_subtitle}</p>"""
+        body = f"""<!doctype html><html lang='zh-CN'><head><meta charset='utf-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1'><meta name='theme-color' content='#111927'>
+<title>Emby Relay · {html.escape(page_title)}</title><style>{ADMIN_UI_CSS}</style></head><body>
+<div class='layout'><aside>
+  <a class='brand' href='/'><span class='brand-symbol'>R</span><span class='brand-copy'><strong>Emby Relay</strong><small>Admin Console</small></span></a>
+  <p class='side-label'>控制台</p>
+  <nav aria-label='后台模块'>
+    <a class='{nodes_class}' href='{ADMIN_PREFIX}/nodes'><span class='nav-icon'>N</span>节点面板</a>
+    <a class='{routes_class}' href='{ADMIN_PREFIX}/routes'><span class='nav-icon'>R</span>线路管理</a>
+    <a class='{users_class}' href='{ADMIN_PREFIX}/users'><span class='nav-icon'>U</span>用户管理</a>
+    <a class='{invites_class}' href='{ADMIN_PREFIX}/invites'><span class='nav-icon'>I</span>邀请码管理</a>
+  </nav>
+  <p class='side-note'>节点和线路操作只影响新连接。<a href='/'>← 返回用户界面</a></p>
+</aside><main>
+  <header class='admin-header'><div><span class='admin-kicker'>Control Center</span><h1>{page_title}</h1><p class='muted'>{page_subtitle}</p></div><a class='view-site' href='/'>查看用户界面 ↗</a></header>"""
         copy_script = """<script nonce='__CSP_NONCE__'>
 async function copyPanelValue(value) { try { if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(value); return true; } const field = document.createElement('textarea'); field.value = value; field.readOnly = true; field.style.cssText = 'position:fixed;opacity:0'; document.body.append(field); field.select(); const copied = document.execCommand('copy'); field.remove(); return copied; } catch (error) { return false; } }
 document.querySelectorAll('[data-copy]').forEach(button => button.addEventListener('click', async () => { const label = button.textContent; button.textContent = (await copyPanelValue(button.dataset.copy)) ? '已复制' : '复制失败'; setTimeout(() => button.textContent = label, 1200); }));
 </script>""".replace("__CSP_NONCE__", nonce)
-        body += message + content.replace("__CSP_NONCE__", nonce) + copy_script + "</main></div></html>"
+        body += message + content.replace("__CSP_NONCE__", nonce) + copy_script + "</main></div></body></html>"
         response = web.Response(text=body, content_type="text/html")
         response.headers.update({
             "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY",
@@ -1544,17 +1635,7 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
             route_page = 1
         with self._connect() as db:
             nodes = db.execute("SELECT * FROM nodes ORDER BY id").fetchall()
-            route_total = int(db.execute("SELECT COUNT(*) FROM routes").fetchone()[0])
-            route_pages = max(1, (route_total + ADMIN_ROUTE_PAGE_SIZE - 1) // ADMIN_ROUTE_PAGE_SIZE)
-            route_page = min(route_page, route_pages)
-            route_offset = (route_page - 1) * ADMIN_ROUTE_PAGE_SIZE
-            routes = db.execute(
-                "SELECT routes.*,nodes.name AS node_name,nodes.public_https_port FROM routes "
-                "JOIN nodes ON nodes.id=routes.node_id ORDER BY routes.id DESC LIMIT ? OFFSET ?",
-                (ADMIN_ROUTE_PAGE_SIZE, route_offset),
-            ).fetchall()
         node_usage = self._traffic_summaries("node_traffic_daily", "node_id")
-        node_options = "".join(f"<option value='{node['id']}'>{html.escape(node['name'])}</option>" for node in nodes)
         node_rows_list = []
         for node in nodes:
             node_id = int(node["id"])
@@ -1573,10 +1654,37 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                 f"<tr><td>{html.escape(node['name'])}</td><td>{kind}</td><td>{html.escape(location)}</td><td><code>{html.escape(node['domain_suffix'])}</code></td><td>{html.escape(health)}<br><span class='muted'>状态：{html.escape(node['state'] or 'active')} · 采集：{html.escape(node['last_seen'] or '暂无')}</span><br>{traffic}</td><td>{check_form}{delete_form}</td></tr>"
             )
         node_rows = "".join(node_rows_list) or "<tr><td colspan='6' class='muted'>还没有节点</td></tr>"
+        content = f"""
+<section><h2>节点</h2><table><thead><tr><th>名称</th><th>类型</th><th>地区</th><th>域名后缀</th><th>状态 / 代理用量</th><th>操作</th></tr></thead><tbody>{node_rows}</tbody></table></section>
+<section><h2>新增节点</h2><p class='muted'>公网 HTTPS 端口是用户访问时使用的端口，内部 HTTPS 端口是节点 Nginx 实际监听的端口，默认都是 443；两者可以独立填写。若远端已安装 Nginx，系统会自动读取它的 HTTPS 监听端口并优先使用，忽略你填写的内部端口。NAT 机需要让服务商把公网端口映射到内部端口。</p><form method='post' enctype='multipart/form-data' action='{ADMIN_PREFIX}/nodes'><div class='grid'><label>节点名称<input required name='name' placeholder='海创'></label><label>网络类型<select required name='network_mode' id='network-mode'><option value='vps'>普通 VPS（独立公网 IP）</option><option value='nat'>NAT 机（端口映射）</option></select></label><label>服务器公网 IP<input required name='ssh_host' inputmode='decimal' placeholder='162.141.136.85'></label><label>SSH 端口<input required name='ssh_port' value='22' inputmode='numeric'></label><label>公网 HTTPS 端口<input required id='public-port' name='public_https_port' value='443' inputmode='numeric'><span class='muted'>NAT 默认可填服务商分配的端口，例如 30004</span></label><label>内部 HTTPS 端口<input required name='internal_https_port' value='443' inputmode='numeric'><span class='muted'>Nginx 监听端口；远端已有 Nginx 时自动识别</span></label><label>SSH 密码（与私钥二选一）<input type='password' name='ssh_password' autocomplete='new-password'></label><label>SSH 私钥文件（与密码二选一）<input type='file' name='ssh_private_key' accept='.pem,.key,text/plain,application/x-pem-file'></label></div><p><input type='hidden' name='csrf' value='{html.escape(csrf_token, quote=True)}'><button>自动部署并添加</button></p></form><script nonce='__CSP_NONCE__'>(()=>{{const mode=document.getElementById('network-mode'),publicPort=document.getElementById('public-port');const sync=()=>{{if(mode.value==='nat'&&publicPort.value==='443')publicPort.value='30004';if(mode.value==='vps'&&publicPort.value==='30004')publicPort.value='443';}};mode.addEventListener('change',sync);}})();</script></section>"""
+        content = content.replace("自动读取它的 HTTPS 监听端口", "自动读取它的监听端口")
+        content = content.replace("Nginx 监听端口，不能使用 80；远端已有 Nginx 时自动识别", "Nginx 监听端口；远端已有 Nginx 时自动识别")
+        content = content.replace("placeholder='海创'", "")
+        content = content.replace("placeholder='162.141.136.85'", "")
+        return self._page(content, notice, error)
+
+    def routes_dashboard(self, notice: str = "", error: str = "", route_page: int = 1, csrf_token: str = "") -> web.Response:
+        csrf_token = html.escape(csrf_token, quote=True)
+        try:
+            route_page = max(1, int(route_page))
+        except (TypeError, ValueError):
+            route_page = 1
+        with self._connect() as db:
+            nodes = db.execute("SELECT * FROM nodes ORDER BY id").fetchall()
+            route_total = int(db.execute("SELECT COUNT(*) FROM routes").fetchone()[0])
+            route_pages = max(1, (route_total + ADMIN_ROUTE_PAGE_SIZE - 1) // ADMIN_ROUTE_PAGE_SIZE)
+            route_page = min(route_page, route_pages)
+            route_offset = (route_page - 1) * ADMIN_ROUTE_PAGE_SIZE
+            routes = db.execute(
+                "SELECT routes.*,nodes.name AS node_name,nodes.public_https_port FROM routes "
+                "JOIN nodes ON nodes.id=routes.node_id ORDER BY routes.id DESC LIMIT ? OFFSET ?",
+                (ADMIN_ROUTE_PAGE_SIZE, route_offset),
+            ).fetchall()
+        node_options = "".join(
+            f"<option value='{node['id']}'>{html.escape(node['name'])}</option>" for node in nodes
+        ) or "<option value='' disabled selected>请先添加节点</option>"
         route_rows_list = []
         for route in routes:
-            deploy_token = csrf_token
-            delete_token = csrf_token
             public_port = int(route["public_https_port"])
             public_suffix = "" if public_port == 443 else f":{public_port}"
             public_url = f"https://{route['public_host']}{public_suffix}/"
@@ -1586,26 +1694,20 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                 state += f"<br><span class='error'>{html.escape(route['last_error'])}</span>"
             route_rows_list.append(
                 f"<tr><td>{html.escape(route['name'])}</td><td><code>{html.escape(route['origin'])}</code></td><td><code>{html.escape(public_url)}</code></td><td>{html.escape(route['node_name'])}</td><td class='{state_class}'>{state}</td><td>"
-                f"<form class='inline' method='post' action='{ADMIN_PREFIX}/routes/{route['id']}/deploy?page={route_page}'><input type='hidden' name='csrf' value='{deploy_token}'><button>下发</button></form> "
-                f"<form class='inline' method='post' action='{ADMIN_PREFIX}/routes/{route['id']}/delete?page={route_page}'><input type='hidden' name='csrf' value='{delete_token}'><button class='danger'>删除</button></form></td></tr>"
+                f"<form class='inline' method='post' action='{ADMIN_PREFIX}/routes/{route['id']}/deploy?page={route_page}'><input type='hidden' name='csrf' value='{csrf_token}'><button>下发</button></form> "
+                f"<form class='inline' method='post' action='{ADMIN_PREFIX}/routes/{route['id']}/delete?page={route_page}'><input type='hidden' name='csrf' value='{csrf_token}'><button class='danger'>删除</button></form></td></tr>"
             )
         route_rows = "".join(route_rows_list) or "<tr><td colspan='6' class='muted'>还没有线路</td></tr>"
         if route_pages > 1:
-            previous = f"<a href='{ADMIN_PREFIX}/nodes?page={route_page - 1}'>上一页</a>" if route_page > 1 else "<span>上一页</span>"
-            next_page = f"<a href='{ADMIN_PREFIX}/nodes?page={route_page + 1}'>下一页</a>" if route_page < route_pages else "<span>下一页</span>"
+            previous = f"<a href='{ADMIN_PREFIX}/routes?page={route_page - 1}'>上一页</a>" if route_page > 1 else "<span>上一页</span>"
+            next_page = f"<a href='{ADMIN_PREFIX}/routes?page={route_page + 1}'>下一页</a>" if route_page < route_pages else "<span>下一页</span>"
             route_pagination = f"<nav class='pagination'>{previous}<b>第 {route_page} / {route_pages} 页 · 共 {route_total} 条</b>{next_page}</nav>"
         else:
             route_pagination = ""
         content = f"""
-<section><h2>线路</h2><table><thead><tr><th>名称</th><th>源站</th><th>公开地址</th><th>节点</th><th>状态</th><th>操作</th></tr></thead><tbody>{route_rows}</tbody></table>{route_pagination}</section>
-<section><h2>新增线路</h2><p class='muted'>创建后会自动下发 Nginx，并从公网访问新地址确认链路；验证结果会直接显示。</p><form method='post' action='{ADMIN_PREFIX}/routes'><div class='grid'><label>线路名称（小写英文、数字、连字符）<input required name='name' pattern='[a-z0-9][a-z0-9-]{{1,31}}' placeholder='emby-a'></label><label>源站地址<input required name='origin' placeholder='https://emby.example.com'></label><label>部署节点<select name='node_id'>{node_options}</select></label></div><p><input type='hidden' name='csrf' value='{html.escape(csrf_token, quote=True)}'><button>创建、下发并验证</button></p></form></section>
-<section><h2>节点</h2><table><thead><tr><th>名称</th><th>类型</th><th>地区</th><th>域名后缀</th><th>状态 / 代理用量</th><th>操作</th></tr></thead><tbody>{node_rows}</tbody></table></section>
-<section><h2>新增节点</h2><p class='muted'>公网 HTTPS 端口是用户访问时使用的端口，内部 HTTPS 端口是节点 Nginx 实际监听的端口，默认都是 443；两者可以独立填写。若远端已安装 Nginx，系统会自动读取它的 HTTPS 监听端口并优先使用，忽略你填写的内部端口。NAT 机需要让服务商把公网端口映射到内部端口。</p><form method='post' enctype='multipart/form-data' action='{ADMIN_PREFIX}/nodes'><div class='grid'><label>节点名称<input required name='name' placeholder='海创'></label><label>网络类型<select required name='network_mode' id='network-mode'><option value='vps'>普通 VPS（独立公网 IP）</option><option value='nat'>NAT 机（端口映射）</option></select></label><label>服务器公网 IP<input required name='ssh_host' inputmode='decimal' placeholder='162.141.136.85'></label><label>SSH 端口<input required name='ssh_port' value='22' inputmode='numeric'></label><label>公网 HTTPS 端口<input required id='public-port' name='public_https_port' value='443' inputmode='numeric'><span class='muted'>NAT 默认可填服务商分配的端口，例如 30004</span></label><label>内部 HTTPS 端口<input required name='internal_https_port' value='443' inputmode='numeric'><span class='muted'>Nginx 监听端口；远端已有 Nginx 时自动识别</span></label><label>SSH 密码（与私钥二选一）<input type='password' name='ssh_password' autocomplete='new-password'></label><label>SSH 私钥文件（与密码二选一）<input type='file' name='ssh_private_key' accept='.pem,.key,text/plain,application/x-pem-file'></label></div><p><input type='hidden' name='csrf' value='{html.escape(csrf_token, quote=True)}'><button>自动部署并添加</button></p></form><script nonce='__CSP_NONCE__'>(()=>{{const mode=document.getElementById('network-mode'),publicPort=document.getElementById('public-port');const sync=()=>{{if(mode.value==='nat'&&publicPort.value==='443')publicPort.value='30004';if(mode.value==='vps'&&publicPort.value==='30004')publicPort.value='443';}};mode.addEventListener('change',sync);}})();</script></section>"""
-        content = content.replace("自动读取它的 HTTPS 监听端口", "自动读取它的监听端口")
-        content = content.replace("Nginx 监听端口，不能使用 80；远端已有 Nginx 时自动识别", "Nginx 监听端口；远端已有 Nginx 时自动识别")
-        content = content.replace("placeholder='海创'", "")
-        content = content.replace("placeholder='162.141.136.85'", "")
-        return self._page(content, notice, error)
+<section><h2>线路列表</h2><p class='muted'>线路是面向用户的访问入口；节点是承载线路的服务器。重新下发只影响新请求，正在播放的连接不会自动迁移。</p><table><thead><tr><th>名称</th><th>源站</th><th>公开地址</th><th>节点</th><th>状态</th><th>操作</th></tr></thead><tbody>{route_rows}</tbody></table>{route_pagination}</section>
+<section><h2>新增线路</h2><p class='muted'>创建后会自动下发 Nginx，并从公网访问新地址确认链路；验证结果会直接显示。</p><form method='post' action='{ADMIN_PREFIX}/routes'><div class='grid'><label>线路名称（小写英文、数字、连字符）<input required name='name' pattern='[a-z0-9][a-z0-9-]{{1,31}}' placeholder='emby-a'></label><label>源站地址<input required name='origin' placeholder='https://emby.example.com'></label><label>部署节点<select required name='node_id'>{node_options}</select></label></div><p><input type='hidden' name='csrf' value='{csrf_token}'><button>创建、下发并验证</button></p></form></section>"""
+        return self._page(content, notice, error, active="routes")
 
     @staticmethod
     def _bounded_int(value: object, field: str, lower: int, upper: int) -> int:
@@ -2932,6 +3034,9 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
         def admin_dashboard(**kwargs):
             return self.dashboard(csrf_token=csrf_token, **kwargs)
 
+        def admin_routes(**kwargs):
+            return self.routes_dashboard(csrf_token=csrf_token, **kwargs)
+
         def admin_users(**kwargs):
             return self.users_dashboard(csrf_token=csrf_token, **kwargs)
 
@@ -2946,7 +3051,9 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
             if request.path in {ADMIN_PREFIX, ADMIN_PREFIX + "/"}:
                 raise web.HTTPFound(ADMIN_PREFIX + "/nodes")
             if request.path == ADMIN_PREFIX + "/nodes":
-                return admin_dashboard(route_page=route_page)
+                return admin_dashboard()
+            if request.path == ADMIN_PREFIX + "/routes":
+                return admin_routes(route_page=route_page)
             if request.path == ADMIN_PREFIX + "/users":
                 return admin_users()
             if request.path == ADMIN_PREFIX + "/invites":
@@ -2955,6 +3062,8 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
             raise web.HTTPNotFound()
         if request.path.startswith(ADMIN_PREFIX + "/invites"):
             view = "invites"
+        elif request.path.startswith(ADMIN_PREFIX + "/routes"):
+            view = "routes"
         elif request.path.startswith(ADMIN_PREFIX + "/users"):
             view = "users"
         else:
@@ -3186,7 +3295,7 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                     )
                     route = db.execute("SELECT * FROM routes WHERE id = ?", (cursor.lastrowid,)).fetchone()
                 status = await asyncio.to_thread(self._deploy_and_verify, node, route)
-                return admin_dashboard(notice=f"线路已创建、下发并通过公网验证（HTTP {status}）。", route_page=route_page)
+                return admin_routes(notice=f"线路已创建、下发并通过公网验证（HTTP {status}）。", route_page=route_page)
             route_match = re.fullmatch(re.escape(ADMIN_PREFIX) + r"/routes/(\d+)/(deploy|delete)", request.path)
             if route_match:
                 route_id, action = int(route_match.group(1)), route_match.group(2)
@@ -3198,23 +3307,29 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                     node = db.execute("SELECT * FROM nodes WHERE id = ?", (route["node_id"],)).fetchone()
                 if action == "deploy":
                     status = await asyncio.to_thread(self._deploy_and_verify, node, route)
-                    return admin_dashboard(notice=f"线路已下发并通过公网验证（HTTP {status}）。", route_page=route_page)
+                    return admin_routes(notice=f"线路已下发并通过公网验证（HTTP {status}）。", route_page=route_page)
                 await asyncio.to_thread(self._delete_route_file, node, route)
                 with self._connect() as db:
                     db.execute("DELETE FROM routes WHERE id = ?", (route_id,))
-                return admin_dashboard(notice="线路配置已移除。", route_page=route_page)
+                return admin_routes(notice="线路配置已移除。", route_page=route_page)
             raise web.HTTPNotFound()
         except web.HTTPException:
             raise
         except (PanelError, ValueError, sqlite3.Error) as exc:
             if view == "invites":
                 return admin_invites(error=str(exc))
-            return admin_users(error=str(exc)) if view == "users" else admin_dashboard(error=str(exc), route_page=route_page)
+            if view == "routes":
+                return admin_routes(error=str(exc), route_page=route_page)
+            return admin_users(error=str(exc)) if view == "users" else admin_dashboard(error=str(exc))
         except subprocess.TimeoutExpired:
             if view == "invites":
                 return admin_invites(error="操作超时；没有确认配置已生效。")
-            return admin_users(error="操作超时；没有确认配置已生效。") if view == "users" else admin_dashboard(error="操作超时；没有确认配置已生效。", route_page=route_page)
+            if view == "routes":
+                return admin_routes(error="操作超时；没有确认配置已生效。", route_page=route_page)
+            return admin_users(error="操作超时；没有确认配置已生效。") if view == "users" else admin_dashboard(error="操作超时；没有确认配置已生效。")
         except Exception as exc:
             if view == "invites":
                 return admin_invites(error=f"操作失败：{exc}")
-            return admin_users(error=f"操作失败：{exc}") if view == "users" else admin_dashboard(error=f"操作失败：{exc}", route_page=route_page)
+            if view == "routes":
+                return admin_routes(error=f"操作失败：{exc}", route_page=route_page)
+            return admin_users(error=f"操作失败：{exc}") if view == "users" else admin_dashboard(error=f"操作失败：{exc}")
