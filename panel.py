@@ -151,6 +151,10 @@ button{border-radius:6px;background:#18181b;box-shadow:none}button:hover{backgro
 .overview-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:18px}.metric-card{min-height:108px;padding:16px;border:1px solid #e4e4e7;border-radius:8px;background:#fff}.metric-card header{display:flex;align-items:center;justify-content:space-between;margin-bottom:13px;color:#71717a;font-size:11px}.metric-icon{display:grid;place-items:center;width:25px;height:25px;border-radius:6px;background:#f4f4f5;color:#52525b;font-size:12px}.metric-card strong{display:block;color:#18181b;font-size:23px;line-height:1.1;letter-spacing:-.04em}.metric-card small{display:block;margin-top:7px;color:#a1a1aa;font-size:10px}.overview-columns{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(240px,.8fr);gap:18px}.overview-panel{margin-top:0;min-height:0}.panel-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:14px}.panel-heading h2{margin:0}.panel-heading p{margin:4px 0 0;color:#a1a1aa;font-size:11px}.panel-heading .panel-count{color:#a1a1aa;font-size:11px}.node-overview-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.node-overview{padding:13px;border:1px solid #f0f0f2;border-radius:7px;background:#fff}.node-overview header{display:flex;align-items:center;justify-content:space-between;gap:10px}.node-overview-title{display:flex;align-items:center;gap:8px;color:#27272a;font-size:12px;font-weight:700}.node-overview-title .flag{font-size:17px}.node-state{color:#22a35a;font-size:10px}.node-state.offline{color:#a1a1aa}.node-overview-meta{display:flex;justify-content:space-between;gap:10px;margin-top:11px;color:#71717a;font-size:10px}.node-progress{height:4px;margin-top:10px;overflow:hidden;border-radius:99px;background:#f4f4f5}.node-progress span{display:block;width:var(--progress,36%);height:100%;border-radius:inherit;background:#a1a1aa}.overview-list{display:grid;gap:0}.overview-list-item{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid #f4f4f5}.overview-list-item:last-child{border-bottom:0}.overview-list-item strong{display:block;color:#27272a;font-size:12px}.overview-list-item small{display:block;margin-top:3px;color:#a1a1aa;font-size:10px}.overview-list-item .list-value{color:#52525b;font-size:11px;font-weight:650;text-align:right}.empty-state{padding:34px 12px;color:#a1a1aa;text-align:center;font-size:12px}
 @media(max-width:980px){.overview-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.overview-columns{grid-template-columns:1fr}}
 @media(max-width:720px){.admin-topbar{margin:-4px 0 22px}.admin-search{width:100%}.admin-tools{display:none}.overview-intro{display:block}.overview-live{margin-top:14px}.overview-metrics{gap:8px}.metric-card{min-height:96px;padding:13px}.metric-card strong{font-size:20px}.node-overview-grid{grid-template-columns:1fr}}
+
+/* Functional toolbar states. */
+.admin-search input{height:100%;padding:0;border:0;box-shadow:none;background:transparent;color:#27272a;font-size:12px}.admin-search input:focus{border:0;box-shadow:none;background:transparent}.admin-search input::placeholder{color:#a1a1aa}
+body[data-theme='dark']{background:#09090b;color:#fafafa}body[data-theme='dark'] aside{border-color:#27272a;background:#111113;color:#fafafa}body[data-theme='dark'] .brand{color:#fafafa}body[data-theme='dark'] .brand-copy small{color:#a1a1aa}body[data-theme='dark'] .side-label{color:#71717a}body[data-theme='dark'] aside nav a{color:#a1a1aa}body[data-theme='dark'] aside nav a:hover,body[data-theme='dark'] aside nav a.active{background:#27272a;color:#fafafa}body[data-theme='dark'] .nav-icon{background:#27272a;color:#a1a1aa}body[data-theme='dark'] .side-note{border-color:#27272a;background:#18181b;color:#a1a1aa}body[data-theme='dark'] .side-note a{color:#d4d4d8}body[data-theme='dark'] main{background:#09090b}body[data-theme='dark'] .admin-topbar{border-color:#27272a}body[data-theme='dark'] .admin-search,body[data-theme='dark'] .metric-card,body[data-theme='dark'] section,body[data-theme='dark'] .overview-live{border-color:#27272a;background:#111113;color:#d4d4d8}body[data-theme='dark'] .admin-search input{color:#fafafa}body[data-theme='dark'] .admin-header h1,body[data-theme='dark'] section h2,body[data-theme='dark'] .metric-card strong,body[data-theme='dark'] .node-overview-title,body[data-theme='dark'] .overview-list-item strong{color:#fafafa}body[data-theme='dark'] .admin-header p,body[data-theme='dark'] .muted,body[data-theme='dark'] .metric-card header,body[data-theme='dark'] .metric-card small,body[data-theme='dark'] .overview-list-item small,body[data-theme='dark'] .overview-intro p{color:#a1a1aa}body[data-theme='dark'] .tool-button{color:#a1a1aa}body[data-theme='dark'] .tool-button:hover{border-color:#3f3f46;background:#27272a;color:#fafafa}body[data-theme='dark'] .node-overview{border-color:#27272a;background:#18181b}body[data-theme='dark'] .node-overview-meta,body[data-theme='dark'] .panel-heading p{color:#a1a1aa}body[data-theme='dark'] .node-progress{background:#27272a}body[data-theme='dark'] .node-progress span{background:#d4d4d8}body[data-theme='dark'] .overview-list-item{border-color:#27272a}body[data-theme='dark'] .metric-icon{background:#27272a;color:#d4d4d8}body[data-theme='dark'] .overview-live{color:#d4d4d8}
 """
 
 # Some media origins redirect large files to a dedicated, known storage host.
@@ -269,7 +273,7 @@ class ProxyPanel:
         self.default_generated = os.environ.get("GENERATED_NGINX_DIR", "/etc/nginx/conf.d")
         self.default_port = int(os.environ.get("PUBLIC_HTTPS_PORT", "443"))
         self.traffic_log_path = Path(os.environ.get("TRAFFIC_LOG_PATH", "/var/log/uniproxy-traffic.log"))
-        self.auto_zone = os.environ.get("AUTO_NODE_ZONE", "996878.xyz").lower().strip(".")
+        self.auto_zone = os.environ.get("AUTO_NODE_ZONE", "example.com").lower().strip(".")
         self.acme_template = Path(os.environ.get("ACME_TEMPLATE_ARCHIVE", "/opt/uniproxy/acme-template.tgz"))
         self.acme_account = Path(os.environ.get("ACME_ACCOUNT_FILE", "/opt/uniproxy/acme-account.conf"))
         self.invite_key = os.environ.get("INVITE_CODE_ENCRYPTION_KEY", "").strip()
@@ -1379,7 +1383,10 @@ class ProxyPanel:
             if not route:
                 raise PanelError("线路不存在或无权操作")
             node = db.execute("SELECT * FROM nodes WHERE id=?", (route["node_id"],)).fetchone()
-        self._delete_route_file(node, route)
+        # A failed/pending deployment is safe to remove from the panel even when
+        # the node has already gone away.  A confirmed deployment still needs
+        # remote cleanup so we do not silently leave a live route behind.
+        self._delete_route_file_best_effort(node, route)
         with self._connect() as db:
             db.execute("DELETE FROM routes WHERE id=? AND owner_user_id=?", (route_id, user_id))
 
@@ -1618,22 +1625,38 @@ class ProxyPanel:
   <a class='brand' href='/'><span class='brand-symbol'>R</span><span class='brand-copy'><strong>Emby Relay</strong><small>Admin Console</small></span></a>
   <p class='side-label'>监控</p>
   <nav aria-label='后台模块'>
-    <a class='{overview_class}' href='{ADMIN_PREFIX}/overview'><span class='nav-icon'>O</span>运行概览</a>
-    <a class='{nodes_class}' href='{ADMIN_PREFIX}/nodes'><span class='nav-icon'>N</span>节点面板</a>
+    <a class='{overview_class}' data-admin-page='运行概览' href='{ADMIN_PREFIX}/overview'><span class='nav-icon'>O</span>运行概览</a>
+    <a class='{nodes_class}' data-admin-page='节点面板' href='{ADMIN_PREFIX}/nodes'><span class='nav-icon'>N</span>节点面板</a>
   </nav>
   <p class='side-label'>管理</p>
   <nav aria-label='管理模块'>
-    <a class='{routes_class}' href='{ADMIN_PREFIX}/routes'><span class='nav-icon'>R</span>线路管理</a>
-    <a class='{users_class}' href='{ADMIN_PREFIX}/users'><span class='nav-icon'>U</span>用户管理</a>
-    <a class='{invites_class}' href='{ADMIN_PREFIX}/invites'><span class='nav-icon'>I</span>邀请码管理</a>
+    <a class='{routes_class}' data-admin-page='线路管理' href='{ADMIN_PREFIX}/routes'><span class='nav-icon'>R</span>线路管理</a>
+    <a class='{users_class}' data-admin-page='用户管理' href='{ADMIN_PREFIX}/users'><span class='nav-icon'>U</span>用户管理</a>
+    <a class='{invites_class}' data-admin-page='邀请码管理' href='{ADMIN_PREFIX}/invites'><span class='nav-icon'>I</span>邀请码管理</a>
   </nav>
   <p class='side-note'>节点和线路操作只影响新连接。<a href='/'>← 返回用户界面</a></p>
 </aside><main>
-  <div class='admin-topbar'><div class='admin-search'><span class='search-icon'>⌕</span><span>搜索页面</span><kbd>⌘ K</kbd></div><div class='admin-tools'><span class='tool-button' aria-label='系统设置'>⚙</span><span class='tool-button' aria-label='全屏'>↗</span><span class='tool-button' aria-label='主题'>◐</span></div></div>
+  <div class='admin-topbar'><label class='admin-search' for='admin-page-search'><span class='search-icon'>⌕</span><input id='admin-page-search' type='search' placeholder='搜索页面' autocomplete='off' aria-label='搜索后台页面'><kbd>Ctrl K</kbd></label><div class='admin-tools'><a class='tool-button' href='/account' aria-label='账号安全' title='账号安全'>⚙</a><button type='button' class='tool-button' id='fullscreen-toggle' aria-label='全屏' title='全屏'>↗</button><button type='button' class='tool-button' id='theme-toggle' aria-label='切换主题' title='切换主题'>◐</button></div></div>
   <header class='admin-header'><div><span class='admin-kicker'>Control Center</span><h1>{page_title}</h1><p class='muted'>{page_subtitle}</p></div><a class='view-site' href='/'>查看用户界面 ↗</a></header>"""
         copy_script = """<script nonce='__CSP_NONCE__'>
 async function copyPanelValue(value) { try { if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(value); return true; } const field = document.createElement('textarea'); field.value = value; field.readOnly = true; field.style.cssText = 'position:fixed;opacity:0'; document.body.append(field); field.select(); const copied = document.execCommand('copy'); field.remove(); return copied; } catch (error) { return false; } }
 document.querySelectorAll('[data-copy]').forEach(button => button.addEventListener('click', async () => { const label = button.textContent; button.textContent = (await copyPanelValue(button.dataset.copy)) ? '已复制' : '复制失败'; setTimeout(() => button.textContent = label, 1200); }));
+const adminSearch = document.getElementById('admin-page-search');
+const adminLinks = Array.from(document.querySelectorAll('[data-admin-page]'));
+const focusAdminSearch = () => { if (adminSearch) { adminSearch.focus(); adminSearch.select(); } };
+const filterAdminLinks = () => { const query = (adminSearch?.value || '').trim().toLowerCase(); adminLinks.forEach(link => { link.hidden = Boolean(query) && !link.dataset.adminPage.toLowerCase().includes(query); }); };
+adminSearch?.addEventListener('input', filterAdminLinks);
+adminSearch?.addEventListener('keydown', event => { if (event.key === 'Escape') { adminSearch.value = ''; filterAdminLinks(); adminSearch.blur(); } if (event.key === 'Enter') { const target = adminLinks.find(link => !link.hidden); if (target) target.click(); } });
+document.addEventListener('keydown', event => { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); focusAdminSearch(); } });
+const themeToggle = document.getElementById('theme-toggle');
+const themeKey = 'emby-relay-admin-theme';
+let savedTheme = '';
+try { savedTheme = localStorage.getItem(themeKey) || ''; } catch (error) {}
+const applyTheme = theme => { document.body.dataset.theme = theme === 'dark' ? 'dark' : 'light'; if (themeToggle) themeToggle.textContent = theme === 'dark' ? '☼' : '◐'; try { localStorage.setItem(themeKey, document.body.dataset.theme); } catch (error) {} };
+applyTheme(savedTheme || (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+themeToggle?.addEventListener('click', () => applyTheme(document.body.dataset.theme === 'dark' ? 'light' : 'dark'));
+const fullscreenToggle = document.getElementById('fullscreen-toggle');
+fullscreenToggle?.addEventListener('click', async () => { try { if (document.fullscreenElement) await document.exitFullscreen(); else await document.documentElement.requestFullscreen(); } catch (error) {} });
 </script>""".replace("__CSP_NONCE__", nonce)
         body += message + content.replace("__CSP_NONCE__", nonce) + copy_script + "</main></div></body></html>"
         response = web.Response(text=body, content_type="text/html")
@@ -3021,6 +3044,34 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
         ])
         self._run(self._ssh_args(node) + [script], env=self._ssh_env(node))
 
+    def _delete_route_file_best_effort(self, node, route) -> str:
+        """Remove a route, tolerating cleanup failures for failed deployments.
+
+        Deployment can fail before a node has a usable Nginx installation (or
+        the node can disappear entirely).  In that state the database record
+        must remain deletable; otherwise one broken node permanently consumes
+        a route slot and blocks node removal.  Confirmed deployments remain
+        strict: callers still receive the cleanup error instead of hiding a
+        potentially live remote configuration.
+        """
+        deployed = int(route["deployed"] or 0) == 1
+        state = str(route["state"] or "").strip().lower()
+        confirmed = deployed or state == "deployed"
+        if node is None:
+            if confirmed:
+                raise PanelError("线路关联的节点不存在，且线路可能仍在远端运行；请先恢复节点后删除")
+            return "节点记录不存在，未确认远端配置清理"
+        try:
+            self._delete_route_file(node, route)
+        except Exception as exc:
+            if confirmed:
+                raise
+            detail = str(exc).strip().replace("\r", " ").replace("\n", " ")
+            if len(detail) > 240:
+                detail = detail[-240:]
+            return f"节点清理未确认{': ' + detail if detail else ''}"
+        return ""
+
     def _check_node(self, node) -> str:
         if node["kind"] == "local":
             self._run(["/usr/sbin/nginx", "-t", "-c", node["caddy_config"]])
@@ -3387,10 +3438,13 @@ document.querySelectorAll('[data-copy]').forEach(button => button.addEventListen
                 if action == "deploy":
                     status = await asyncio.to_thread(self._deploy_and_verify, node, route)
                     return admin_routes(notice=f"线路已下发并通过公网验证（HTTP {status}）。", route_page=route_page)
-                await asyncio.to_thread(self._delete_route_file, node, route)
+                cleanup_warning = await asyncio.to_thread(self._delete_route_file_best_effort, node, route)
                 with self._connect() as db:
                     db.execute("DELETE FROM routes WHERE id = ?", (route_id,))
-                return admin_routes(notice="线路配置已移除。", route_page=route_page)
+                notice = "线路记录已删除。"
+                if cleanup_warning:
+                    notice += f" {cleanup_warning}。"
+                return admin_routes(notice=notice, route_page=route_page)
             raise web.HTTPNotFound()
         except web.HTTPException:
             raise

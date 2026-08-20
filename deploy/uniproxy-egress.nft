@@ -1,6 +1,6 @@
 #!/usr/sbin/nft -f
 
-# UniProxy Nginx egress guard.
+# emby-relay-panel Nginx egress guard.
 #
 # The dedicated uniproxy-nginx account must exist before this file is loaded.
 # Only sockets created by that UID are filtered; SSH, package management and

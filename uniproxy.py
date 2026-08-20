@@ -15,7 +15,7 @@ from nginx_renderer import RendererError, normalize_origin as normalize_route_or
 
 LISTEN_HOST = os.environ.get("LISTEN_HOST", "127.0.0.1")
 LISTEN_PORT = int(os.environ.get("LISTEN_PORT", "8787"))
-PROXY_DOMAIN_SUFFIX = os.environ.get("PROXY_DOMAIN_SUFFIX", "sh.996878.xyz").lower().strip(".")
+PROXY_DOMAIN_SUFFIX = os.environ.get("PROXY_DOMAIN_SUFFIX", "panel.example.com").lower().strip(".")
 
 DASHBOARD_UI_CSS = r"""
 :root{color-scheme:light;--ink:#172033;--muted:#6e7a8f;--line:#e1e6ee;--surface:#fff;--canvas:#f3f5f8;--accent:#34b86b;--accent-dark:#218a4f;--accent-soft:#eaf8f0;--navy:#111927;--danger:#d84a5b}

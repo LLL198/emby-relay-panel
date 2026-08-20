@@ -1,78 +1,63 @@
 # emby-relay-panel
 
-基于 Nginx 的 Emby 反代面板。这个仓库是**部署代码**，不是一个已经开通的在线服务；拿到仓库后，需要在自己的主控机、域名和 Cloudflare 账号上完成安装。
+基于 Nginx 的 Emby 反代管理面板，包含节点部署、线路管理、用户与邀请码、流量统计和证书管理。
 
-完整部署手册见 [USAGE.md](USAGE.md)。下面是部署流程总览。
+## 一键部署
 
-Debian/Ubuntu 主控机可以直接运行一键初始化脚本（会交互询问域名和 Cloudflare Token，并自动申请主站证书）：
+适用于全新的 Debian/Ubuntu 主控机。部署前准备：
+
+- 一个已解析到主控机的面板域名
+- 公网 TCP 80、443
+- 一个用于节点子域名的 Cloudflare Zone
+- Cloudflare API Token（Zone Read + DNS Edit，可稍后填写）
+
+使用 root 运行：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/LLL198/emby-relay-panel/main/deploy/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/LLL198/emby-relay-panel/main/deploy/install.sh | bash
 ```
 
-脚本会自动安装主控面板、申请主站证书并生成基础 Nginx 配置；Cloudflare Token 不可用或证书申请失败时，再按 [USAGE.md](USAGE.md) 手动处理。
+脚本会询问面板域名、节点根域名、管理员账号和 Cloudflare Token，并自动完成：
 
-## 项目怎么工作
+- 安装 Nginx、Python、SSH 等依赖
+- 申请并安装面板 HTTPS 证书
+- 配置证书自动续期
+- 创建 Python 环境和 systemd 服务
+- 启动面板并验证登录页
+
+未填写管理员密码时，初始账号为 `admin`，密码为 `123456`，首次登录后修改。
+
+## 使用流程
+
+1. 管理员登录并进入管理后台。
+2. 在“节点面板”添加 VPS 或 NAT 节点。
+3. 创建邀请码并交给使用者注册。
+4. 使用者填写 Emby 源站、选择节点并生成线路。
+5. 在线路管理和用户管理中查看状态与流量。
+
+面板域名与节点根域名可以不同。例如：
 
 ```text
-用户浏览器/播放器
-        |
-        v
-主控机 Nginx + Python 面板  <---- Cloudflare DNS/证书 API
-        |
-        +---- 节点 Nginx（每台 VPS/NAT 一台）----> Emby 源站
+面板：panel.example.com
+节点：n-xxx.example.net、*.n-xxx.example.net
 ```
 
-- 主控机保存用户、邀请码、节点和线路元数据；SQLite 数据库默认位于 `/var/lib/uniproxy/panel.db`。
-- 节点由后台通过 SSH 自动部署独立的 Nginx，并为节点域名申请/安装证书。
-- Cloudflare Token 只应放在主控机的权限文件中；不要提交到 Git，也不要发给别人。
-- 反代线路使用 HTTPS 源站。创建线路时会检查源站域名和公网地址，避免把面板变成内网开放代理。
+面板证书通过 HTTP 自动申请，不依赖 Cloudflare Token；Cloudflare Token 只用于创建节点 DNS 和节点证书。
 
-## 部署前准备
+## 运行要求
 
-你需要准备：
+- 主控机：Debian/Ubuntu，建议 1 GB 内存
+- 节点：Debian、Ubuntu 或 Alpine，可使用普通 VPS 或 NAT 机器
+- 主控机到节点能够连接 root SSH
+- Emby 源站使用可验证的 HTTPS 证书
 
-1. 一台 Debian/Ubuntu/Alpine 主控机，能监听 80/443，建议至少 1 GB 内存。
-2. 一个主站域名，例如 `sh.example.com`，并把 DNS 指向主控机。
-3. 一个 Cloudflare Zone，例如 `example.com`，用于创建节点子域名。
-4. 一个 Cloudflare API Token：只授予该 Zone 的 **Zone Read** 和 **DNS Edit** 权限。
-5. 每台节点的 SSH 地址、端口、root 密码或私钥；NAT 节点还要知道公网端口到内部 HTTPS 端口的映射。
-6. 主站自己的 TLS 证书和私钥。主站证书不由本项目自动申请，必须先准备好。
+## 主要文件
 
-## 快速部署
+- `panel.py`：节点、线路、用户、证书和流量管理
+- `uniproxy.py`：登录、用户页面和 HTTP 服务
+- `origin_security.py`：源站地址检查
+- `nginx_renderer.py`：节点线路 Nginx 配置生成
+- `deploy/install.sh`：一键部署脚本
+- `uniproxy.service`：systemd 服务模板
 
-不要直接把生产密码写进仓库。克隆代码、安装依赖、创建环境文件、配置主站 Nginx 后，再启动 `uniproxy.service`。详细的可复制命令和每个字段的含义都在 [USAGE.md](USAGE.md)。
-
-```bash
-git clone https://github.com/LLL198/emby-relay-panel.git /opt/uniproxy
-cd /opt/uniproxy
-python3 -m venv /opt/uniproxy/.venv
-/opt/uniproxy/.venv/bin/pip install aiohttp cryptography
-```
-
-主控机还需要可执行的 `acme.sh`；节点部署需要 `nginx`、`openssl`、`curl`、`openssh-client`/`ssh` 等系统工具。
-
-## 首次启动后的行为
-
-- 第一次启动会创建唯一管理员账号；默认用户名是 `admin`，默认密码是 `123456`。首次登录必须立即修改密码；生产部署应在环境文件中直接设置随机的 `ADMIN_PASSWORD`。
-- 管理员和普通用户使用同一个 `/login` 页面。管理员登录后，在用户首页看到“管理后台”入口；普通用户直接访问 `/_admin` 会被后端拒绝。
-- 管理员先添加节点，再创建邀请码。普通用户用邀请码注册后，可以在首页创建自己的反代线路。
-
-## 仓库目录
-
-- `panel.py`：节点、线路、用户、邀请码、证书和流量管理。
-- `uniproxy.py`：面板 HTTP 服务、登录和用户页面。
-- `uniproxy.service`：主控机 systemd 服务模板。
-- `deploy/`：一键初始化脚本、主站 Nginx 示例、节点 Nginx 模板、日志轮转配置。
-- `origin_security.py`：源站 HTTPS 和公网地址校验。
-
-项目品牌统一为 `emby-relay-panel`；`uniproxy` 出现在服务名、安装路径、日志和节点隔离用户中，是为了兼容已部署实例的运行时标识，不代表项目仍使用旧品牌。
-
-## 安全注意事项
-
-- `.env`、`panel.db`、`acme-account.conf`、SSH 私钥、证书私钥和日志都不应提交到 Git。
-- 生产环境必须尽快替换默认密码；`AGENT_TOKEN` 和两个 Fernet 密钥要使用随机高熵值，并设置环境文件为 `root:root`、`0600`。
-- Cloudflare Token 文件只放在主控机；节点部署接收证书，不需要把该 Token 复制到节点。
-- 生产环境请使用 HTTPS；不要把 Python 面板端口 `8787` 直接暴露到公网。
-
-部署、升级、节点添加和常见报错请按 [USAGE.md](USAGE.md) 操作。
+详细步骤、升级和常见报错见 [USAGE.md](USAGE.md)。
