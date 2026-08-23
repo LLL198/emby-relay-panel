@@ -96,7 +96,7 @@ button{width:100%;height:47px;margin-top:22px;border:0;border-radius:12px;backgr
 @media(max-width:760px){body{padding:16px}.auth-shell{display:block;min-height:0;border-radius:22px}.auth-intro{min-height:174px;padding:26px}.intro-copy{margin:32px 0 0}.intro-copy h2{margin-bottom:8px;font-size:25px}.intro-copy p,.intro-foot{display:none}.auth-panel{padding:32px 24px 36px}.auth-card>h1{font-size:27px}}
 
 /* Shadcn-inspired neutral theme: restrained borders, flat surfaces and a black primary action. */
-body{background:#fafafa;color:#18181b;font-family:Inter,"PingFang SC","Microsoft YaHei",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+body{display:flex;align-items:center;justify-content:center;padding:24px;background:#fafafa;color:#18181b;font-family:Inter,"PingFang SC","Microsoft YaHei",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
 body:before{content:none}
 .auth-shell{display:block;width:min(100%,430px);min-height:0;border:1px solid #e4e4e7;border-radius:12px;background:#fff;box-shadow:0 8px 24px rgba(24,24,27,.06)}
 .auth-intro{display:block;min-height:0;overflow:visible;padding:32px 32px 0;color:#18181b;background:transparent}
@@ -1425,7 +1425,6 @@ class ProxyPanel:
 <main class='auth-shell'>
   <section class='auth-intro' aria-label='Emby Relay'>
     <div class='brand-lockup'><span class='brand-copy'><strong>Emby Relay</strong><small>节点与线路管理</small></span></div>
-    <div class='intro-copy'><h2>让每一次播放，走更合适的线路。</h2><p>统一管理节点与访问线路。</p></div>
   </section>
   <section class='auth-panel'><div class='auth-card'>{messages}{content}</div></section>
 </main></body></html>"""
@@ -1441,7 +1440,7 @@ class ProxyPanel:
 
     def login_page(self, request: web.Request, error: str = "") -> web.Response:
         csrf_token = self._anonymous_csrf(request)
-        content = f"""<h1>登录</h1><p class='muted'>登录后管理节点与访问线路。</p>
+        content = f"""<h1>登录</h1>
 <form method='post' action='/login'><input type='hidden' name='csrf' value='{html.escape(csrf_token, quote=True)}'><label>用户名<input required name='username' autocomplete='username'></label><label>密码<input required type='password' name='password' autocomplete='current-password'></label><label class='checkline'><input type='checkbox' name='remember' value='1' checked> 保持登录 90 天</label><button>登录</button></form><p class='links'><span>没有账号？</span><a href='/register'>使用邀请码注册</a></p>"""
         return self._user_page("登录", content, csrf_token=csrf_token, error=error)
 
