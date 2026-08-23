@@ -81,7 +81,6 @@ a{color:#2875d2;text-decoration:none;font-weight:650}
 .auth-intro:before{width:260px;height:260px;right:-110px;top:-100px;border:1px solid rgba(112,231,162,.22);box-shadow:0 0 0 38px rgba(112,231,162,.045),0 0 0 76px rgba(112,231,162,.03)}
 .auth-intro:after{width:160px;height:160px;left:-80px;bottom:38px;background:radial-gradient(circle,rgba(67,199,123,.22),transparent 70%)}
 .brand-lockup{position:relative;z-index:1;display:flex;align-items:center;gap:12px}
-.brand-mark{display:grid;place-items:center;width:42px;height:42px;border:1px solid rgba(255,255,255,.14);border-radius:13px;background:linear-gradient(145deg,#58d589,#2fae65);box-shadow:0 10px 28px rgba(34,197,94,.22);font-size:19px;font-weight:900}
 .brand-copy{display:grid;line-height:1.15}.brand-copy strong{font-size:16px;letter-spacing:.02em}.brand-copy small{margin-top:4px;color:#9fb0c8;font-size:10px;letter-spacing:.18em;text-transform:uppercase}
 .intro-copy{position:relative;z-index:1;margin:auto 0}.intro-kicker{display:block;margin-bottom:15px;color:#70dfa0;font-size:11px;font-weight:800;letter-spacing:.16em;text-transform:uppercase}.intro-copy h2{max-width:300px;margin:0 0 16px;font-size:34px;line-height:1.18;letter-spacing:-.045em}.intro-copy p{max-width:310px;margin:0;color:#afbdd0;line-height:1.8}
 .intro-foot{position:relative;z-index:1;color:#8292aa;font-size:11px}
@@ -1427,7 +1426,6 @@ class ProxyPanel:
   <section class='auth-intro' aria-label='Emby Relay'>
     <div class='brand-lockup'><span class='brand-copy'><strong>Emby Relay</strong><small>节点与线路管理</small></span></div>
     <div class='intro-copy'><h2>让每一次播放，走更合适的线路。</h2><p>统一管理节点与访问线路。</p></div>
-    <div class='intro-foot'>安全连接 · 独立线路 · 随时切换</div>
   </section>
   <section class='auth-panel'><div class='auth-card'>{messages}{content}</div></section>
 </main></body></html>"""
