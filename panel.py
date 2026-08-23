@@ -102,11 +102,12 @@ body:before{content:none}
 .auth-shell{display:block;width:min(100%,430px);min-height:0;border:1px solid #e4e4e7;border-radius:12px;background:#fff;box-shadow:0 8px 24px rgba(24,24,27,.06)}
 .auth-intro{display:block;min-height:0;overflow:visible;padding:32px 32px 0;color:#18181b;background:transparent}
 .auth-intro:before,.auth-intro:after{content:none}
-.brand-lockup{justify-content:center;gap:10px}.brand-mark{width:36px;height:36px;border:0;border-radius:8px;background:#18181b;box-shadow:none;color:#fafafa;font-size:15px}.brand-copy strong{font-size:14px}.brand-copy small{color:#71717a;letter-spacing:.12em}
+.brand-lockup{justify-content:center;gap:0}.brand-copy strong{font-size:16px}.brand-copy small{display:block;margin-top:5px;color:#71717a;font-size:11px;letter-spacing:.04em;text-transform:none}
 .intro-copy{margin:38px 0 0;text-align:center}.intro-kicker,.intro-foot{display:none}.intro-copy h2{max-width:none;margin:0 0 9px;color:#18181b;font-size:25px;line-height:1.25;letter-spacing:-.04em}.intro-copy p{max-width:none;margin:0;color:#71717a;font-size:13px;line-height:1.7}
 .auth-panel{display:block;padding:28px 32px 32px;background:#fff}.auth-card{max-width:none}.auth-card>h1{margin-bottom:7px;color:#18181b;font-size:21px;letter-spacing:-.025em;text-align:center}.auth-card>p{margin-bottom:20px;color:#71717a;font-size:13px;text-align:center}
-label{color:#3f3f46;font-size:12px;font-weight:650}input{height:40px;border-color:#e4e4e7;border-radius:6px;background:#fff;color:#18181b}input:hover{border-color:#a1a1aa}input:focus{border-color:#18181b;box-shadow:0 0 0 3px rgba(24,24,27,.1)}label.checkline{color:#71717a}label.checkline input{accent-color:#18181b}
-button{height:40px;border-radius:6px;background:#18181b;box-shadow:none;font-size:13px}button:hover{background:#27272a;box-shadow:none;filter:none}button:active{transform:none}.links{justify-content:center;margin-top:20px;padding-top:16px;border-top:0;color:#71717a}.links a{color:#18181b}.error,.notice{border-radius:6px}.error{border-color:#fecaca;background:#fef2f2;color:#b91c1c}.notice{border-color:#d4d4d8;background:#f4f4f5;color:#3f3f46}
+label{color:#3f3f46;font-size:12px;font-weight:650}input{height:46px;border-color:#e4e4e7;border-radius:6px;background:#fff;color:#18181b}input:hover{border-color:#a1a1aa}input:focus{border-color:#18181b;box-shadow:0 0 0 3px rgba(24,24,27,.1)}label.checkline{color:#71717a}label.checkline input{accent-color:#18181b}
+button{height:46px;border-radius:6px;background:#18181b;box-shadow:none;font-size:13px}button:hover{background:#27272a;box-shadow:none;filter:none}button:active{transform:none}.links{justify-content:center;margin-top:20px;padding-top:16px;border-top:0;color:#71717a}.links a{color:#18181b}.error,.notice{border-radius:6px}.error{border-color:#fecaca;background:#fef2f2;color:#b91c1c}.notice{border-color:#d4d4d8;background:#f4f4f5;color:#3f3f46}
+.form-help{margin:8px 0 0;color:#71717a;font-size:12px;line-height:1.6}.register-help{margin:0 0 18px;padding:11px 12px;border:1px solid #e4e4e7;border-radius:8px;background:#fafafa;color:#52525b;font-size:12px;line-height:1.7}.register-help strong{color:#3f3f46}.register-help p{margin:0}.register-help p+p{margin-top:4px}
 @media(max-width:760px){.auth-intro{padding:25px 24px 0}.intro-copy{margin-top:30px}.auth-panel{padding:24px 24px 28px}}
 """
 
@@ -1424,8 +1425,8 @@ class ProxyPanel:
 <title>Emby Relay · {html.escape(title)}</title><style>{AUTH_UI_CSS}</style></head><body>
 <main class='auth-shell'>
   <section class='auth-intro' aria-label='Emby Relay'>
-    <div class='brand-lockup'><span class='brand-mark'>R</span><span class='brand-copy'><strong>Emby Relay</strong><small>Relay Panel</small></span></div>
-    <div class='intro-copy'><span class='intro-kicker'>Private Media Access</span><h2>让每一次播放，走更合适的线路。</h2><p>统一管理节点与访问地址，为你的媒体服务选择更稳定的入口。</p></div>
+    <div class='brand-lockup'><span class='brand-copy'><strong>Emby Relay</strong><small>节点与线路管理</small></span></div>
+    <div class='intro-copy'><h2>让每一次播放，走更合适的线路。</h2><p>统一管理节点与访问线路。</p></div>
     <div class='intro-foot'>安全连接 · 独立线路 · 随时切换</div>
   </section>
   <section class='auth-panel'><div class='auth-card'>{messages}{content}</div></section>
@@ -1442,14 +1443,15 @@ class ProxyPanel:
 
     def login_page(self, request: web.Request, error: str = "") -> web.Response:
         csrf_token = self._anonymous_csrf(request)
-        content = f"""<h1>登录</h1><p class='muted'>登录后可选择节点并创建自己的访问线路。管理员账号登录后会在首页显示后台入口。</p>
+        content = f"""<h1>登录</h1><p class='muted'>登录后管理节点与访问线路。</p>
 <form method='post' action='/login'><input type='hidden' name='csrf' value='{html.escape(csrf_token, quote=True)}'><label>用户名<input required name='username' autocomplete='username'></label><label>密码<input required type='password' name='password' autocomplete='current-password'></label><label class='checkline'><input type='checkbox' name='remember' value='1' checked> 保持登录 90 天</label><button>登录</button></form><p class='links'><span>没有账号？</span><a href='/register'>使用邀请码注册</a></p>"""
         return self._user_page("登录", content, csrf_token=csrf_token, error=error)
 
     def register_page(self, request: web.Request, error: str = "") -> web.Response:
         csrf_token = self._anonymous_csrf(request)
-        content = f"""<h1>邀请码注册</h1><p class='muted'>请输入管理员提供的邀请码并设置账号密码。</p>
-<form method='post' action='/register'><input type='hidden' name='csrf' value='{html.escape(csrf_token, quote=True)}'><label>邀请码<input required name='invite_code' autocomplete='off' maxlength='128'></label><label>用户名<input required name='username' autocomplete='username' pattern='[A-Za-z0-9._-]+'></label><label>密码<input required type='password' name='password' autocomplete='new-password'></label><label>确认密码<input required type='password' name='confirm_password' autocomplete='new-password'></label><button>注册并登录</button></form><p class='links'><span>已有账号？</span><a href='/login'>返回登录</a></p>"""
+        content = f"""<h1>邀请码注册</h1><p class='muted'>填写邀请码，创建你的 Emby Relay 账号。</p>
+<div class='register-help'><p><strong>邀请码：</strong>无效、已使用或已过期时，请联系管理员获取新的邀请码。</p><p><strong>密码：</strong>可使用字母、数字和符号；请确认两次输入完全一致。</p></div>
+<form method='post' action='/register'><input type='hidden' name='csrf' value='{html.escape(csrf_token, quote=True)}'><label>邀请码<input required name='invite_code' autocomplete='off' maxlength='128'></label><label>用户名<input required name='username' autocomplete='username' pattern='[A-Za-z0-9._-]+'></label><label>密码<input required type='password' name='password' autocomplete='new-password'><span class='form-help'>请使用你方便记忆、且不与他人共享的密码。</span></label><label>确认密码<input required type='password' name='confirm_password' autocomplete='new-password'><span class='form-help'>两次密码不一致时，提交后会提示重新填写。</span></label><button>注册并登录</button></form><p class='links'><span>已有账号？</span><a href='/login'>返回登录</a></p>"""
         return self._user_page("邀请码注册", content, csrf_token=csrf_token, error=error)
 
     def account_page(self, request: web.Request, user, error: str = "", notice: str = "") -> web.Response:
