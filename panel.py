@@ -106,7 +106,6 @@ body:before{content:none}
 .auth-panel{display:block;padding:28px 32px 32px;background:#fff}.auth-card{max-width:none}.auth-card>h1{margin-bottom:7px;color:#18181b;font-size:21px;letter-spacing:-.025em;text-align:center}.auth-card>p{margin-bottom:20px;color:#71717a;font-size:13px;text-align:center}
 label{color:#3f3f46;font-size:12px;font-weight:650}input{height:46px;border-color:#e4e4e7;border-radius:6px;background:#fff;color:#18181b}input:hover{border-color:#a1a1aa}input:focus{border-color:#18181b;box-shadow:0 0 0 3px rgba(24,24,27,.1)}label.checkline{color:#71717a}label.checkline input{accent-color:#18181b}
 button{height:46px;border-radius:6px;background:#18181b;box-shadow:none;font-size:13px}button:hover{background:#27272a;box-shadow:none;filter:none}button:active{transform:none}.links{justify-content:center;margin-top:20px;padding-top:16px;border-top:0;color:#71717a}.links a{color:#18181b}.error,.notice{border-radius:6px}.error{border-color:#fecaca;background:#fef2f2;color:#b91c1c}.notice{border-color:#d4d4d8;background:#f4f4f5;color:#3f3f46}
-.form-help{margin:8px 0 0;color:#71717a;font-size:12px;line-height:1.6}.register-help{margin:0 0 18px;padding:11px 12px;border:1px solid #e4e4e7;border-radius:8px;background:#fafafa;color:#52525b;font-size:12px;line-height:1.7}.register-help strong{color:#3f3f46}.register-help p{margin:0}.register-help p+p{margin-top:4px}
 @media(max-width:760px){.auth-intro{padding:25px 24px 0}.intro-copy{margin-top:30px}.auth-panel{padding:24px 24px 28px}}
 """
 
@@ -1446,10 +1445,8 @@ class ProxyPanel:
 
     def register_page(self, request: web.Request, error: str = "") -> web.Response:
         csrf_token = self._anonymous_csrf(request)
-        content = f"""<h1>邀请码注册</h1><p class='muted'>填写邀请码，创建你的 Emby Relay 账号。</p>
-<div class='register-help'><p><strong>邀请码：</strong>无效、已使用或已过期时，请联系管理员获取新的邀请码。</p><p><strong>密码：</strong>可使用字母、数字和符号；请确认两次输入完全一致。</p></div>
-<form method='post' action='/register'><input type='hidden' name='csrf' value='{html.escape(csrf_token, quote=True)}'><label>邀请码<input required name='invite_code' autocomplete='off' maxlength='128'></label><label>用户名<input required name='username' autocomplete='username' pattern='[A-Za-z0-9._-]+'></label><label>密码<input required type='password' name='password' autocomplete='new-password'><span class='form-help'>请使用你方便记忆、且不与他人共享的密码。</span></label><label>确认密码<input required type='password' name='confirm_password' autocomplete='new-password'><span class='form-help'>两次密码不一致时，提交后会提示重新填写。</span></label><button>注册并登录</button></form><p class='links'><span>已有账号？</span><a href='/login'>返回登录</a></p>"""
-        return self._user_page("邀请码注册", content, csrf_token=csrf_token, error=error)
+        content = f"""<form method='post' action='/register'><input type='hidden' name='csrf' value='{html.escape(csrf_token, quote=True)}'><label>邀请码<input required name='invite_code' autocomplete='off' maxlength='128'></label><label>用户名<input required name='username' autocomplete='username' pattern='[A-Za-z0-9._-]+'></label><label>密码<input required type='password' name='password' autocomplete='new-password'></label><label>确认密码<input required type='password' name='confirm_password' autocomplete='new-password'></label><button>注册并登录</button></form><p class='links'><span>已有账号？</span><a href='/login'>返回登录</a></p>"""
+        return self._user_page("注册", content, csrf_token=csrf_token, error=error)
 
     def account_page(self, request: web.Request, user, error: str = "", notice: str = "") -> web.Response:
         content = f"""<h1>账号安全</h1><p class='muted'>账号：{html.escape(user['username'])} · 有效期：{html.escape(self._display_expiry(user['expires_at']))}</p>
