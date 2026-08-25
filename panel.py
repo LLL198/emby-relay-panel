@@ -3074,7 +3074,16 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
     def _check_node(self, node) -> str:
         if node["kind"] == "local":
             self._run(["/usr/sbin/nginx", "-t", "-c", node["caddy_config"]])
-            return "本机 Nginx 配置有效"
+            try:
+                self._run(["/bin/systemctl", "is-active", "--quiet", "nginx"])
+            except PanelError as exc:
+                raise PanelError("本机 Nginx 配置有效，但服务未运行") from exc
+            public_url = self._public_url(node, node["domain_suffix"]).rstrip("/") + "/__health"
+            try:
+                self._check_public_probe(node)
+            except PanelError as exc:
+                raise PanelError(f"本机 Nginx 正常，但公网 HTTPS 检查失败（{public_url}）：{str(exc)[-240:]}") from exc
+            return f"检查通过：Nginx 配置、服务和公网 HTTPS 均正常；{public_url}"
         requirements = [
             ("-x", "/usr/sbin/nginx", "远端未安装 Nginx：/usr/sbin/nginx"),
             ("-d", node["generated_dir"], f"线路生成目录不存在：{node['generated_dir']}"),
@@ -3088,9 +3097,40 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
         for test, path, message in requirements:
             commands.append(f"test {test} {shlex.quote(path)} || {{ echo {shlex.quote(message)} >&2; exit 1; }}")
         commands.append(f"/usr/sbin/nginx -t -c {shlex.quote(node['caddy_config'])}")
+        if node["auto_managed"]:
+            commands.append(
+                "/usr/local/sbin/uniproxy-nginx status || "
+                "{ echo '远端 Nginx 配置有效，但进程未运行' >&2; exit 1; }"
+            )
+        else:
+            commands.extend([
+                "nginx_running=0",
+                "if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ] && systemctl is-active --quiet nginx; then nginx_running=1; fi",
+                "if [ \"$nginx_running\" -eq 0 ] && command -v pgrep >/dev/null 2>&1 && pgrep -x nginx >/dev/null; then nginx_running=1; fi",
+                "if [ \"$nginx_running\" -eq 0 ] && command -v pidof >/dev/null 2>&1 && pidof nginx >/dev/null; then nginx_running=1; fi",
+                "if [ \"$nginx_running\" -eq 0 ] && ps | grep '[n]ginx' >/dev/null; then nginx_running=1; fi",
+                "[ \"$nginx_running\" -eq 1 ] || { echo '远端 Nginx 配置有效，但进程未运行' >&2; exit 1; }",
+            ])
+        internal_port = int(node["internal_https_port"])
+        internal_host = str(node["domain_suffix"])
+        internal_authority = f"{internal_host}:{internal_port}"
+        internal_url = f"https://{internal_authority}/__health"
+        commands.extend([
+            "command -v curl >/dev/null 2>&1 || { echo '远端缺少 curl，无法执行内部 HTTPS 检查' >&2; exit 1; }",
+            "curl --fail --silent --show-error --connect-timeout 5 --max-time 10 "
+            f"--resolve {shlex.quote(internal_authority + ':127.0.0.1')} --output /dev/null {shlex.quote(internal_url)} || "
+            f"{{ echo {shlex.quote('远端 Nginx 已运行，但内部 HTTPS 健康检查失败：' + internal_url)} >&2; exit 1; }}",
+        ])
         command = "\n".join(commands)
         self._run(self._ssh_args(node) + [command], env=self._ssh_env(node))
-        return "SSH 连通，证书、生成目录和 Nginx 配置有效"
+        public_url = self._public_url(node, node["domain_suffix"]).rstrip("/") + "/__health"
+        try:
+            self._check_public_probe(node)
+        except PanelError as exc:
+            raise PanelError(
+                f"远端 Nginx 和内部 HTTPS 正常，但公网 HTTPS 检查失败（{public_url}）：{str(exc)[-240:]}"
+            ) from exc
+        return f"检查通过：SSH、Nginx 配置、进程、内部 HTTPS 和公网 HTTPS 均正常；{public_url}"
 
     def _check_public_probe(self, node) -> str:
         url = self._public_url(node, node["domain_suffix"]).rstrip("/") + "/__health"
