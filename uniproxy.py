@@ -403,6 +403,143 @@ button.delete-route:hover{border-color:rgba(251,113,133,.42);background:rgba(190
   body:before,body:after,.hero h1 span,.live i,.stat:after,.workspace:after,button:before{animation:none!important}
   *,*:before,*:after{transition-duration:.01ms!important;transition-delay:0s!important}
 }
+
+/* The user dashboard opens in a calm light theme. The same surface tokens
+   are overridden here so the dark Magic UI remains available as an explicit
+   choice without changing the existing layout or interactions. */
+body[data-theme='light']{
+  color-scheme:light;
+  --canvas:#f5f7fb;
+  --surface:rgba(255,255,255,.84);
+  --surface-strong:rgba(255,255,255,.96);
+  --surface-soft:rgba(246,248,252,.9);
+  --line:rgba(160,174,198,.36);
+  --line-strong:rgba(132,149,180,.5);
+  --ink:#172033;
+  --muted:#667085;
+  --muted-strong:#52627a;
+  --shadow:0 24px 70px rgba(75,98,142,.14);
+  background:
+    radial-gradient(circle at 9% -8%,rgba(159,178,255,.28),transparent 34%),
+    radial-gradient(circle at 94% 5%,rgba(129,221,213,.22),transparent 30%),
+    linear-gradient(150deg,#f9fbff 0%,#f5f7fb 48%,#eef7f7 100%);
+  color:var(--ink);
+}
+body[data-theme='light']:before{
+  background:
+    radial-gradient(circle at 26% 28%,rgba(129,153,255,.16),transparent 19%),
+    radial-gradient(circle at 72% 22%,rgba(56,189,248,.1),transparent 18%),
+    radial-gradient(circle at 55% 76%,rgba(45,212,191,.09),transparent 22%);
+}
+body[data-theme='light']:after{
+  opacity:.3;
+  background-image:
+    linear-gradient(rgba(100,116,139,.075) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(100,116,139,.075) 1px,transparent 1px);
+}
+body[data-theme='light'] .topbar{
+  border-color:rgba(192,205,226,.74);
+  background:rgba(255,255,255,.78);
+  box-shadow:0 18px 55px rgba(75,98,142,.12),inset 0 1px rgba(255,255,255,.8);
+}
+body[data-theme='light'] .brand{color:#24334d}
+body[data-theme='light'] .brand-mark{
+  background:linear-gradient(145deg,#fff,#edf3ff) padding-box,linear-gradient(135deg,#9aaef1,#75cfd1) border-box;
+  box-shadow:0 8px 20px rgba(96,121,183,.14);
+  color:#6079b7;
+}
+body[data-theme='light'] .brand-copy small{color:#8490a4}
+body[data-theme='light'] .account-actions>a,
+body[data-theme='light'] .account-actions button.logout,
+body[data-theme='light'] .theme-toggle{
+  border-color:#dce3ef;
+  background:rgba(255,255,255,.84);
+  color:#52627a;
+}
+body[data-theme='light'] .account-actions>a:hover,
+body[data-theme='light'] .account-actions button.logout:hover,
+body[data-theme='light'] .theme-toggle:hover{
+  border-color:#a9b9dd;
+  background:#f7f9ff;
+  color:#304a7d;
+  box-shadow:0 8px 20px rgba(75,98,142,.1);
+}
+body[data-theme='light'] .account-actions .admin-link{border-color:#bfe9d1;background:#eef9f4;color:#218451}
+body[data-theme='light'] .live{border-color:rgba(192,205,226,.82);background:rgba(255,255,255,.78);color:#64748b;box-shadow:0 5px 16px rgba(73,99,143,.06)}
+body[data-theme='light'] .hero h1{color:#253452}
+body[data-theme='light'] .hero h1 span{background:linear-gradient(100deg,#667fd0 4%,#159eaf 48%,#667fd0 96%);background-size:200% auto;background-clip:text;-webkit-background-clip:text}
+body[data-theme='light'] .eyebrow{border-color:rgba(99,102,241,.18);background:rgba(99,102,241,.06);color:#5966a5}
+body[data-theme='light'] .subtitle,
+body[data-theme='light'] .hint,
+body[data-theme='light'] .section-line>span{color:#71809a}
+body[data-theme='light'] .stat{
+  background:linear-gradient(rgba(255,255,255,.9),rgba(255,255,255,.9)) padding-box,linear-gradient(145deg,rgba(126,145,226,.34),rgba(72,190,193,.12),rgba(148,163,184,.24)) border-box;
+  box-shadow:0 20px 55px rgba(75,98,142,.12),inset 0 1px rgba(255,255,255,.9);
+}
+body[data-theme='light'] .stat strong{color:#253452}
+body[data-theme='light'] .stat small,
+body[data-theme='light'] .stat-label{color:#7f8aa0}
+body[data-theme='light'] .workspace,
+body[data-theme='light'] .result,
+body[data-theme='light'] .my-routes{
+  background:linear-gradient(rgba(255,255,255,.86),rgba(255,255,255,.86)) padding-box,linear-gradient(135deg,rgba(126,145,226,.28),rgba(148,163,184,.18) 48%,rgba(72,190,193,.22)) border-box;
+  box-shadow:var(--shadow),inset 0 1px rgba(255,255,255,.9);
+}
+body[data-theme='light'] .workspace:before{background:radial-gradient(circle at 4% 0%,rgba(126,145,226,.1),transparent 25%),radial-gradient(circle at 100% 100%,rgba(72,190,193,.08),transparent 28%)}
+body[data-theme='light'] .section-line h2{color:#405572}
+body[data-theme='light'] .node-card{
+  border-color:#dfe6f0;
+  background:linear-gradient(145deg,rgba(255,255,255,.96),rgba(246,248,252,.9));
+  color:#1f2937;
+  box-shadow:inset 0 1px rgba(255,255,255,.9);
+}
+body[data-theme='light'] .node-card:after{border-color:#cbd5e1;background:#e8edf5;box-shadow:0 0 0 4px rgba(148,163,184,.1)}
+body[data-theme='light'] .node-card:hover{border-color:#aebbd1;background:linear-gradient(145deg,#fff,#f5f8fd);box-shadow:0 16px 34px rgba(75,98,142,.14)}
+body[data-theme='light'] .node-card.selected{border-color:#6478d9;background:#f7f8ff;box-shadow:0 0 0 3px rgba(100,120,217,.13),0 14px 30px rgba(75,98,142,.12)}
+body[data-theme='light'] .node-card.selected:after{border-color:#6478d9;background:#6478d9;box-shadow:0 0 0 4px rgba(100,120,217,.12),0 0 14px rgba(100,120,217,.38)}
+body[data-theme='light'] .node-name{color:#34435d}
+body[data-theme='light'] .node-card small{color:#718096}
+body[data-theme='light'] .latency{color:#536db0}
+body[data-theme='light'] .route-form{border-color:#dce4ef;background:linear-gradient(160deg,rgba(248,250,253,.94),rgba(242,246,252,.88));box-shadow:inset 0 1px rgba(255,255,255,.95),0 18px 50px rgba(75,98,142,.1)}
+body[data-theme='light'] .route-form:before{color:#26364f}
+body[data-theme='light'] label{color:#53627a}
+body[data-theme='light'] input{border-color:#dbe3ee;background:rgba(255,255,255,.92);color:#25344e;box-shadow:inset 0 1px rgba(255,255,255,.8)}
+body[data-theme='light'] input::placeholder{color:#a5b0c1}
+body[data-theme='light'] input:focus{border-color:#8295d9;background:#fff;box-shadow:0 0 0 4px rgba(99,102,241,.12)}
+body[data-theme='light'] button.secondary,
+body[data-theme='light'] button.copy-route,
+body[data-theme='light'] .route-note-form .note-cancel,
+body[data-theme='light'] button.note-edit{
+  border-color:#d7e0ef;
+  background:#f9fbff;
+  color:#526b9f;
+}
+body[data-theme='light'] button.secondary:hover,
+body[data-theme='light'] button.copy-route:hover,
+body[data-theme='light'] .route-note-form .note-cancel:hover,
+body[data-theme='light'] button.note-edit:hover{border-color:#b7c7e7;background:#eef3fb;color:#37558f;box-shadow:0 8px 18px rgba(75,98,142,.1)}
+body[data-theme='light'] .result{border-color:#c8d8f0;background:linear-gradient(rgba(246,250,255,.9),rgba(246,250,255,.9)) padding-box,linear-gradient(135deg,rgba(99,164,214,.38),rgba(72,190,193,.16),rgba(148,163,184,.16)) border-box}
+body[data-theme='light'] .result input{background:#fff}
+body[data-theme='light'] .error{border-color:#f2c8d0;background:#fff5f6;color:#b85f6d;box-shadow:0 14px 35px rgba(75,98,142,.08)}
+body[data-theme='light'] .my-routes td{border-color:#e1e7f0;background:rgba(255,255,255,.72);color:#3a465c}
+body[data-theme='light'] .my-routes th{color:#7a879c}
+body[data-theme='light'] .my-routes tbody tr:hover td{border-color:#c6d2eb;background:rgba(247,249,255,.94)}
+body[data-theme='light'] .route-url{color:#375fb0}
+body[data-theme='light'] .route-note-text{color:#526b9f}
+body[data-theme='light'] .route-note-text.empty{color:#97a4b7}
+body[data-theme='light'] .route-state{border-color:#bfe9d1;background:#eaf8f0;color:#218451}
+body[data-theme='light'] .route-state.off{border-color:#f1d99c;background:#fff8e7;color:#a46b13}
+body[data-theme='light'] .route-state.error-state,
+body[data-theme='light'] .route-error{color:#b85f6d}
+body[data-theme='light'] .route-state.error-state{border-color:#f2c8d0;background:#fff5f6}
+body[data-theme='light'] button.delete-route{border-color:#f2c8d0;background:#fff5f6;color:#b85f6d}
+body[data-theme='light'] button.delete-route:hover{border-color:#e8aeb9;background:#ffedf0;color:#9f4252;box-shadow:0 8px 18px rgba(190,80,100,.1)}
+.theme-toggle{display:inline-grid;place-items:center;width:40px;height:40px;min-height:40px;margin:0;padding:0;border:1px solid var(--line);border-radius:11px;background:rgba(15,23,42,.62);box-shadow:none;color:var(--muted);font-size:17px;line-height:1;animation:none}
+.theme-toggle:before{display:none!important}
+.theme-toggle:hover{border-color:rgba(167,139,250,.4);background:rgba(30,41,59,.78);color:#fff;box-shadow:none;transform:translateY(-1px)}
+body[data-theme='light'] .theme-toggle{color:#526b9f}
+body[data-theme='light'] .theme-toggle:hover{color:#304a7d}
+@media(max-width:760px){.theme-toggle{width:44px;height:44px;min-height:44px}}
 """
 
 
@@ -525,7 +662,7 @@ async def generator_response(request: web.Request):
 @media(max-width:650px){{main{{padding:20px 14px 40px}}.topbar{{margin-bottom:38px}}.brand{{font-size:14px}}.hero{{margin-bottom:25px}}.workspace,.result{{padding:19px 16px;border-radius:18px}}.section-line{{align-items:flex-start;flex-direction:column;gap:5px}}.nodes{{gap:10px}}.node-card{{min-height:78px;padding:8px 7px;border-radius:15px}}.node-title{{min-height:22px}}.flag-icon{{width:27px;height:18px}}.node-meta{{display:flex}}.node-card small,.node-name,.latency{{font-size:9px}}.row{{flex-direction:column}}.row button{{width:100%}}.tools{{align-items:flex-start;flex-direction:column}}}}
 </style>
 <style>{DASHBOARD_UI_CSS}</style>
-    <main class="app-shell"><nav class="topbar"><a class="brand" href="/"><span class="brand-mark" aria-hidden="true">✦</span><span class="brand-copy"><strong>Emby Relay</strong><small>节点与线路管理</small></span></a><div class="account-actions"><div class="live"><i></i>{html.escape(user['username'])} · {used_routes}/{route_quota} 条 · {html.escape(expiry_label)}</div>{admin_link}<a href="/account">账号安全</a><form class="logout-form" method="post" action="/logout"><input type="hidden" name="csrf" value="{html.escape(csrf_token, quote=True)}"><button class="logout">退出</button></form></div></nav>
+    <body data-theme="light"><main class="app-shell"><nav class="topbar"><a class="brand" href="/"><span class="brand-mark" aria-hidden="true">✦</span><span class="brand-copy"><strong>Emby Relay</strong><small>节点与线路管理</small></span></a><div class="account-actions"><div class="live"><i></i>{html.escape(user['username'])} · {used_routes}/{route_quota} 条 · {html.escape(expiry_label)}</div>{admin_link}<a href="/account">账号安全</a><button type="button" class="theme-toggle" id="user-theme-toggle" aria-label="切换到黑色主题" title="切换到黑色主题">☾</button><form class="logout-form" method="post" action="/logout"><input type="hidden" name="csrf" value="{html.escape(csrf_token, quote=True)}"><button class="logout">退出</button></form></div></nav>
 <header class="hero"><div class="hero-copy"><span class="eyebrow">Private Media Access</span><h1>为播放选择<br><span>更合适的线路。</span></h1><p class="subtitle">测试节点延迟，为你的媒体站点生成独立访问地址。线路之间互不影响，可以随时切换。</p></div><div class="hero-stats"><div class="stat"><span class="stat-label">线路额度</span><strong>{used_routes} / {route_quota}</strong><small>已创建 / 可创建</small></div><div class="stat"><span class="stat-label">账号有效期</span><strong>{html.escape(expiry_label)}</strong><small>当前账户状态正常</small></div></div></header>
 <section class="workspace"><div class="section-line"><h2>选择节点</h2><span>延迟由当前浏览器测量</span></div><div class="nodes" id="nodes">{node_cards}</div><div class="tools"><button type="button" class="secondary" id="test-nodes">重新测试延迟</button><span class="hint">生成后，线路会部署到当前选中的节点。</span></div>
     <form class="route-form" method="post"><input type="hidden" name="csrf" value="{html.escape(csrf_token, quote=True)}"><input type="hidden" name="node_id" id="node-id" value="{selected_node_id}"><label>原始网站地址</label><div class="row"><input required name="url" placeholder="https://emby.example.com" value="{html.escape(raw_url)}"><button>生成访问地址</button></div><label class="route-note-field">线路备注（可选）<input name="route_note" maxlength="500" placeholder="例如：影视库 1" value="{html.escape(raw_route_note, quote=True)}"></label><p class="hint">线路会归属到你的账号。会清理来源和代理链标识，重写安全的媒体跳转，并保持视频流式播放。</p></form></section>
@@ -541,7 +678,15 @@ function probeAll(){{nodes.forEach(probe);}} document.getElementById('test-nodes
 async function copyText(value){{try{{if(navigator.clipboard&&window.isSecureContext){{await navigator.clipboard.writeText(value);return true;}}const field=document.createElement('textarea');field.value=value;field.readOnly=true;field.style.cssText='position:fixed;opacity:0';document.body.append(field);field.select();const copied=document.execCommand('copy');field.remove();return copied;}}catch(e){{return false;}}}}
 document.querySelectorAll('[data-copy]').forEach(button=>button.addEventListener('click',async()=>{{const label=button.textContent;button.textContent=(await copyText(button.dataset.copy))?'已复制':'复制失败';setTimeout(()=>button.textContent=label,1200);}}));
 document.querySelectorAll('.route-note-cell').forEach(cell=>{{const view=cell.querySelector('.route-note-view');const form=cell.querySelector('.route-note-form');const input=form?.querySelector('input[name="notes"]');cell.querySelector('.note-edit')?.addEventListener('click',()=>{{view.hidden=true;form.classList.add('is-open');input?.focus();input?.select();}});cell.querySelector('.note-cancel')?.addEventListener('click',()=>{{form.classList.remove('is-open');view.hidden=false;}});}});
+const userThemeKey='emby-relay-user-theme';
+const userThemeToggle=document.getElementById('user-theme-toggle');
+let savedUserTheme='';
+try{{savedUserTheme=localStorage.getItem(userThemeKey)||'';}}catch(e){{}}
+function applyUserTheme(theme){{const resolved=theme==='dark'?'dark':'light';document.body.dataset.theme=resolved;if(userThemeToggle){{const dark=resolved==='dark';userThemeToggle.textContent=dark?'☼':'☾';userThemeToggle.setAttribute('aria-label',dark?'切换到白色主题':'切换到黑色主题');userThemeToggle.title=dark?'切换到白色主题':'切换到黑色主题';}}try{{localStorage.setItem(userThemeKey,resolved);}}catch(e){{}}}}
+applyUserTheme(savedUserTheme||'light');
+userThemeToggle?.addEventListener('click',()=>applyUserTheme(document.body.dataset.theme==='dark'?'light':'dark'));
 </script>
+</main></body>
 </html>"""
     response = web.Response(text=body, content_type="text/html")
     response.headers["Content-Security-Policy"] = (
