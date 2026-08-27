@@ -1965,7 +1965,7 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             )
         node_grid = "".join(node_cards) or "<div class='empty-state'>暂无节点，请先在节点面板添加服务器。</div>"
         location_rows = "".join(
-            f"<div class='overview-list-item'><span><strong>{html.escape(location)}</strong><small>节点位置</small></span><span class='list-value'>{count} 个</span></div>"
+            f"<div class='overview-list-item'><span><strong>{html.escape(location)}</strong></span><span class='list-value'>{count} 个</span></div>"
             for location, count in sorted(locations.items(), key=lambda item: (-item[1], item[0]))
         ) or "<div class='empty-state'>暂无地区数据</div>"
         route_rows = "".join(
@@ -1973,16 +1973,16 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             for route in recent_routes
         ) or "<div class='empty-state'>暂无线路</div>"
         content = f"""
-<div class='overview-intro'><div><p>实时流量、线路请求与节点健康状态</p></div><span class='overview-live'><i></i>网关在线</span></div>
+<div class='overview-intro'><span class='overview-live'><i></i>网关在线</span></div>
 <div class='overview-metrics'>
-  <article class='metric-card'><header><span>今日总流量</span><span class='metric-icon'>↓</span></header><strong>{self._format_bytes(today_total)}</strong><small>节点入站与出站合计</small></article>
-  <article class='metric-card'><header><span>本月总流量</span><span class='metric-icon'>↗</span></header><strong>{self._format_bytes(month_total)}</strong><small>按北京时间统计</small></article>
-  <article class='metric-card'><header><span>活跃线路</span><span class='metric-icon'>⌁</span></header><strong>{deployed_routes}<small style='display:inline;margin:0 0 0 4px;font-size:11px;color:#a1a1aa'>/ {route_total}</small></strong><small>已下发 / 全部线路</small></article>
-  <article class='metric-card'><header><span>在线节点</span><span class='metric-icon'>⌾</span></header><strong>{online_nodes}<small style='display:inline;margin:0 0 0 4px;font-size:11px;color:#a1a1aa'>/ {node_count}</small></strong><small>{user_total} 个普通用户 · {invite_total} 个可用邀请码</small></article>
+  <article class='metric-card'><header><span>今日总流量</span><span class='metric-icon'>↓</span></header><strong>{self._format_bytes(today_total)}</strong></article>
+  <article class='metric-card'><header><span>本月总流量</span><span class='metric-icon'>↗</span></header><strong>{self._format_bytes(month_total)}</strong></article>
+  <article class='metric-card'><header><span>活跃线路</span><span class='metric-icon'>⌁</span></header><strong>{deployed_routes}<small style='display:inline;margin:0 0 0 4px;font-size:11px;color:#a1a1aa'>/ {route_total}</small></strong></article>
+  <article class='metric-card'><header><span>在线节点</span><span class='metric-icon'>⌾</span></header><strong>{online_nodes}<small style='display:inline;margin:0 0 0 4px;font-size:11px;color:#a1a1aa'>/ {node_count}</small></strong></article>
 </div>
 <div class='overview-columns'>
-  <section class='overview-panel'><div class='panel-heading'><div><h2>节点概览</h2><p>按节点查看位置、状态和累计用量</p></div><span class='panel-count'>{node_count} 个节点</span></div><div class='node-overview-grid'>{node_grid}</div></section>
-  <div class='overview-side'><section class='overview-panel'><div class='panel-heading'><div><h2>地区分布</h2><p>节点所在地区</p></div></div><div class='overview-list'>{location_rows}</div></section><section class='overview-panel'><div class='panel-heading'><div><h2>最近线路</h2><p>最近更新的访问入口</p></div><a class='panel-count' href='{ADMIN_PREFIX}/routes'>查看全部</a></div><div class='overview-list'>{route_rows}</div></section></div>
+  <section class='overview-panel'><div class='panel-heading'><div><h2>节点概览</h2></div><span class='panel-count'>{node_count} 个节点</span></div><div class='node-overview-grid'>{node_grid}</div></section>
+  <div class='overview-side'><section class='overview-panel'><div class='panel-heading'><div><h2>地区分布</h2></div></div><div class='overview-list'>{location_rows}</div></section><section class='overview-panel'><div class='panel-heading'><div><h2>最近线路</h2></div><a class='panel-count' href='{ADMIN_PREFIX}/routes'>查看全部</a></div><div class='overview-list'>{route_rows}</div></section></div>
 </div>"""
         return self._page(content, notice, error, active="overview")
 
@@ -2015,7 +2015,7 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
         node_rows = "".join(node_rows_list) or "<tr><td colspan='6' class='muted'>还没有节点</td></tr>"
         content = f"""
 <section><h2>节点</h2><table><thead><tr><th>名称</th><th>类型</th><th>地区</th><th>域名后缀</th><th>状态 / 代理用量</th><th>操作</th></tr></thead><tbody>{node_rows}</tbody></table></section>
-<section><h2>新增节点</h2><p class='muted'>公网 HTTPS 端口是用户访问时使用的端口，内部 HTTPS 端口是节点 Nginx 实际监听的端口，默认都是 443；两者可以独立填写。若远端已安装 Nginx，系统会自动读取它的 HTTPS 监听端口并优先使用，忽略你填写的内部端口。NAT 机需要让服务商把公网端口映射到内部端口。</p><form method='post' enctype='multipart/form-data' action='{ADMIN_PREFIX}/nodes'><div class='grid'><label>节点名称<input required name='name' placeholder='海创'></label><label>网络类型<select required name='network_mode' id='network-mode'><option value='vps'>普通 VPS（独立公网 IP）</option><option value='nat'>NAT 机（端口映射）</option></select></label><label>服务器公网 IP<input required name='ssh_host' inputmode='decimal' placeholder='162.141.136.85'></label><label>SSH 端口<input required name='ssh_port' value='22' inputmode='numeric'></label><label>公网 HTTPS 端口<input required id='public-port' name='public_https_port' value='443' inputmode='numeric'><span class='muted'>NAT 默认可填服务商分配的端口，例如 30004</span></label><label>内部 HTTPS 端口<input required name='internal_https_port' value='443' inputmode='numeric'><span class='muted'>Nginx 监听端口；远端已有 Nginx 时自动识别</span></label><label>SSH 密码（与私钥二选一）<input type='password' name='ssh_password' autocomplete='new-password'></label><label>SSH 私钥文件（与密码二选一）<input type='file' name='ssh_private_key' accept='.pem,.key,text/plain,application/x-pem-file'></label></div><p><input type='hidden' name='csrf' value='{html.escape(csrf_token, quote=True)}'><button>自动部署并添加</button></p></form><script nonce='__CSP_NONCE__'>(()=>{{const mode=document.getElementById('network-mode'),publicPort=document.getElementById('public-port');const sync=()=>{{if(mode.value==='nat'&&publicPort.value==='443')publicPort.value='30004';if(mode.value==='vps'&&publicPort.value==='30004')publicPort.value='443';}};mode.addEventListener('change',sync);}})();</script></section>"""
+<section><h2>新增节点</h2><form method='post' enctype='multipart/form-data' action='{ADMIN_PREFIX}/nodes'><div class='grid'><label>节点名称<input required name='name' placeholder='海创'></label><label>网络类型<select required name='network_mode' id='network-mode'><option value='vps'>普通 VPS（独立公网 IP）</option><option value='nat'>NAT 机（端口映射）</option></select></label><label>服务器公网 IP<input required name='ssh_host' inputmode='decimal' placeholder='162.141.136.85'></label><label>SSH 端口<input required name='ssh_port' value='22' inputmode='numeric'></label><label>公网 HTTPS 端口<input required id='public-port' name='public_https_port' value='443' inputmode='numeric'><span class='muted'>NAT 默认可填服务商分配的端口，例如 30004</span></label><label>内部 HTTPS 端口<input required name='internal_https_port' value='443' inputmode='numeric'><span class='muted'>Nginx 监听端口；远端已有 Nginx 时自动识别</span></label><label>SSH 密码（与私钥二选一）<input type='password' name='ssh_password' autocomplete='new-password'></label><label>SSH 私钥文件（与密码二选一）<input type='file' name='ssh_private_key' accept='.pem,.key,text/plain,application/x-pem-file'></label></div><p><input type='hidden' name='csrf' value='{html.escape(csrf_token, quote=True)}'><button>自动部署并添加</button></p></form><script nonce='__CSP_NONCE__'>(()=>{{const mode=document.getElementById('network-mode'),publicPort=document.getElementById('public-port');const sync=()=>{{if(mode.value==='nat'&&publicPort.value==='443')publicPort.value='30004';if(mode.value==='vps'&&publicPort.value==='30004')publicPort.value='443';}};mode.addEventListener('change',sync);}})();</script></section>"""
         content = content.replace("自动读取它的 HTTPS 监听端口", "自动读取它的监听端口")
         content = content.replace("Nginx 监听端口，不能使用 80；远端已有 Nginx 时自动识别", "Nginx 监听端口；远端已有 Nginx 时自动识别")
         content = content.replace("placeholder='海创'", "")
@@ -2064,8 +2064,8 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
         else:
             route_pagination = ""
         content = f"""
-<section><h2>线路列表</h2><p class='muted'>线路是面向用户的访问入口；节点是承载线路的服务器。重新下发只影响新请求，正在播放的连接不会自动迁移。</p><table><thead><tr><th>名称</th><th>源站</th><th>公开地址</th><th>节点</th><th>状态</th><th>操作</th></tr></thead><tbody>{route_rows}</tbody></table>{route_pagination}</section>
-<section><h2>新增线路</h2><p class='muted'>创建后会自动下发 Nginx，并从公网访问新地址确认链路；验证结果会直接显示。</p><form method='post' action='{ADMIN_PREFIX}/routes'><div class='grid'><label>线路名称（小写英文、数字、连字符）<input required name='name' pattern='[a-z0-9][a-z0-9-]{{1,31}}' placeholder='emby-a'></label><label>源站地址<input required name='origin' placeholder='https://emby.example.com'></label><label>部署节点<select required name='node_id'>{node_options}</select></label></div><p><input type='hidden' name='csrf' value='{csrf_token}'><button>创建、下发并验证</button></p></form></section>"""
+<section><h2>线路列表</h2><table><thead><tr><th>名称</th><th>源站</th><th>公开地址</th><th>节点</th><th>状态</th><th>操作</th></tr></thead><tbody>{route_rows}</tbody></table>{route_pagination}</section>
+<section><h2>新增线路</h2><form method='post' action='{ADMIN_PREFIX}/routes'><div class='grid'><label>线路名称（小写英文、数字、连字符）<input required name='name' pattern='[a-z0-9][a-z0-9-]{{1,31}}' placeholder='emby-a'></label><label>源站地址<input required name='origin' placeholder='https://emby.example.com'></label><label>部署节点<select required name='node_id'>{node_options}</select></label></div><p><input type='hidden' name='csrf' value='{csrf_token}'><button>创建、下发并验证</button></p></form></section>"""
         return self._page(content, notice, error, active="routes")
 
     @staticmethod
@@ -2329,8 +2329,8 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             ) or "<span class='muted'>暂无</span>"
             invite_rows.append(f"<tr><td>{code_html}</td><td>{int(invite['used_count'])}/{int(invite['max_uses'])}</td><td>{redeemer_html}</td><td>{html.escape(self._display_expiry(invite['expires_at']))}</td><td>{account_duration} / {int(invite['route_quota'])} 条</td><td>{html.escape(invite['notes'])}</td><td><div class='invite-actions'><span class='tag'>{state}</span>{revoke}{delete}</div></td></tr>")
         content = f"""
-<section><h2>创建邀请码</h2><p class='muted'>邀请码会加密保存，可长期在下方列表查看与复制。</p><form class='grid' method='post' action='{ADMIN_PREFIX}/invites'><label>可用次数<input required name='max_uses' type='number' min='1' max='10000' value='1'></label><label>邀请码有效天数<input required name='valid_days' type='number' min='1' max='3650' value='30'></label><label>新账号有效天数（0=永久）<input required name='account_days' type='number' min='0' max='3650' value='0'></label><label>新账号线路额度<input required name='route_quota' type='number' min='1' max='1000' value='10'></label><label>备注<input name='notes' maxlength='500'></label><p><input type='hidden' name='csrf' value='{html.escape(csrf_token, quote=True)}'><button>创建邀请码</button></p></form></section>
-<section><h2>邀请码</h2><p class='muted'>删除不会影响已注册账号或其线路，但会清除该邀请码的兑换历史。</p><table><thead><tr><th>邀请码</th><th>使用</th><th>使用者 ID / 用户名</th><th>邀请码到期</th><th>新账号参数</th><th>备注</th><th>操作</th></tr></thead><tbody>{''.join(invite_rows) or "<tr><td colspan='7' class='muted'>暂无邀请码</td></tr>"}</tbody></table></section>"""
+<section><h2>创建邀请码</h2><form class='grid' method='post' action='{ADMIN_PREFIX}/invites'><label>可用次数<input required name='max_uses' type='number' min='1' max='10000' value='1'></label><label>邀请码有效天数<input required name='valid_days' type='number' min='1' max='3650' value='30'></label><label>新账号有效天数（0=永久）<input required name='account_days' type='number' min='0' max='3650' value='0'></label><label>新账号线路额度<input required name='route_quota' type='number' min='1' max='1000' value='10'></label><label>备注<input name='notes' maxlength='500'></label><p><input type='hidden' name='csrf' value='{html.escape(csrf_token, quote=True)}'><button>创建邀请码</button></p></form></section>
+<section><h2>邀请码</h2><table><thead><tr><th>邀请码</th><th>使用</th><th>使用者 ID / 用户名</th><th>邀请码到期</th><th>新账号参数</th><th>备注</th><th>操作</th></tr></thead><tbody>{''.join(invite_rows) or "<tr><td colspan='7' class='muted'>暂无邀请码</td></tr>"}</tbody></table></section>"""
         return self._page(content, notice, error, active="invites")
 
     def _valid_path(self, value: str, field: str) -> str:
