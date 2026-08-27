@@ -601,59 +601,68 @@ async def generator_response(request: web.Request):
                 int(user["id"]),
                 raw_route_note,
             )
-            checks_section = "<p class='hint'>线路已下发到所选节点。可点击上方“重新测试”重新检测各节点网络延迟。</p>"
+            checks_section = "<p class='card-hint'>✓ 线路已成功部署至选定节点；播放中的连接具有独立生命周期，不受后续节点切换影响。</p>"
             result_html = f"""
-            <section class="result-card">
-                <div class="result-header">
-                    <span class="badge-success">✓ 线路已就绪</span>
-                    <span class="hint">已分配节点域名：{html.escape(host)}</span>
+            <section class="magic-result">
+                <div class="result-top">
+                    <span class="badge-ready"><span class="badge-dot"></span> 线路已就绪</span>
+                    <span class="result-host">节点域名：<code>{html.escape(host)}</code></span>
                 </div>
-                <label>完整 HTTPS 访问地址</label>
-                <div class="copy-field">
-                    <input readonly value="{html.escape(https_url, quote=True)}">
-                    <button type="button" class="copy-route btn-copy" data-copy="{html.escape(https_url, quote=True)}">复制</button>
+                <div class="result-body">
+                    <label class="result-label">专属 HTTPS 访问地址</label>
+                    <div class="copy-bar">
+                        <input readonly value="{html.escape(https_url, quote=True)}" id="res-url">
+                        <button type="button" class="btn-copy-magic" data-copy="{html.escape(https_url, quote=True)}">
+                            <span class="copy-icon">📋</span>
+                            <span class="copy-text">复制地址</span>
+                        </button>
+                    </div>
                 </div>
                 {checks_section}
             </section>
             """
         except Exception as exc:
-            result_html = f"<div class='error-banner'><span>⚠</span><span>{html.escape(str(exc))}。示例：https://emby.example.com</span></div>"
+            result_html = f"<div class='magic-error'><span class='err-icon'>⚠</span><div class='err-text'><strong>生成失败</strong><p>{html.escape(str(exc))}。示例：https://emby.example.com</p></div></div>"
 
     node_cards_parts = []
     for node in nodes:
         meta_label = node["code"].lower() if node["is_local"] else (node["country_name"] or node["health"])
+        is_selected = node["id"] == selected_node_id
         node_cards_parts.append(
-            f"<button type='button' title='{html.escape(node['name'], quote=True)}' aria-pressed={'true' if node['id'] == selected_node_id else 'false'} class='node-card{' selected' if node['id'] == selected_node_id else ''}' data-node-id='{node['id']}'>"
-            f"<div class='node-card-flag'>{node['flag_markup']}</div>"
-            f"<span class='node-card-name'>{html.escape(node['name'])}</span>"
-            f"<div class='node-card-footer'><span class='node-card-loc'>{html.escape(meta_label)}</span><span class='latency' data-latency='{node['id']}'>待测试</span></div>"
+            f"<button type='button' title='{html.escape(node['name'], quote=True)}' aria-pressed={'true' if is_selected else 'false'} class='bento-node{' selected' if is_selected else ''}' data-node-id='{node['id']}'>"
+            f"<div class='bento-node-top'>"
+            f"  <div class='flag-pedestal'>{node['flag_markup']}</div>"
+            f"  <span class='latency-badge' data-latency='{node['id']}'><i class='latency-dot'></i><b class='latency-text'>待测试</b></span>"
+            f"</div>"
+            f"<span class='bento-node-name'>{html.escape(node['name'])}</span>"
+            f"<div class='bento-node-meta'><span class='loc-tag'>{html.escape(meta_label)}</span><span class='select-indicator'></span></div>"
             f"</button>"
         )
-    node_cards = "".join(node_cards_parts) or "<p class='hint'>暂时没有可用节点。</p>"
+    node_cards = "".join(node_cards_parts) or "<div class='empty-nodes'>暂时没有可用节点，请联系管理员添加。</div>"
     nodes_json = json.dumps(nodes, separators=(",", ":"), ensure_ascii=False).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
     route_rows = []
     for route in panel.user_routes(int(user["id"])):
         state = "已暂停" if route["suspended_by_owner"] else ("已下发" if route["deployed"] else "部署失败")
         state_class = "state-paused" if route["suspended_by_owner"] else ("state-active" if route["deployed"] else "state-failed")
-        error = f"<div class='route-error'>{html.escape(route['last_error'])}</div>" if route["last_error"] else ""
+        error = f"<div class='route-err-tip'>{html.escape(route['last_error'])}</div>" if route["last_error"] else ""
         note = str(route["notes"] or "")
-        note_display = html.escape(note) if note else "未填写"
+        note_display = html.escape(note) if note else "点击添加备注"
         note_class = "" if note else " empty"
-        note_editor = f"<td class='route-note-cell'><div class='route-note-view'><span class='route-note-text{note_class}'>{note_display}</span><button type='button' class='note-edit' title='编辑备注' aria-label='编辑备注'>✎</button></div><form class='route-note-form' method='post' action='/my/routes/{route['id']}/note'><input type='hidden' name='csrf' value='{html.escape(csrf_token, quote=True)}'><input name='notes' maxlength='500' value='{html.escape(note, quote=True)}' placeholder='线路备注'><button type='submit' class='btn-save'>保存</button><button type='button' class='note-cancel'>取消</button></form></td>"
+        note_editor = f"<td class='cell-note'><div class='note-view'><span class='note-val{note_class}'>{note_display}</span><button type='button' class='btn-note-edit' title='编辑备注'>✎</button></div><form class='note-form' method='post' action='/my/routes/{route['id']}/note'><input type='hidden' name='csrf' value='{html.escape(csrf_token, quote=True)}'><input name='notes' maxlength='500' value='{html.escape(note, quote=True)}' placeholder='线路备注'><button type='submit' class='btn-note-save'>保存</button><button type='button' class='btn-note-cancel'>取消</button></form></td>"
         route_rows.append(
-            f"<tr>"
-            f"<td><span class='route-url origin-url'>{html.escape(route['origin'])}</span></td>"
-            f"<td><div class='route-link-cell'><span class='route-url public-url'>{html.escape(route['public_url'])}</span><button type='button' class='copy-route' data-copy='{html.escape(route['public_url'], quote=True)}'>复制</button></div></td>"
-            f"<td><span class='node-tag'>{html.escape(route['node_name'])}</span></td>"
+            f"<tr class='route-row'>"
+            f"<td class='cell-origin'><span class='code-url code-origin' title='{html.escape(route['origin'], quote=True)}'>{html.escape(route['origin'])}</span></td>"
+            f"<td class='cell-public'><div class='public-box'><span class='code-url code-public' title='{html.escape(route['public_url'], quote=True)}'>{html.escape(route['public_url'])}</span><button type='button' class='btn-mini-copy' data-copy='{html.escape(route['public_url'], quote=True)}' title='复制访问地址'>复制</button></div></td>"
+            f"<td class='cell-node'><span class='node-chip'>{html.escape(route['node_name'])}</span></td>"
             f"{note_editor}"
-            f"<td><span class='route-state {state_class}'>{state}</span>{error}</td>"
-            f"<td class='action-cell'><form method='post' action='/my/routes/{route['id']}/delete'><input type='hidden' name='csrf' value='{html.escape(csrf_token, quote=True)}'><button class='delete-route' title='删除此线路'>删除</button></form></td>"
+            f"<td class='cell-status'><span class='status-pill {state_class}'><i class='status-glow'></i>{state}</span>{error}</td>"
+            f"<td class='cell-action'><form method='post' action='/my/routes/{route['id']}/delete'><input type='hidden' name='csrf' value='{html.escape(csrf_token, quote=True)}'><button class='btn-del' title='删除该线路并释放额度'>删除</button></form></td>"
             f"</tr>"
         )
     used_routes, route_quota = panel.user_route_usage(int(user["id"]))
-    my_routes_html = "".join(route_rows) or "<tr><td colspan='6' class='empty-table'>你还没有创建线路，在上方输入源站地址即可快速生成。</td></tr>"
+    my_routes_html = "".join(route_rows) or "<tr><td colspan='6' class='table-empty'><div class='empty-icon'>✦</div><p>暂无活跃线路，在上方输入源站地址即可秒级生成专属反代入口。</p></td></tr>"
     expiry_label = panel._display_expiry(user["expires_at"])
-    admin_link = "<a class='action-pill admin-pill' href='/_admin'>⚡ 管理后台</a>" if int(user["is_admin"] or 0) else ""
+    admin_link = "<a class='nav-pill pill-admin' href='/_admin'><span class='pill-icon'>⚡</span><span>管理后台</span></a>" if int(user["is_admin"] or 0) else ""
     csp_nonce = secrets.token_urlsafe(16)
 
     body = f"""<!doctype html>
@@ -662,875 +671,404 @@ async def generator_response(request: web.Request):
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Emby Relay · 节点与线路管理</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E">
-<link rel="shortcut icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E⚡%3C/text%3E%3C/svg%3E">
 <style>
 :root{{
-  --bg-page:#f8fafc;
-  --bg-glow1:rgba(99,102,241,0.08);
-  --bg-glow2:rgba(34,211,238,0.06);
-  --panel:rgba(255,255,255,0.85);
-  --panel-card:#ffffff;
-  --panel-card-hover:#fafcff;
-  --border:rgba(226,232,240,0.85);
-  --border-strong:rgba(203,213,225,0.9);
-  --text-main:#0f172a;
-  --text-muted:#475569;
-  --text-faint:#94a3b8;
+  --bg:#f8fafc;
+  --bg-dots:rgba(99,102,241,0.06);
+  --aurora-1:rgba(99,102,241,0.12);
+  --aurora-2:rgba(168,85,247,0.1);
+  --aurora-3:rgba(6,182,212,0.1);
+  --glass-bg:rgba(255,255,255,0.82);
+  --glass-card:rgba(255,255,255,0.94);
+  --glass-card-hover:#ffffff;
+  --glass-border:rgba(226,232,240,0.85);
+  --glass-border-strong:rgba(196,181,253,0.5);
+  --ink:#0f172a;
+  --ink-secondary:#334155;
+  --ink-muted:#64748b;
+  --ink-faint:#94a3b8;
   --primary:#6366f1;
   --primary-hover:#4f46e5;
+  --primary-glow:rgba(99,102,241,0.3);
   --primary-light:rgba(99,102,241,0.08);
   --accent:#06b6d4;
   --success:#10b981;
+  --success-glow:rgba(16,185,129,0.35);
   --success-bg:rgba(16,185,129,0.1);
-  --danger:#ef4444;
-  --danger-bg:rgba(239,68,68,0.08);
-  --shadow-sm:0 1px 2px rgba(0,0,0,0.04);
-  --shadow-md:0 10px 30px -4px rgba(15,23,42,0.06), 0 4px 12px -2px rgba(15,23,42,0.03);
-  --shadow-lg:0 20px 45px -10px rgba(15,23,42,0.08);
-  --card-border-selected:#6366f1;
-  --card-glow-selected:rgba(99,102,241,0.18);
+  --danger:#f43f5e;
+  --danger-bg:rgba(244,63,94,0.08);
+  --shadow-ambient:0 12px 36px -4px rgba(15,23,42,0.06), 0 4px 12px -2px rgba(15,23,42,0.03);
+  --shadow-floating:0 24px 50px -12px rgba(15,23,42,0.12);
+  --card-glow-selected:rgba(99,102,241,0.22);
 }}
 body[data-theme='dark']{{
-  --bg-page:#06080f;
-  --bg-glow1:rgba(139,92,246,0.18);
-  --bg-glow2:rgba(34,211,238,0.12);
-  --panel:rgba(15,23,42,0.78);
-  --panel-card:rgba(20,28,48,0.85);
-  --panel-card-hover:rgba(30,41,69,0.9);
-  --border:rgba(255,255,255,0.09);
-  --border-strong:rgba(255,255,255,0.16);
-  --text-main:#f8fafc;
-  --text-muted:#94a3b8;
-  --text-faint:#64748b;
+  --bg:#070913;
+  --bg-dots:rgba(255,255,255,0.03);
+  --aurora-1:rgba(99,102,241,0.2);
+  --aurora-2:rgba(168,85,247,0.18);
+  --aurora-3:rgba(6,182,212,0.15);
+  --glass-bg:rgba(13,17,31,0.78);
+  --glass-card:rgba(18,24,44,0.88);
+  --glass-card-hover:rgba(26,35,64,0.96);
+  --glass-border:rgba(255,255,255,0.08);
+  --glass-border-strong:rgba(139,92,246,0.45);
+  --ink:#f8fafc;
+  --ink-secondary:#cbd5e1;
+  --ink-muted:#94a3b8;
+  --ink-faint:#64748b;
   --primary:#818cf8;
   --primary-hover:#6366f1;
-  --primary-light:rgba(129,140,248,0.15);
+  --primary-glow:rgba(129,140,248,0.4);
+  --primary-light:rgba(129,140,248,0.14);
   --accent:#22d3ee;
   --success:#34d399;
-  --success-bg:rgba(52,211,153,0.15);
-  --danger:#f87171;
-  --danger-bg:rgba(248,113,113,0.15);
-  --shadow-sm:0 1px 2px rgba(0,0,0,0.3);
-  --shadow-md:0 10px 30px -4px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.06);
-  --shadow-lg:0 25px 60px -10px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.08);
-  --card-border-selected:#818cf8;
-  --card-glow-selected:rgba(129,140,248,0.3);
+  --success-glow:rgba(52,211,153,0.45);
+  --success-bg:rgba(52,211,153,0.14);
+  --danger:#fb7185;
+  --danger-bg:rgba(251,113,133,0.14);
+  --shadow-ambient:0 16px 40px -4px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.06);
+  --shadow-floating:0 28px 65px -10px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.1);
+  --card-glow-selected:rgba(129,140,248,0.35);
 }}
-*{{box-sizing:border-box}}
-html{{min-height:100%;background:var(--bg-page)}}
+*{{box-sizing:border-box;margin:0;padding:0}}
+html{{min-height:100%;background:var(--bg)}}
 body{{
   position:relative;
-  margin:0;
   min-height:100vh;
   overflow-x:hidden;
-  background:radial-gradient(ellipse 80% 50% at 50% -10%,var(--bg-glow1),transparent 65%),
-             radial-gradient(ellipse 60% 40% at 90% 90%,var(--bg-glow2),transparent 60%),
-             var(--bg-page);
-  color:var(--text-main);
-  font:14px/1.6 Inter,"PingFang SC","Microsoft YaHei",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
-  transition:background .25s ease,color .25s ease;
+  background:var(--bg);
+  color:var(--ink);
+  font:14px/1.6 Inter,-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+  transition:background .3s ease,color .3s ease;
 }}
-body:before{{
-  content:"";
-  position:fixed;
-  inset:0;
-  pointer-events:none;
-  opacity:0.4;
-  background-image:linear-gradient(rgba(148,163,184,0.06) 1px,transparent 1px),
-                   linear-gradient(90deg,rgba(148,163,184,0.06) 1px,transparent 1px);
-  background-size:32px 32px;
+.aurora-bg{{position:fixed;inset:0;pointer-events:none;z-index:0;overflow:hidden;}}
+.aurora-blob{{position:absolute;border-radius:50%;filter:blur(80px);opacity:0.8;animation:aurora-float 20s infinite alternate ease-in-out;}}
+.blob-1{{width:55vw;height:55vw;left:-10vw;top:-15vw;background:radial-gradient(circle,var(--aurora-1),transparent 70%);animation-duration:24s;}}
+.blob-2{{width:50vw;height:50vw;right:-10vw;top:10vh;background:radial-gradient(circle,var(--aurora-2),transparent 70%);animation-duration:28s;animation-delay:-6s;}}
+.blob-3{{width:60vw;height:60vw;left:20vw;bottom:-20vw;background:radial-gradient(circle,var(--aurora-3),transparent 70%);animation-duration:22s;animation-delay:-12s;}}
+.grid-mesh{{
+  position:fixed;inset:0;pointer-events:none;z-index:0;opacity:0.5;
+  background-image:linear-gradient(var(--bg-dots) 1px,transparent 1px),linear-gradient(90deg,var(--bg-dots) 1px,transparent 1px);
+  background-size:36px 36px;
+  mask-image:radial-gradient(ellipse 80% 60% at 50% 30%,#000 30%,transparent 85%);
+  -webkit-mask-image:radial-gradient(ellipse 80% 60% at 50% 30%,#000 30%,transparent 85%);
 }}
-main{{
-  position:relative;
-  z-index:1;
-  max-width:1040px;
-  margin:0 auto;
-  padding:24px 20px 64px;
+@keyframes aurora-float{{
+  0%{{transform:translate(0,0) scale(1) rotate(0deg);}}
+  50%{{transform:translate(30px,40px) scale(1.08) rotate(180deg);}}
+  100%{{transform:translate(-30px,-20px) scale(0.95) rotate(360deg);}}
 }}
-/* TopBar */
-.topbar{{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:16px;
-  margin-bottom:36px;
-  padding:12px 18px;
-  border:1px solid var(--border);
-  border-radius:18px;
-  background:var(--panel);
-  box-shadow:var(--shadow-md);
-  backdrop-filter:blur(16px);
-  -webkit-backdrop-filter:blur(16px);
+main.magic-shell{{position:relative;z-index:1;max-width:1080px;margin:0 auto;padding:24px 20px 80px;}}
+.magic-nav{{
+  display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:38px;padding:10px 16px;
+  border:1px solid var(--glass-border);border-radius:20px;background:var(--glass-bg);
+  box-shadow:var(--shadow-ambient);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
 }}
-.brand{{
-  display:flex;
-  align-items:center;
-  gap:12px;
-  text-decoration:none;
+.nav-brand{{display:flex;align-items:center;gap:12px;text-decoration:none;}}
+.brand-gem{{
+  display:grid;place-items:center;width:38px;height:38px;border:1px solid rgba(196,181,253,0.4);border-radius:12px;
+  background:linear-gradient(135deg,rgba(99,102,241,0.25),rgba(6,182,212,0.15));
+  box-shadow:inset 0 1px 1px rgba(255,255,255,0.4),0 0 20px rgba(99,102,241,0.25);
+  color:#a78bfa;font-size:17px;transition:transform .2s ease;
 }}
-.brand-icon{{
-  display:grid;
-  place-items:center;
-  width:36px;
-  height:36px;
-  border:1px solid rgba(196,181,253,0.3);
-  border-radius:11px;
-  background:linear-gradient(135deg,rgba(99,102,241,0.2),rgba(34,211,238,0.1));
-  box-shadow:inset 0 1px rgba(255,255,255,0.2),0 0 16px rgba(99,102,241,0.15);
-  color:#a78bfa;
-  font-size:16px;
+.nav-brand:hover .brand-gem{{transform:scale(1.06) rotate(6deg);}}
+.brand-meta strong{{
+  display:block;font-size:16px;font-weight:800;letter-spacing:-0.02em;
+  background:linear-gradient(90deg,var(--ink) 0%,var(--primary) 100%);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
 }}
-.brand-title{{
-  display:flex;
-  flex-direction:column;
-  line-height:1.2;
+.brand-meta small{{display:block;margin-top:1px;color:var(--ink-muted);font-size:11px;font-weight:600;letter-spacing:0.04em;}}
+.nav-actions{{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}}
+.nav-badge{{
+  display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 11px;
+  border:1px solid var(--glass-border);border-radius:999px;background:var(--glass-card);
+  color:var(--ink-secondary);font-size:12px;font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,0.03);
 }}
-.brand-title strong{{
-  font-size:16px;
-  font-weight:800;
-  letter-spacing:-0.02em;
-  background:linear-gradient(90deg,var(--text-main),var(--primary));
-  -webkit-background-clip:text;
-  -webkit-text-fill-color:transparent;
-}}
-.brand-title small{{
-  margin-top:2px;
-  color:var(--text-faint);
-  font-size:11px;
-  font-weight:600;
-  letter-spacing:0.02em;
-}}
-.topbar-right{{
-  display:flex;
-  align-items:center;
-  gap:10px;
-  flex-wrap:wrap;
-}}
-.user-pills{{
-  display:flex;
-  align-items:center;
-  gap:8px;
-}}
-.pill{{
-  display:inline-flex;
-  align-items:center;
-  gap:6px;
-  padding:5px 11px;
-  border:1px solid var(--border);
-  border-radius:999px;
-  background:var(--panel-card);
-  color:var(--text-muted);
-  font-size:12px;
-  font-weight:600;
-  box-shadow:var(--shadow-sm);
-}}
-.pill-quota b{{
-  color:var(--primary);
-}}
-.pill-live i{{
-  width:7px;
-  height:7px;
-  border-radius:50%;
-  background:var(--success);
-  box-shadow:0 0 0 3px var(--success-bg);
-}}
-.action-pill{{
-  display:inline-flex;
-  align-items:center;
-  gap:5px;
-  height:32px;
-  padding:0 12px;
-  border:1px solid var(--border);
-  border-radius:999px;
-  background:var(--panel-card);
-  color:var(--text-muted);
-  font-size:12px;
-  font-weight:650;
-  text-decoration:none;
-  cursor:pointer;
-  transition:all .18s ease;
-}}
-.action-pill:hover{{
-  border-color:var(--primary);
-  color:var(--primary);
-  background:var(--primary-light);
-}}
-.admin-pill{{
-  border-color:rgba(139,92,246,0.3);
-  color:var(--primary);
-}}
-button.theme-toggle{{
-  width:34px;
-  height:34px;
-  padding:0;
-  display:grid;
-  place-items:center;
-  border:1px solid var(--border);
-  border-radius:50%;
-  background:var(--panel-card);
-  color:var(--text-muted);
-  font-size:15px;
-  cursor:pointer;
-  transition:all .18s ease;
-}}
-button.theme-toggle:hover{{
-  border-color:var(--primary);
-  color:var(--primary);
-  transform:scale(1.05);
-}}
-button.logout-btn{{
-  height:32px;
-  padding:0 12px;
-  border:1px solid var(--border);
-  border-radius:999px;
-  background:transparent;
-  color:var(--text-faint);
-  font-size:12px;
-  font-weight:600;
-  cursor:pointer;
-  transition:all .18s ease;
-}}
-button.logout-btn:hover{{
-  border-color:var(--danger);
-  color:var(--danger);
-  background:var(--danger-bg);
-}}
-/* Hero Header */
-.hero{{
-  text-align:center;
-  margin:20px auto 32px;
-  max-width:680px;
-}}
-.hero-tag{{
-  display:inline-flex;
-  align-items:center;
-  gap:6px;
-  padding:4px 12px;
-  margin-bottom:14px;
-  border:1px solid var(--border);
-  border-radius:999px;
-  background:var(--panel);
-  color:var(--primary);
-  font-size:11px;
-  font-weight:700;
-  letter-spacing:0.04em;
-  text-transform:uppercase;
-  box-shadow:var(--shadow-sm);
-}}
-.hero h1{{
-  margin:0 0 10px;
-  color:var(--text-main);
-  font-size:clamp(26px,4vw,38px);
-  font-weight:800;
-  line-height:1.2;
-  letter-spacing:-0.035em;
-}}
-.hero h1 span{{
-  background:linear-gradient(135deg,#6366f1 0%,#8b5cf6 50%,#06b6d4 100%);
-  -webkit-background-clip:text;
-  -webkit-text-fill-color:transparent;
-}}
-.hero p{{
-  margin:0 auto;
-  color:var(--text-muted);
-  font-size:14px;
-  line-height:1.6;
-  max-width:540px;
-}}
-/* Section Panel */
-.panel-box{{
-  position:relative;
-  margin-top:24px;
-  padding:26px 28px;
-  border:1px solid var(--border);
-  border-radius:24px;
-  background:var(--panel);
-  box-shadow:var(--shadow-md);
-  backdrop-filter:blur(16px);
-  -webkit-backdrop-filter:blur(16px);
-}}
-.section-header{{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:14px;
-  margin-bottom:18px;
-}}
-.section-header h2{{
-  margin:0;
-  color:var(--text-main);
-  font-size:16px;
-  font-weight:750;
-  letter-spacing:-0.01em;
-}}
-.section-header span{{
-  color:var(--text-faint);
-  font-size:12px;
-}}
-/* Node Cards */
-.nodes-grid{{
-  display:grid;
-  grid-template-columns:repeat(auto-fill,minmax(148px,1fr));
-  gap:12px;
-  margin-bottom:18px;
-}}
-.node-card{{
-  position:relative;
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-  justify-content:space-between;
-  min-height:92px;
-  padding:12px 10px 10px;
-  text-align:center;
-  border:1.5px solid var(--border);
-  border-radius:16px;
-  background:var(--panel-card);
-  cursor:pointer;
+.nav-badge.quota b{{color:var(--primary);font-weight:800;}}
+.nav-badge.status .dot{{width:7px;height:7px;border-radius:50%;background:var(--success);box-shadow:0 0 0 3px var(--success-bg);}}
+.nav-pill{{
+  display:inline-flex;align-items:center;gap:5px;height:32px;padding:0 12px;
+  border:1px solid var(--glass-border);border-radius:999px;background:var(--glass-card);
+  color:var(--ink-secondary);font-size:12px;font-weight:650;text-decoration:none;cursor:pointer;
   transition:all .18s cubic-bezier(0.4,0,0.2,1);
-  box-shadow:var(--shadow-sm);
 }}
-.node-card:hover{{
-  border-color:var(--border-strong);
-  background:var(--panel-card-hover);
-  transform:translateY(-2px);
-  box-shadow:var(--shadow-md);
+.nav-pill:hover{{border-color:var(--primary);color:var(--primary);background:var(--primary-light);transform:translateY(-1px);}}
+.pill-admin{{border-color:rgba(139,92,246,0.35);color:var(--primary);}}
+button.theme-btn{{
+  display:grid;place-items:center;width:32px;height:32px;padding:0;
+  border:1px solid var(--glass-border);border-radius:50%;background:var(--glass-card);
+  color:var(--ink-secondary);font-size:15px;cursor:pointer;transition:all .2s ease;
 }}
-.node-card.selected{{
-  border-color:var(--card-border-selected);
-  background:var(--panel-card);
-  box-shadow:0 0 0 2px var(--card-border-selected),0 10px 24px -4px var(--card-glow-selected);
-  transform:translateY(-2px);
+button.theme-btn:hover{{border-color:var(--primary);color:var(--primary);transform:scale(1.1) rotate(15deg);}}
+button.btn-logout{{
+  height:32px;padding:0 12px;border:1px solid var(--glass-border);border-radius:999px;
+  background:transparent;color:var(--ink-faint);font-size:12px;font-weight:650;cursor:pointer;transition:all .18s ease;
 }}
-.node-card.selected:after{{
-  content:"✓";
-  position:absolute;
-  top:6px;
-  right:7px;
-  width:16px;
-  height:16px;
-  display:grid;
-  place-items:center;
-  border-radius:50%;
-  background:var(--primary);
-  color:#fff;
-  font-size:10px;
-  font-weight:800;
+button.btn-logout:hover{{border-color:var(--danger);color:var(--danger);background:var(--danger-bg);}}
+.magic-hero{{text-align:center;margin:28px auto 36px;max-width:720px;}}
+.hero-pill{{
+  display:inline-flex;align-items:center;gap:7px;padding:5px 14px;margin-bottom:16px;
+  border:1px solid var(--glass-border-strong);border-radius:999px;background:var(--glass-bg);
+  color:var(--primary);font-size:11px;font-weight:750;letter-spacing:0.06em;text-transform:uppercase;
+  box-shadow:0 0 20px var(--primary-light);
 }}
-.node-card-flag{{
-  display:grid;
-  place-items:center;
-  min-height:22px;
+.magic-hero h1{{margin:0 0 12px;color:var(--ink);font-size:clamp(28px,4.5vw,42px);font-weight:850;line-height:1.2;letter-spacing:-0.035em;}}
+.magic-hero h1 span{{
+  background:linear-gradient(135deg,#6366f1 0%,#a855f7 50%,#06b6d4 100%);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
 }}
-.flag-icon{{
-  display:block;
-  width:30px;
-  height:20px;
-  border-radius:3px;
-  box-shadow:0 1px 4px rgba(0,0,0,0.15);
+.magic-hero p{{margin:0 auto;color:var(--ink-muted);font-size:15px;line-height:1.6;max-width:580px;}}
+.glass-box{{
+  position:relative;margin-top:24px;padding:28px 30px;border:1px solid var(--glass-border);border-radius:24px;
+  background:var(--glass-bg);box-shadow:var(--shadow-ambient);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);
+  transition:border-color .2s ease;
 }}
-.node-card-name{{
-  display:block;
-  margin:6px 0 4px;
-  color:var(--text-main);
-  font-size:12px;
-  font-weight:750;
-  line-height:1.3;
-  overflow:hidden;
-  white-space:nowrap;
-  text-overflow:ellipsis;
-  max-width:100%;
+.box-header{{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px;}}
+.box-header h2{{font-size:17px;font-weight:800;letter-spacing:-0.02em;color:var(--ink);}}
+.box-header span{{color:var(--ink-faint);font-size:12px;}}
+.bento-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(154px,1fr));gap:13px;margin-bottom:20px;}}
+.bento-node{{
+  position:relative;display:flex;flex-direction:column;justify-content:space-between;min-height:98px;padding:14px 12px 12px;
+  text-align:left;border:1.5px solid var(--glass-border);border-radius:18px;background:var(--glass-card);cursor:pointer;
+  transition:all .22s cubic-bezier(0.4,0,0.2,1);box-shadow:0 2px 6px rgba(0,0,0,0.02);
 }}
-.node-card-footer{{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  width:100%;
-  gap:6px;
-  padding-top:4px;
-  border-top:1px dashed var(--border);
+.bento-node:hover{{
+  border-color:var(--glass-border-strong);background:var(--glass-card-hover);transform:translateY(-3px);box-shadow:var(--shadow-ambient);
 }}
-.node-card-loc{{
-  color:var(--text-faint);
-  font-size:10px;
-  font-weight:600;
-  overflow:hidden;
-  white-space:nowrap;
-  text-overflow:ellipsis;
+.bento-node.selected{{
+  border-color:var(--primary);background:var(--glass-card);box-shadow:0 0 0 2px var(--primary),0 12px 28px -4px var(--card-glow-selected);transform:translateY(-3px);
 }}
-.latency{{
-  font-size:10px;
-  font-weight:750;
-  color:var(--text-faint);
-  flex:0 0 auto;
+.bento-node.selected .select-indicator{{opacity:1;transform:scale(1);}}
+.bento-node-top{{display:flex;align-items:center;justify-content:space-between;width:100%;}}
+.flag-pedestal{{display:grid;place-items:center;padding:3px;border-radius:6px;background:rgba(0,0,0,0.03);}}
+.flag-icon{{display:block;width:30px;height:20px;border-radius:4px;box-shadow:0 1px 3px rgba(0,0,0,0.2);}}
+.latency-badge{{
+  display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:999px;
+  background:rgba(148,163,184,0.12);color:var(--ink-faint);font-size:10px;font-weight:750;
 }}
-.latency.fast{{color:var(--success);}}
-.latency.medium{{color:#f59e0b;}}
-.latency.slow{{color:#ef4444;}}
-.latency.error{{color:var(--danger);}}
-/* Node Action bar */
-.node-tools{{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:12px;
-  padding-bottom:18px;
-  border-bottom:1px solid var(--border);
-  margin-bottom:20px;
+.latency-dot{{width:5px;height:5px;border-radius:50%;background:currentColor;}}
+.latency-badge.fast{{background:var(--success-bg);color:var(--success);}}
+.latency-badge.medium{{background:rgba(245,158,11,0.12);color:#f59e0b;}}
+.latency-badge.slow{{background:rgba(239,68,68,0.12);color:#ef4444;}}
+.latency-badge.error{{background:var(--danger-bg);color:var(--danger);}}
+.bento-node-name{{
+  display:block;margin:10px 0 4px;color:var(--ink);font-size:13px;font-weight:800;line-height:1.3;
+  overflow:hidden;white-space:nowrap;text-overflow:ellipsis;
 }}
-.btn-probe{{
-  height:36px;
-  padding:0 14px;
-  border:1px solid var(--border);
-  border-radius:10px;
-  background:var(--panel-card);
-  color:var(--text-muted);
-  font-size:12px;
-  font-weight:700;
-  cursor:pointer;
-  transition:all .18s ease;
+.bento-node-meta{{display:flex;align-items:center;justify-content:space-between;width:100%;}}
+.loc-tag{{color:var(--ink-muted);font-size:11px;font-weight:600;}}
+.select-indicator{{
+  width:7px;height:7px;border-radius:50%;background:var(--primary);box-shadow:0 0 0 3px var(--primary-light);
+  opacity:0;transform:scale(0.5);transition:all .2s ease;
 }}
-.btn-probe:hover{{
-  border-color:var(--primary);
-  color:var(--primary);
-  background:var(--primary-light);
+.node-toolbar{{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;padding-bottom:20px;
+  border-bottom:1px solid var(--glass-border);margin-bottom:22px;
 }}
-/* Route Form */
-.route-form label{{
-  display:block;
-  margin-bottom:8px;
-  color:var(--text-main);
-  font-size:13px;
-  font-weight:700;
+.btn-probe-magic{{
+  display:inline-flex;align-items:center;gap:6px;height:38px;padding:0 16px;border:1px solid var(--glass-border);
+  border-radius:12px;background:var(--glass-card);color:var(--ink-secondary);font:inherit;font-size:12px;font-weight:750;
+  cursor:pointer;transition:all .2s ease;
 }}
-.form-row{{
-  display:flex;
-  gap:10px;
-}}
+.btn-probe-magic:hover{{border-color:var(--primary);color:var(--primary);background:var(--primary-light);transform:translateY(-1px);}}
+.toolbar-hint{{color:var(--ink-faint);font-size:12px;}}
+.magic-form label{{display:block;margin-bottom:9px;color:var(--ink);font-size:13px;font-weight:750;}}
+.form-line-main{{display:flex;gap:12px;}}
 input{{
-  width:100%;
-  min-width:0;
-  height:48px;
-  padding:0 16px;
-  outline:0;
-  border:1px solid var(--border);
-  border-radius:12px;
-  background:var(--panel-card);
-  color:var(--text-main);
-  font:inherit;
-  font-size:14px;
-  box-shadow:var(--shadow-sm);
-  transition:border-color .18s ease,box-shadow .18s ease,background .18s ease;
+  width:100%;min-width:0;height:48px;padding:0 16px;outline:0;border:1.5px solid var(--glass-border);
+  border-radius:14px;background:var(--glass-card);color:var(--ink);font:inherit;font-size:14px;
+  box-shadow:0 1px 2px rgba(0,0,0,0.02);transition:all .2s ease;
 }}
-input::placeholder{{
-  color:var(--text-faint);
+input::placeholder{{color:var(--ink-faint);}}
+input:hover{{border-color:var(--glass-border-strong);}}
+input:focus{{border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-light),0 8px 20px -4px var(--primary-glow);}}
+.btn-generate-shimmer{{
+  flex:0 0 auto;position:relative;height:48px;padding:0 26px;overflow:hidden;border:0;border-radius:14px;
+  background:linear-gradient(135deg,#6366f1 0%,#8b5cf6 50%,#06b6d4 100%);background-size:200% auto;
+  color:#fff;font:inherit;font-size:14px;font-weight:800;letter-spacing:0.02em;cursor:pointer;
+  box-shadow:0 10px 28px -4px var(--primary-glow);transition:all .2s cubic-bezier(0.4,0,0.2,1);
 }}
-input:hover{{
-  border-color:var(--border-strong);
+.btn-generate-shimmer:hover{{transform:translateY(-2px);box-shadow:0 14px 34px -2px var(--primary-glow);}}
+.btn-generate-shimmer:active{{transform:translateY(0);}}
+.form-line-sub{{margin-top:12px;}}
+.form-line-sub input{{height:42px;font-size:13px;border-radius:12px;}}
+.magic-hint{{margin-top:14px;color:var(--ink-faint);font-size:12px;line-height:1.6;}}
+.magic-result{{
+  margin-top:24px;padding:24px 28px;border:1.5px solid var(--success);border-radius:24px;
+  background:var(--glass-bg);box-shadow:0 16px 40px -8px var(--success-glow);
+  backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);animation:fade-scale-in .3s ease-out;
 }}
-input:focus{{
-  border-color:var(--primary);
-  box-shadow:0 0 0 3px var(--primary-light);
+.result-top{{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px;flex-wrap:wrap;}}
+.badge-ready{{
+  display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:999px;
+  background:var(--success-bg);color:var(--success);font-size:12px;font-weight:800;
 }}
-.btn-generate{{
-  flex:0 0 auto;
-  height:48px;
-  padding:0 24px;
-  border:0;
-  border-radius:12px;
-  background:linear-gradient(135deg,#6366f1 0%,#7c3aed 50%,#06b6d4 100%);
-  color:#fff;
-  font:inherit;
-  font-size:14px;
-  font-weight:750;
-  cursor:pointer;
-  box-shadow:0 8px 24px -4px rgba(99,102,241,0.35);
-  transition:all .18s ease;
+.badge-dot{{width:6px;height:6px;border-radius:50%;background:var(--success);box-shadow:0 0 0 3px var(--success-glow);}}
+.result-host code{{
+  padding:3px 8px;border-radius:6px;background:var(--glass-card);border:1px solid var(--glass-border);
+  color:var(--primary);font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:12px;
 }}
-.btn-generate:hover{{
-  transform:translateY(-1px);
-  box-shadow:0 12px 28px -2px rgba(99,102,241,0.45);
+.result-label{{display:block;margin-bottom:8px;color:var(--ink);font-size:13px;font-weight:750;}}
+.copy-bar{{display:flex;gap:10px;align-items:center;}}
+.copy-bar input{{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:13px;font-weight:700;color:var(--primary);}}
+.btn-copy-magic{{
+  flex:0 0 auto;display:inline-flex;align-items:center;gap:6px;height:48px;padding:0 20px;
+  border:1.5px solid var(--glass-border);border-radius:14px;background:var(--glass-card);
+  color:var(--ink);font:inherit;font-size:13px;font-weight:800;cursor:pointer;transition:all .18s ease;
 }}
-.btn-generate:active{{
-  transform:translateY(0);
+.btn-copy-magic:hover{{border-color:var(--primary);color:var(--primary);background:var(--primary-light);}}
+.card-hint{{margin-top:12px;color:var(--success);font-size:12px;}}
+.magic-error{{
+  display:flex;align-items:flex-start;gap:12px;margin-top:20px;padding:16px 20px;
+  border:1px solid rgba(244,63,94,0.35);border-radius:18px;background:var(--danger-bg);color:var(--danger);
 }}
-.form-note-row{{
-  margin-top:12px;
+.err-icon{{font-size:18px;line-height:1;margin-top:2px;}}
+.err-text strong{{display:block;font-size:13px;font-weight:800;}}
+.err-text p{{margin-top:2px;font-size:12px;color:var(--danger);opacity:0.9;}}
+.routes-scroll-wrap{{overflow-x:auto;-webkit-overflow-scrolling:touch;}}
+table.magic-table{{width:100%;min-width:820px;margin-top:10px;border-collapse:collapse;}}
+table.magic-table th{{
+  padding:12px 14px;border-bottom:1.5px solid var(--glass-border);color:var(--ink-faint);
+  font-size:12px;font-weight:750;text-align:left;letter-spacing:0.02em;
 }}
-.form-note-row input{{
-  height:42px;
-  font-size:13px;
+table.magic-table td{{
+  padding:14px;border-bottom:1px solid var(--glass-border);color:var(--ink-secondary);
+  font-size:13px;vertical-align:middle;transition:background .15s ease;
 }}
-.form-hint{{
-  margin:12px 0 0;
-  color:var(--text-faint);
-  font-size:12px;
-  line-height:1.5;
+table.magic-table tr.route-row:hover td{{background:var(--primary-light);}}
+table.magic-table tr:last-child td{{border-bottom:0;}}
+.code-url{{
+  display:inline-block;max-width:240px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+  font-size:12px;font-weight:600;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;vertical-align:middle;
 }}
-/* Result Section */
-.result-card{{
-  margin-top:20px;
-  padding:22px 24px;
-  border:1.5px solid rgba(16,185,129,0.35);
-  border-radius:20px;
-  background:var(--panel);
-  box-shadow:0 12px 32px -4px rgba(16,185,129,0.12);
-  backdrop-filter:blur(16px);
-  -webkit-backdrop-filter:blur(16px);
+.code-origin{{color:var(--ink-muted);}}
+.code-public{{color:var(--primary);}}
+.public-box{{display:flex;align-items:center;gap:8px;}}
+button.btn-mini-copy{{
+  flex:0 0 auto;height:26px;padding:0 9px;border:1px solid var(--glass-border);border-radius:8px;
+  background:var(--glass-card);color:var(--ink-secondary);font:inherit;font-size:11px;font-weight:700;
+  cursor:pointer;transition:all .18s ease;
 }}
-.result-header{{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:12px;
-  margin-bottom:14px;
-  flex-wrap:wrap;
+button.btn-mini-copy:hover{{border-color:var(--primary);color:var(--primary);background:var(--primary-light);}}
+.node-chip{{
+  display:inline-block;padding:4px 9px;border-radius:8px;border:1px solid var(--glass-border);
+  background:var(--glass-card);color:var(--ink);font-size:11px;font-weight:750;
 }}
-.badge-success{{
-  display:inline-flex;
-  align-items:center;
-  padding:4px 10px;
-  border-radius:999px;
-  background:var(--success-bg);
-  color:var(--success);
-  font-size:12px;
-  font-weight:750;
+.status-pill{{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:800;}}
+.status-pill .status-glow{{width:6px;height:6px;border-radius:50%;background:currentColor;}}
+.status-pill.state-active{{background:var(--success-bg);color:var(--success);}}
+.status-pill.state-failed{{background:var(--danger-bg);color:var(--danger);}}
+.status-pill.state-paused{{background:rgba(148,163,184,0.12);color:var(--ink-faint);}}
+.route-err-tip{{margin-top:4px;color:var(--danger);font-size:11px;}}
+.cell-note{{min-width:150px;}}
+.note-view{{display:inline-flex;align-items:center;gap:6px;}}
+.note-val{{max-width:160px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--ink);font-size:12px;font-weight:600;}}
+.note-val.empty{{color:var(--ink-faint);font-weight:400;}}
+button.btn-note-edit{{
+  display:grid;place-items:center;width:24px;height:24px;padding:0;border:1px solid var(--glass-border);
+  border-radius:7px;background:var(--glass-card);color:var(--ink-faint);font-size:11px;cursor:pointer;transition:all .18s ease;
 }}
-.copy-field{{
-  display:flex;
-  gap:10px;
-  align-items:center;
-  margin-top:8px;
+button.btn-note-edit:hover{{border-color:var(--primary);color:var(--primary);}}
+.note-form{{display:none;align-items:center;gap:6px;}}
+.note-form.is-open{{display:flex;}}
+.note-form input{{width:130px;height:30px;padding:0 8px;font-size:12px;border-radius:8px;}}
+button.btn-note-save{{height:30px;padding:0 10px;border:0;border-radius:8px;background:var(--primary);color:#fff;font-size:11px;font-weight:800;cursor:pointer;}}
+button.btn-note-cancel{{height:30px;padding:0 8px;border:1px solid var(--glass-border);border-radius:8px;background:var(--glass-card);color:var(--ink-muted);font-size:11px;cursor:pointer;}}
+button.btn-del{{
+  height:30px;padding:0 11px;border:1px solid rgba(244,63,94,0.3);border-radius:9px;background:var(--danger-bg);
+  color:var(--danger);font:inherit;font-size:11px;font-weight:800;cursor:pointer;transition:all .18s ease;
 }}
-.copy-field input{{
-  font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
-  font-size:13px;
-  font-weight:600;
-  color:var(--primary);
-  background:var(--panel-card);
-}}
-.btn-copy{{
-  flex:0 0 auto;
-  height:48px;
-  padding:0 20px;
-  border:1px solid var(--border);
-  border-radius:12px;
-  background:var(--panel-card);
-  color:var(--text-main);
-  font:inherit;
-  font-size:13px;
-  font-weight:700;
-  cursor:pointer;
-  transition:all .18s ease;
-}}
-.btn-copy:hover{{
-  border-color:var(--primary);
-  color:var(--primary);
-  background:var(--primary-light);
-}}
-.error-banner{{
-  display:flex;
-  align-items:center;
-  gap:10px;
-  margin-top:20px;
-  padding:14px 18px;
-  border:1px solid rgba(239,68,68,0.3);
-  border-radius:16px;
-  background:var(--danger-bg);
-  color:var(--danger);
-  font-size:13px;
-  font-weight:600;
-}}
-/* My Routes Table */
-.routes-scroll{{
-  overflow-x:auto;
-  -webkit-overflow-scrolling:touch;
-}}
-table{{
-  width:100%;
-  min-width:760px;
-  margin-top:10px;
-  border-collapse:collapse;
-}}
-th{{
-  padding:10px 12px;
-  border-bottom:1.5px solid var(--border);
-  color:var(--text-faint);
-  font-size:12px;
-  font-weight:700;
-  text-align:left;
-}}
-td{{
-  padding:12px 12px;
-  border-bottom:1px solid var(--border);
-  color:var(--text-muted);
-  font-size:13px;
-  vertical-align:middle;
-}}
-tr:last-child td{{
-  border-bottom:0;
-}}
-tbody tr:hover td{{
-  background:var(--primary-light);
-}}
-.route-url{{
-  display:inline-block;
-  max-width:230px;
-  font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
-  font-size:12px;
-  font-weight:600;
-  overflow:hidden;
-  white-space:nowrap;
-  text-overflow:ellipsis;
-  vertical-align:middle;
-}}
-.origin-url{{
-  color:var(--text-muted);
-}}
-.public-url{{
-  color:var(--primary);
-}}
-.route-link-cell{{
-  display:flex;
-  align-items:center;
-  gap:8px;
-}}
-button.copy-route{{
-  flex:0 0 auto;
-  height:26px;
-  padding:0 8px;
-  border:1px solid var(--border);
-  border-radius:6px;
-  background:var(--panel-card);
-  color:var(--text-muted);
-  font-size:11px;
-  font-weight:600;
-  cursor:pointer;
-  transition:all .18s ease;
-}}
-button.copy-route:hover{{
-  border-color:var(--primary);
-  color:var(--primary);
-  background:var(--primary-light);
-}}
-.node-tag{{
-  display:inline-block;
-  padding:3px 8px;
-  border-radius:6px;
-  background:var(--panel-card);
-  border:1px solid var(--border);
-  color:var(--text-main);
-  font-size:11px;
-  font-weight:700;
-}}
-.route-state{{
-  display:inline-flex;
-  align-items:center;
-  gap:5px;
-  padding:3px 9px;
-  border-radius:999px;
-  font-size:11px;
-  font-weight:700;
-}}
-.state-active{{
-  background:var(--success-bg);
-  color:var(--success);
-}}
-.state-failed{{
-  background:var(--danger-bg);
-  color:var(--danger);
-}}
-.state-paused{{
-  background:rgba(148,163,184,0.12);
-  color:var(--text-faint);
-}}
-.route-error{{
-  margin-top:4px;
-  color:var(--danger);
-  font-size:11px;
-}}
-.route-note-cell{{
-  min-width:140px;
-}}
-.route-note-view{{
-  display:inline-flex;
-  align-items:center;
-  gap:6px;
-}}
-.route-note-text{{
-  max-width:150px;
-  overflow:hidden;
-  white-space:nowrap;
-  text-overflow:ellipsis;
-  color:var(--text-main);
-  font-size:12px;
-}}
-.route-note-text.empty{{
-  color:var(--text-faint);
-}}
-button.note-edit{{
-  display:grid;
-  place-items:center;
-  width:22px;
-  height:22px;
-  padding:0;
-  border:1px solid var(--border);
-  border-radius:6px;
-  background:var(--panel-card);
-  color:var(--text-faint);
-  font-size:11px;
-  cursor:pointer;
-  transition:all .18s ease;
-}}
-button.note-edit:hover{{
-  border-color:var(--primary);
-  color:var(--primary);
-}}
-.route-note-form{{
-  display:none;
-  align-items:center;
-  gap:5px;
-}}
-.route-note-form.is-open{{
-  display:flex;
-}}
-.route-note-form input{{
-  width:130px;
-  height:30px;
-  padding:0 8px;
-  font-size:12px;
-  border-radius:6px;
-}}
-.btn-save{{
-  height:30px;
-  padding:0 9px;
-  border:0;
-  border-radius:6px;
-  background:var(--primary);
-  color:#fff;
-  font-size:11px;
-  font-weight:700;
-  cursor:pointer;
-}}
-.note-cancel{{
-  height:30px;
-  padding:0 8px;
-  border:1px solid var(--border);
-  border-radius:6px;
-  background:var(--panel-card);
-  color:var(--text-muted);
-  font-size:11px;
-  cursor:pointer;
-}}
-button.delete-route{{
-  height:28px;
-  padding:0 10px;
-  border:1px solid rgba(239,68,68,0.25);
-  border-radius:8px;
-  background:var(--danger-bg);
-  color:var(--danger);
-  font-size:11px;
-  font-weight:700;
-  cursor:pointer;
-  transition:all .18s ease;
-}}
-button.delete-route:hover{{
-  border-color:var(--danger);
-  background:var(--danger);
-  color:#fff;
-}}
-.empty-table{{
-  padding:32px 16px;
-  text-align:center;
-  color:var(--text-faint);
-  font-size:13px;
-}}
+button.btn-del:hover{{border-color:var(--danger);background:var(--danger);color:#fff;box-shadow:0 4px 12px rgba(244,63,94,0.3);}}
+.table-empty{{padding:48px 16px;text-align:center;color:var(--ink-faint);}}
+.empty-icon{{font-size:24px;color:var(--primary);margin-bottom:8px;}}
+.empty-nodes{{padding:32px 16px;text-align:center;color:var(--ink-faint);font-size:13px;}}
+@keyframes fade-scale-in{{0%{{opacity:0;transform:scale(0.97);}}100%{{opacity:1;transform:scale(1);}}}}
 @media(max-width:768px){{
-  main{{padding:16px 14px 48px;}}
-  .topbar{{flex-direction:column;align-items:flex-start;gap:12px;padding:14px;}}
-  .topbar-right{{width:100%;justify-content:space-between;}}
-  .panel-box{{padding:18px 16px;border-radius:20px;}}
-  .form-row{{flex-direction:column;}}
-  .btn-generate{{width:100%;}}
-  .nodes-grid{{grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;}}
-  .node-card{{min-height:82px;padding:10px 8px 8px;}}
+  main.magic-shell{{padding:16px 14px 60px;}}
+  .magic-nav{{flex-direction:column;align-items:flex-start;gap:12px;padding:14px;}}
+  .nav-actions{{width:100%;justify-content:space-between;}}
+  .glass-box{{padding:20px 18px;border-radius:20px;}}
+  .form-line-main{{flex-direction:column;}}
+  .btn-generate-shimmer{{width:100%;}}
+  .bento-grid{{grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;}}
 }}
 </style>
 </head>
 <body data-theme="light">
-<main>
-  <!-- TopBar -->
-  <header class="topbar">
-    <a href="/" class="brand">
-      <span class="brand-icon">✦</span>
-      <span class="brand-title">
+<div class="aurora-bg">
+  <div class="aurora-blob blob-1"></div>
+  <div class="aurora-blob blob-2"></div>
+  <div class="aurora-blob blob-3"></div>
+  <div class="grid-mesh"></div>
+</div>
+
+<main class="magic-shell">
+  <header class="magic-nav">
+    <a href="/" class="nav-brand">
+      <span class="brand-gem">✦</span>
+      <div class="brand-meta">
         <strong>Emby Relay</strong>
         <small>节点与线路管理</small>
-      </span>
-    </a>
-    <div class="topbar-right">
-      <div class="user-pills">
-        <span class="pill pill-user">👤 {html.escape(user['username'])}</span>
-        <span class="pill pill-quota">🗂 额度 <b>{used_routes}</b>/{route_quota} 条</span>
-        <span class="pill pill-live"><i></i>{html.escape(expiry_label)}</span>
       </div>
-      <button type="button" class="theme-toggle" id="user-theme-toggle" title="切换主题" aria-label="切换主题">☾</button>
-      <a class="action-pill" href="/account">🔐 账号安全</a>
+    </a>
+    <div class="nav-actions">
+      <span class="nav-badge user">👤 {html.escape(user['username'])}</span>
+      <span class="nav-badge quota">🗂 <b>{used_routes}</b>/{route_quota} 条</span>
+      <span class="nav-badge status"><i class="dot"></i>{html.escape(expiry_label)}</span>
+      <button type="button" class="theme-btn" id="user-theme-toggle" title="切换深色/浅色主题" aria-label="切换主题">☾</button>
+      <a class="nav-pill" href="/account">🔐 账号安全</a>
       {admin_link}
-      <form class="logout-form" method="post" action="/logout" style="margin:0">
+      <form method="post" action="/logout" style="margin:0">
         <input type="hidden" name="csrf" value="{html.escape(csrf_token, quote=True)}">
-        <button type="submit" class="logout-btn">退出</button>
+        <button type="submit" class="btn-logout">退出</button>
       </form>
     </div>
   </header>
 
-  <!-- Hero Header -->
-  <section class="hero">
-    <span class="hero-tag">✦ 智能媒体反代</span>
+  <section class="magic-hero">
+    <div class="hero-pill">✦ 智能媒体反向代理</div>
     <h1>让每一次播放 <span>走更合适的线路</span></h1>
-    <p>选择最优节点生成专属反代入口，智能优化连接质量与流式播放体验。</p>
+    <p>自适应探测最优节点，秒级生成专属入口；全链路隐藏客户端特征，保障隐私与高码率流畅播放。</p>
   </section>
 
-  <!-- Workspace Box -->
-  <section class="panel-box">
-    <div class="section-header">
+  <section class="glass-box">
+    <div class="box-header">
       <h2>选择节点</h2>
       <span>延迟由当前浏览器实时测量</span>
     </div>
-    <div class="nodes-grid" id="nodes">
+    <div class="bento-grid" id="nodes">
       {node_cards}
     </div>
-    <div class="node-tools">
-      <button type="button" class="btn-probe" id="test-nodes">⚡ 重新测试延迟</button>
-      <span class="hint" style="margin:0;color:var(--text-faint);font-size:12px;">生成后，线路将实时下发到所选节点。</span>
+    <div class="node-toolbar">
+      <button type="button" class="btn-probe-magic" id="test-nodes">⚡ 重新探测各节点延迟</button>
+      <span class="toolbar-hint">生成后，线路将实时自动部署到所选节点。</span>
     </div>
 
-    <form class="route-form" method="post">
+    <form class="magic-form" method="post">
       <input type="hidden" name="csrf" value="{html.escape(csrf_token, quote=True)}">
       <input type="hidden" name="node_id" id="node-id" value="{selected_node_id}">
-      <label>原始网站地址 (源站)</label>
-      <div class="form-row">
-        <input required name="url" placeholder="https://emby.example.com" value="{html.escape(raw_url)}">
-        <button type="submit" class="btn-generate">生成访问地址</button>
+      <label>原始源站地址 (Emby Server URL)</label>
+      <div class="form-line-main">
+        <input required name="url" placeholder="https://emby.example.com:8096" value="{html.escape(raw_url)}">
+        <button type="submit" class="btn-generate-shimmer">生成访问地址</button>
       </div>
-      <div class="form-note-row">
-        <input name="route_note" maxlength="500" placeholder="线路备注（可选，例如：主力影视库）" value="{html.escape(raw_route_note, quote=True)}">
+      <div class="form-line-sub">
+        <input name="route_note" maxlength="500" placeholder="线路备注（可选，例如：主力影视库、日漫专用等）" value="{html.escape(raw_route_note, quote=True)}">
       </div>
-      <p class="form-hint">线路会自动归属到你的账号；系统将清理来源特征与代理链路标识，保障隐私并支持完整流式媒体播放。</p>
+      <p class="magic-hint">线路会自动归属到当前账号；系统将智能清洗源站与代理特征，保障用户隐私并维持完整的媒体流式加速支持。</p>
     </form>
   </section>
 
   {result_html}
 
-  <!-- My Routes Section -->
-  <section class="panel-box">
-    <div class="section-header">
+  <section class="glass-box">
+    <div class="box-header">
       <h2>我的线路</h2>
-      <span>删除线路后会立即释放额度</span>
+      <span>删除线路后会实时释放占用额度</span>
     </div>
-    <div class="routes-scroll">
-      <table>
+    <div class="routes-scroll-wrap">
+      <table class="magic-table">
         <thead>
           <tr>
             <th>原线路（源站）</th>
@@ -1550,110 +1088,126 @@ button.delete-route:hover{{
 </main>
 
 <script nonce="{csp_nonce}">
-const nodes={nodes_json};
-let selected={selected_node_id};
+const nodes = {nodes_json};
+let selected = {selected_node_id};
 
-function pick(id){{
-  selected=id;
-  document.getElementById('node-id').value=id;
-  document.querySelectorAll('.node-card').forEach(card=>{{
-    const active=Number(card.dataset.nodeId)===id;
-    card.classList.toggle('selected',active);
-    card.setAttribute('aria-pressed',String(active));
+function pick(id) {{
+  selected = id;
+  const nodeInput = document.getElementById('node-id');
+  if (nodeInput) nodeInput.value = id;
+  document.querySelectorAll('.bento-node').forEach(card => {{
+    const active = Number(card.dataset.nodeId) === id;
+    card.classList.toggle('selected', active);
+    card.setAttribute('aria-pressed', String(active));
   }});
 }}
 
-document.querySelectorAll('.node-card').forEach(card=>card.addEventListener('click',()=>pick(Number(card.dataset.nodeId))));
+document.querySelectorAll('.bento-node').forEach(card => {{
+  card.addEventListener('click', () => pick(Number(card.dataset.nodeId)));
+}});
 
-async function probe(node){{
-  const label=document.querySelector('[data-latency="'+node.id+'"]');
-  if(!label) return;
-  label.textContent='测速中…';
-  label.className='latency';
-  const start=performance.now();
-  try{{
-    await fetch(node.probe_url+'?t='+Date.now(),{{mode:'no-cors',cache:'no-store'}});
-    const ms=Math.round(performance.now()-start);
-    label.textContent=ms+' ms';
-    if(ms<120){{
-      label.className='latency fast';
-    }}else if(ms<250){{
-      label.className='latency medium';
-    }}else{{
-      label.className='latency slow';
+async function probe(node) {{
+  const badge = document.querySelector('[data-latency="' + node.id + '"]');
+  if (!badge) return;
+  const textEl = badge.querySelector('.latency-text') || badge;
+  textEl.textContent = '探测中…';
+  badge.className = 'latency-badge';
+  const start = performance.now();
+  try {{
+    await fetch(node.probe_url + '?t=' + Date.now(), {{ mode: 'no-cors', cache: 'no-store' }});
+    const ms = Math.round(performance.now() - start);
+    textEl.textContent = ms + ' ms';
+    if (ms < 120) {{
+      badge.className = 'latency-badge fast';
+    }} else if (ms < 280) {{
+      badge.className = 'latency-badge medium';
+    }} else {{
+      badge.className = 'latency-badge slow';
     }}
-  }}catch(e){{
-    label.textContent='无法连接';
-    label.className='latency error';
+  }} catch (e) {{
+    textEl.textContent = '无法连接';
+    badge.className = 'latency-badge error';
   }}
 }}
 
-function probeAll(){{nodes.forEach(probe);}}
-document.getElementById('test-nodes')?.addEventListener('click',probeAll);
-if(nodes.length){{probeAll();}}
+function probeAll() {{ nodes.forEach(probe); }}
+document.getElementById('test-nodes')?.addEventListener('click', probeAll);
+if (nodes.length) {{ probeAll(); }}
 
-async function copyText(value){{
-  try{{
-    if(navigator.clipboard&&window.isSecureContext){{
+async function copyText(value) {{
+  try {{
+    if (navigator.clipboard && window.isSecureContext) {{
       await navigator.clipboard.writeText(value);
       return true;
     }}
-    const field=document.createElement('textarea');
-    field.value=value;
-    field.readOnly=true;
-    field.style.cssText='position:fixed;opacity:0';
+    const field = document.createElement('textarea');
+    field.value = value;
+    field.readOnly = true;
+    field.style.cssText = 'position:fixed;opacity:0';
     document.body.append(field);
     field.select();
-    const copied=document.execCommand('copy');
+    const copied = document.execCommand('copy');
     field.remove();
     return copied;
-  }}catch(e){{
+  }} catch (e) {{
     return false;
   }}
 }}
 
-document.querySelectorAll('[data-copy]').forEach(button=>button.addEventListener('click',async()=>{{
-  const label=button.textContent;
-  const ok=await copyText(button.dataset.copy);
-  button.textContent=ok?'✓ 已复制':'复制失败';
-  setTimeout(()=>button.textContent=label,1400);
-}}));
+document.querySelectorAll('[data-copy]').forEach(button => {{
+  button.addEventListener('click', async () => {{
+    const copyTextSpan = button.querySelector('.copy-text');
+    const oldText = copyTextSpan ? copyTextSpan.textContent : button.textContent;
+    const ok = await copyText(button.dataset.copy);
+    if (copyTextSpan) {{
+      copyTextSpan.textContent = ok ? '已复制 ✓' : '复制失败';
+    }} else {{
+      button.textContent = ok ? '已复制 ✓' : '复制失败';
+    }}
+    setTimeout(() => {{
+      if (copyTextSpan) copyTextSpan.textContent = oldText;
+      else button.textContent = oldText;
+    }}, 1500);
+  }});
+}});
 
-document.querySelectorAll('.route-note-cell').forEach(cell=>{{
-  const view=cell.querySelector('.route-note-view');
-  const form=cell.querySelector('.route-note-form');
-  const input=form?.querySelector('input[name="notes"]');
-  cell.querySelector('.note-edit')?.addEventListener('click',()=>{{
-    view.style.display='none';
+document.querySelectorAll('.cell-note').forEach(cell => {{
+  const view = cell.querySelector('.note-view');
+  const form = cell.querySelector('.note-form');
+  const input = form?.querySelector('input[name="notes"]');
+  cell.querySelector('.btn-note-edit')?.addEventListener('click', () => {{
+    view.style.display = 'none';
     form.classList.add('is-open');
     input?.focus();
     input?.select();
   }});
-  cell.querySelector('.note-cancel')?.addEventListener('click',()=>{{
+  cell.querySelector('.btn-note-cancel')?.addEventListener('click', () => {{
     form.classList.remove('is-open');
-    view.style.display='';
+    view.style.display = '';
   }});
 }});
 
-const userThemeKey='emby-relay-user-theme';
-const userThemeToggle=document.getElementById('user-theme-toggle');
-let savedUserTheme='';
-try{{savedUserTheme=localStorage.getItem(userThemeKey)||'';}}catch(e){{}}
+const userThemeKey = 'emby-relay-user-theme';
+const userThemeToggle = document.getElementById('user-theme-toggle');
+let savedUserTheme = '';
+try {{ savedUserTheme = localStorage.getItem(userThemeKey) || ''; }} catch (e) {{}}
 
-function applyUserTheme(theme){{
-  const resolved=theme==='dark'?'dark':'light';
-  document.body.dataset.theme=resolved;
-  if(userThemeToggle){{
-    const dark=resolved==='dark';
-    userThemeToggle.textContent=dark?'☼':'☾';
-    userThemeToggle.setAttribute('aria-label',dark?'切换到白色主题':'切换到黑色主题');
-    userThemeToggle.title=dark?'切换到白色主题':'切换到黑色主题';
+function applyUserTheme(theme) {{
+  const resolved = theme === 'dark' ? 'dark' : 'light';
+  document.body.dataset.theme = resolved;
+  if (userThemeToggle) {{
+    const isDark = resolved === 'dark';
+    userThemeToggle.textContent = isDark ? '☼' : '☾';
+    userThemeToggle.setAttribute('aria-label', isDark ? '切换到浅色主题' : '切换到深色主题');
+    userThemeToggle.title = isDark ? '切换到浅色主题' : '切换到深色主题';
   }}
-  try{{localStorage.setItem(userThemeKey,resolved);}}catch(e){{}}
+  try {{ localStorage.setItem(userThemeKey, resolved); }} catch (e) {{}}
 }}
 
-applyUserTheme(savedUserTheme||'light');
-userThemeToggle?.addEventListener('click',()=>applyUserTheme(document.body.dataset.theme==='dark'?'light':'dark'));
+applyUserTheme(savedUserTheme || 'light');
+userThemeToggle?.addEventListener('click', () => {{
+  applyUserTheme(document.body.dataset.theme === 'dark' ? 'light' : 'dark');
+}});
 </script>
 </body>
 </html>"""
