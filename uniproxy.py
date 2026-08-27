@@ -589,16 +589,6 @@ def is_base_proxy_host(request: web.Request) -> bool:
 
 
 
-COBE_STANDALONE_JS = r'''(function() {
-
-var m=["x","y","z"],l=function(t){Object.assign(this,{uniforms:{},geometry:{vertices:[{x:0,y:0,z:0}]},mode:0,modifiers:{},attributes:[],multiplier:1,buffers:[]}),Object.assign(this,t),this.prepareProgram(),this.prepareUniforms(),this.prepareAttributes()};l.prototype.compileShader=function(t,e){var i=this.gl.createShader(t);return this.gl.shaderSource(i,e),this.gl.compileShader(i),i},l.prototype.prepareProgram=function(){var t=this.gl,e=this.vertex,i=this.fragment,s=t.createProgram();t.attachShader(s,this.compileShader(35633,e)),t.attachShader(s,this.compileShader(35632,i)),t.linkProgram(s),t.useProgram(s),this.program=s},l.prototype.prepareUniforms=function(){for(var t=Object.keys(this.uniforms),e=0;e<t.length;e+=1){var i=this.gl.getUniformLocation(this.program,t[e]);this.uniforms[t[e]].location=i}},l.prototype.prepareAttributes=function(){this.geometry.vertices!==void 0&&this.attributes.push({name:"aPosition",size:3}),this.geometry.normal!==void 0&&this.attributes.push({name:"aNormal",size:3}),this.attributeKeys=[];for(var t=0;t<this.attributes.length;t+=1)this.attributeKeys.push(this.attributes[t].name),this.prepareAttribute(this.attributes[t])},l.prototype.prepareAttribute=function(t){for(var e=this.geometry,i=this.multiplier,s=e.vertices,o=e.normal,h=new Float32Array(i*s.length*t.size),u=0;u<i;u+=1)for(var r=t.data&&t.data(u,i),a=u*s.length*t.size,n=0;n<s.length;n+=1)for(var f=0;f<t.size;f+=1){var p=this.modifiers[t.name];h[a]=p!==void 0?p(r,n,f,this):t.name==="aPosition"?s[n][m[f]]:t.name==="aNormal"?o[n][m[f]]:r[f],a+=1}this.attributes[this.attributeKeys.indexOf(t.name)].data=h,this.prepareBuffer(this.attributes[this.attributeKeys.indexOf(t.name)])},l.prototype.prepareBuffer=function(t){var e=t.data,i=t.name,s=t.size,o=this.gl.createBuffer();this.gl.bindBuffer(34962,o),this.gl.bufferData(34962,e,35044);var h=this.gl.getAttribLocation(this.program,i);this.gl.enableVertexAttribArray(h),this.gl.vertexAttribPointer(h,s,5126,!1,0,0),this.buffers[this.attributeKeys.indexOf(t.name)]={buffer:o,location:h,size:s}},l.prototype.render=function(t){var e=this,i=this.uniforms,s=this.multiplier,o=this.gl;o.useProgram(this.program);for(var h=0;h<this.buffers.length;h+=1){var u=this.buffers[h],r=u.location,a=u.buffer,n=u.size;o.enableVertexAttribArray(r),o.bindBuffer(34962,a),o.vertexAttribPointer(r,n,5126,!1,0,0)}Object.keys(t).forEach(function(f){i[f].value=t[f].value}),Object.keys(i).forEach(function(f){var p=i[f];e.uniformMap[p.type](p.location,p.value)}),o.drawArrays(this.mode,0,s*this.geometry.vertices.length),this.onRender&&this.onRender(this)},l.prototype.destroy=function(){for(var t=0;t<this.buffers.length;t+=1)this.gl.deleteBuffer(this.buffers[t].buffer);this.gl.deleteProgram(this.program),this.gl=null};var c=function(t){var e=this,i=t||{},s=i.canvas;s===void 0&&(s=document.querySelector("canvas"));var o=i.context;o===void 0&&(o={});var h=i.contextType;h===void 0&&(h="experimental-webgl");var u=i.settings;u===void 0&&(u={});var r=s.getContext(h,Object.assign({alpha:!1,antialias:!1},o));Object.assign(this,{gl:r,canvas:s,uniforms:{},instances:new Map,shouldRender:!0}),Object.assign(this,{devicePixelRatio:1,clearColor:[1,1,1,1],position:{x:0,y:0,z:2},clip:[.001,100]}),Object.assign(this,u),this.uniformMap={float:function(a,n){return r.uniform1f(a,n)},vec2:function(a,n){return r.uniform2fv(a,n)},vec3:function(a,n){return r.uniform3fv(a,n)},vec4:function(a,n){return r.uniform4fv(a,n)},mat2:function(a,n){return r.uniformMatrix2fv(a,!1,n)},mat3:function(a,n){return r.uniformMatrix3fv(a,!1,n)},mat4:function(a,n){return r.uniformMatrix4fv(a,!1,n)}},r.enable(r.DEPTH_TEST),r.depthFunc(r.LEQUAL),r.getContextAttributes().alpha===!1&&(r.clearColor.apply(r,this.clearColor),r.clearDepth(1)),this.onSetup&&this.onSetup(r),window.addEventListener("resize",function(){return e.resize()}),this.resize(),this.render()};c.prototype.resize=function(){var t=this.gl,e=this.canvas,i=this.devicePixelRatio,s=this.position;e.width=e.clientWidth*i,e.height=e.clientHeight*i;var o=t.drawingBufferWidth,h=t.drawingBufferHeight,u=o/h;t.viewport(0,0,o,h);var r=Math.tan(Math.PI/180*22.5),a=[1,0,0,0,0,1,0,0,0,0,1,0,s.x,s.y,(u<1?1:u)*-s.z,1];this.uniforms.uProjectionMatrix={type:"mat4",value:[.5/r,0,0,0,0,u/r*.5,0,0,0,0,-(this.clip[1]+this.clip[0])/(this.clip[1]-this.clip[0]),-1,0,0,-2*this.clip[1]*(this.clip[0]/(this.clip[1]-this.clip[0])),0]},this.uniforms.uViewMatrix={type:"mat4",value:[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]},this.uniforms.uModelMatrix={type:"mat4",value:a}},c.prototype.toggle=function(t){t!==this.shouldRender&&(this.shouldRender=t!==void 0?t:!this.shouldRender,this.shouldRender&&this.render())},c.prototype.render=function(){var t=this;this.gl.clear(16640),this.instances.forEach(function(e){e.render(t.uniforms)}),this.onRender&&this.onRender(this),this.shouldRender&&requestAnimationFrame(function(){return t.render()})},c.prototype.add=function(t,e){e===void 0&&(e={uniforms:{}}),e.uniforms===void 0&&(e.uniforms={}),Object.assign(e.uniforms,JSON.parse(JSON.stringify(this.uniforms))),Object.assign(e,{gl:this.gl,uniformMap:this.uniformMap});var i=new l(e);return this.instances.set(t,i),i},c.prototype.remove=function(t){var e=this.instances.get(t);e!==void 0&&(e.destroy(),this.instances.delete(t))},c.prototype.destroy=function(){var t=this;this.instances.forEach(function(e,i){e.destroy(),t.instances.delete(i)}),this.toggle(!1)};
-//# sourceMappingURL=/sm/ef4572678ed00a88c9e42ec2510fb0a5d7ad5f5f528add53a1c1e7356866ba3c.map
-
-var U = c;var g="phi",d="theta",m="mapSamples",u="mapBrightness",x="baseColor",p="markerColor",y="glowColor",c="markers",h="diffuse",b="devicePixelRatio",w="dark",C="offset",z="scale",E="opacity",M="mapBaseBrightness",B={[g]:"A",[d]:"B",[m]:"l",[u]:"E",[x]:"R",[p]:"S",[y]:"y",[h]:"F",[w]:"G",[C]:"x",[z]:"C",[E]:"H",[M]:"I"},{PI:s,sin:R,cos:D}=Math,Q=n=>[].concat(...n.map(o=>{let[t,l]=o.location;t=t*s/180,l=l*s/180-s;let r=D(t);return[-r*D(l),R(t),r*R(l),o.size]}),[0,0,0,0]),k=(n,o)=>{let t=(a,e,i)=>({type:a,value:typeof o[e]>"u"?i:o[e]}),l=n.getContext("webgl")?"webgl":"experimental-webgl",r=new U({canvas:n,contextType:l,context:{alpha:!0,stencil:!1,antialias:!0,depth:!1,preserveDrawingBuffer:!1,...o.context},settings:{[b]:o[b]||1,onSetup:a=>{let e=a.RGB,i=a.UNSIGNED_BYTE,f=a.TEXTURE_2D,v=a.createTexture();a.bindTexture(f,v),a.texImage2D(f,0,e,1,1,0,e,i,new Uint8Array([0,0,0,0]));let A=new Image;A.onload=()=>{a.bindTexture(f,v),a.texImage2D(f,0,e,e,i,A),a.generateMipmap(f);let F=a.getParameter(a.CURRENT_PROGRAM),T=a.getUniformLocation(F,"J");a.texParameteri(f,a.TEXTURE_MIN_FILTER,a.NEAREST),a.texParameteri(f,a.TEXTURE_MAG_FILTER,a.NEAREST),a.uniform1i(T,0)},A.src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAACAAQAAAADMzoqnAAAAAXNSR0IArs4c6QAABA5JREFUeNrV179uHEUAx/Hf3JpbF+E2VASBsmVKTBcpKJs3SMEDcDwBiVJAAewYEBUivIHT0uUBIt0YCovKD0CRjUC4QfHYh8hYXu+P25vZ2Zm9c66gMd/GJ/tz82d3bk8GN4SrByYF2366FNTACIAkivVAAazQdnf3MvAlbNUQfOPAdQDvSAimMWhwy4I2g4SU+Kp04ISLpPBAKLxPyic3O/CCi+Y7rUJbiodcpDOFY7CgxCEXmdYD2EYK2s5lApOx5pEDDYCUwM1XdJUwBV11QQMg59kePSCaPAASQMEL2hwo6TJFgxpg+TgC2ymXPbuvc40awr3D1QCFfbH9kcoqAOkZozpQo0aqAGQRKCog/+tjkgbNFEtg2FffBvBGlSxHoAaAa1u6X4PBAwDiR8FFsrQgeUhfJTSALaB9jy5NCybJPn1SVFiWk7ywN+KzhH1aKAuydhGkbEF4lWohLXDXavlyFgHY7LBnLRdlAP6BS5Cc8RfVDXbkwN/oIvmY+6obbNeBP0JwTuMGu9gTzy1Q4RS/cWpfzszeYwd+CAFrtBW/Hur0gLbJGlD+/OjVwe/drfBxkbbg63dndEDfiEBlAd7ac0BPe1D6Jd8dfbLH+RI0OzseFB5s01/M+gMdAeluLOCAuaUA9Lezo/vSgXoCX9rtEiXnp7Q1W/CNyWcd8DXoS6jH/YZ5vAJEWY2dXFQe2TUgaFaNejCzJ98g6HnlVrsE58sDcYqg+9XY75fPqdoh/kRQWiXKg8MWlJQxUFMPjqnyujhFBE7UxIMjyszk0QwQlFsezImsyvUYYYVED2pk6m0Tg8T04Fwjk2kdAwSACqlM6gRRt3vQYAFGX0Ah7Ebx1H+MDRI5ui0QldH4j7FGcm90XdxD2Jg1AOEAVAKhEFXSn4cKUELurIAKwJ3MArypPscQaLhJFICJ0ohjDySAdH8AhDtCiTuMycH8CXzhH9jUACAO5uMhoAwA5i+T6WAKmmAqnLy80wxHqIPFYpqCwxGaYLt4Dyievg5kEoVEUAhs6pqKgFtDQYOuaXypaWKQfIuwwoGSZgfLsu/XAtI8cGN+h7Cc1A5oLOMhwlIPXuhu48AIvsSBkvtV9wsJRKCyYLfq5lTrQMFd1a262oqBck9K1V0YjQg0iEYYgpS1A9GlXQV5cykwm4A7BzVsxQqo7E+zCegO7Ma7yKgsuOcfKbMBwLC8wvVNYDsANYalEpOAa6zpWjTeMKGwEwC1CiQewJc5EKfgy7GmRAZA4vUVGwE2dPM/g0xuAInE/yG5aZ8ISxWGfYigUVbdyBElTHh2uCwGdfCkOLGgQVBh3Ewp+/QK4CDlR5Ws/Zf7yhCf8pH7vinWAvoVCQ6zz0NX5V/6GkAVV+2/5qsJ/gU8bsxpM8IeAQAAAABJRU5ErkJggg=="}}});return r.add("",{vertex:"attribute vec3 aPosition;uniform mat4 uProjectionMatrix;uniform mat4 uModelMatrix;uniform mat4 uViewMatrix;void main(){gl_Position=uProjectionMatrix*uModelMatrix*uViewMatrix*vec4(aPosition,1.);}",fragment:"precision highp float;uniform vec2 t,x;uniform vec3 R,S,y;uniform vec4 z[64];uniform float A,B,l,C,D,E,F,G,H,I;uniform sampler2D J;float K=1./l;mat3 L(float a,float b){float c=cos(a),d=cos(b),e=sin(a),f=sin(b);return mat3(d,f*e,-f*c,0.,c,e,f,d*-e,d*c);}vec3 w(vec3 c,out float v){c=c.xzy;float p=max(2.,floor(log2(2.236068*l*3.141593*(1.-c.z*c.z))*.72021));vec2 g=floor(pow(1.618034,p)/2.236068*vec2(1.,1.618034)+.5),d=fract((g+1.)*.618034)*6.283185-3.883222,e=-2.*g,f=vec2(atan(c.y,c.x),c.z-1.),q=floor(vec2(e.y*f.x-d.y*(f.y*l+1.),-e.x*f.x+d.x*(f.y*l+1.))/(d.x*e.y-e.x*d.y));float n=3.141593;vec3 r;for(float h=0.;h<4.;h+=1.){vec2 s=vec2(mod(h,2.),floor(h*.5));float j=dot(g,q+s);if(j>l)continue;float a=j,b=0.;if(a>=524288.)a-=524288.,b+=.803894;if(a>=262144.)a-=262144.,b+=.901947;if(a>=131072.)a-=131072.,b+=.950973;if(a>=65536.)a-=65536.,b+=.475487;if(a>=32768.)a-=32768.,b+=.737743;if(a>=16384.)a-=16384.,b+=.868872;if(a>=8192.)a-=8192.,b+=.934436;if(a>=4096.)a-=4096.,b+=.467218;if(a>=2048.)a-=2048.,b+=.733609;if(a>=1024.)a-=1024.,b+=.866804;if(a>=512.)a-=512.,b+=.433402;if(a>=256.)a-=256.,b+=.216701;if(a>=128.)a-=128.,b+=.108351;if(a>=64.)a-=64.,b+=.554175;if(a>=32.)a-=32.,b+=.777088;if(a>=16.)a-=16.,b+=.888544;if(a>=8.)a-=8.,b+=.944272;if(a>=4.)a-=4.,b+=.472136;if(a>=2.)a-=2.,b+=.236068;if(a>=1.)a-=1.,b+=.618034;float k=fract(b)*6.283185,i=1.-2.*j*K,m=sqrt(1.-i*i);vec3 o=vec3(cos(k)*m,sin(k)*m,i);float u=length(c-o);if(u<n)n=u,r=o;}v=n;return r.xzy;}void main(){vec2 b=(gl_FragCoord.xy/t*2.-1.)/C-x*vec2(1.,-1.)/t;b.x*=t.x/t.y;float c=dot(b,b);vec4 M=vec4(0.);float m=0.;if(c<=.64){for(int d=0;d<2;d++){vec4 e=vec4(0.);float a;vec3 u=vec3(0.,0.,1.),f=normalize(vec3(b,sqrt(.64-c)));f.z*=d>0?-1.:1.,u.z*=d>0?-1.:1.;vec3 g=f*L(B,A),h=w(g,a);float n=asin(h.y),i=acos(-h.x/cos(n));i=h.z<0.?-i:i;float N=max(texture2D(J,vec2(i*.5/3.141593,-(n/3.141593+.5))).x,I),O=smoothstep(8e-3,0.,a),j=dot(f,u),v=pow(j,F)*E,o=N*O*v,T=mix((1.-o)*pow(j,.4),o,G)+.1;e+=vec4(R*T,1.);int U=int(D);float p=0.;for(int k=0;k<64;k++){if(k>=U)break;vec4 q=z[k];vec3 r=q.xyz,P=r-g;float s=q.w;if(dot(P,P)>s*s*4.)continue;vec3 V=w(r,a);a=length(V-g),a<s?p+=smoothstep(s*.5,0.,a):0.;}p=min(1.,p*v),e.xyz=mix(e.xyz,S,p),e.xyz+=pow(1.-j,4.)*y,M+=e*(1.+(d>0?-H:H))/2.;}m=pow(dot(normalize(vec3(-b,sqrt(1.-c))),vec3(0.,0.,1.)),4.)*smoothstep(0.,1.,.2/(c-.64));}else{float Q=sqrt(.2/(c-.64));m=smoothstep(.5,1.,Q/(Q+1.));}gl_FragColor=M+vec4(m*y,m);}",uniforms:{t:{type:"vec2",value:[o.width,o.height]},A:t("float",g),B:t("float",d),l:t("float",m),E:t("float",u),I:t("float",M),R:t("vec3",x),S:t("vec3",p),F:t("float",h),y:t("vec3",y),G:t("float",w),z:{type:"vec4",value:Q(o[c])},D:{type:"float",value:o[c].length},x:t("vec2",C,[0,0]),C:t("float",z,1),H:t("float",E,1)},mode:4,geometry:{vertices:[{x:-100,y:100,z:0},{x:-100,y:-100,z:0},{x:100,y:100,z:0},{x:100,y:-100,z:0},{x:-100,y:-100,z:0},{x:100,y:100,z:0}]},onRender:({uniforms:a})=>{let e={};if(o.onRender){e=o.onRender(e)||e;for(let i in B)e[i]!==void 0&&(a[B[i]].value=e[i]);e[c]!==void 0&&(a.z.value=Q(e[c]),a.D.value=e[c].length),e.width&&e.height&&(a.t.value=[e.width,e.height])}}}),r};window.createGlobe = k;
-//# sourceMappingURL=/sm/2fe1a5e1e225f96665e6171763a57d514cd4bcff62dd5c8cf0585fbb65207ca0.map
-})();
-'''
-
 async def generator_response(request: web.Request):
     if request.method not in {"GET", "POST"}:
         raise web.HTTPMethodNotAllowed(request.method, ["GET", "POST"])
@@ -767,7 +757,7 @@ async def generator_response(request: web.Request):
             f"</tr>"
         )
     used_routes, route_quota = panel.user_route_usage(int(user["id"]))
-    my_routes_html = "".join(route_rows) or "<tr><td colspan='6' class='table-empty-box'><div class='empty-sparkle'>✦</div><p>暂无反代线路，在上方选择节点并输入源站即可快速生成专属线路。</p></td></tr>"
+    my_routes_html = "".join(route_rows) or "<tr><td colspan='6' class='table-empty-box'><div class='empty-sparkle'>✦</div><p>暂无反代线路，在下方选择节点并输入源站即可快速生成专属线路。</p></td></tr>"
     expiry_label = panel._display_expiry(user["expires_at"])
     admin_link = "<a class='btn-nav-admin' href='/_admin'><span>⚙ 管理后台</span></a>" if int(user["is_admin"] or 0) else ""
     csp_nonce = secrets.token_urlsafe(16)
@@ -1017,145 +1007,59 @@ body {{
   color: #fff;
 }}
 
-.hero-dashboard {{
+/* Top Hero Clean Metric Tiles (2 Cards Only) */
+.hero-dashboard-clean {{
   display: grid;
-  grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
-  gap: 20px;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
   margin-bottom: 22px;
 }}
 
-.cobe-card {{
+.metric-tile-hero {{
   position: relative;
   display: flex;
-  flex-direction: column;
+  align-items: center;
   justify-content: space-between;
-  min-height: 240px;
-  padding: 20px 24px;
+  padding: 18px 24px;
   border: 1px solid var(--border);
   border-radius: var(--radius-panel);
   background: var(--panel-bg);
   box-shadow: var(--shadow-magic);
   backdrop-filter: blur(20px);
-  overflow: hidden;
-}}
-
-.cobe-header {{
-  position: relative;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}}
-.cobe-title-group h3 {{
-  font-size: 15px;
-  font-weight: 800;
-  letter-spacing: -0.01em;
-  color: var(--ink);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}}
-.cobe-title-group p {{
-  font-size: 11px;
-  color: var(--muted);
-  margin-top: 2px;
-}}
-.cobe-live-tag {{
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: rgba(34, 211, 238, 0.12);
-  border: 1px solid rgba(34, 211, 238, 0.3);
-  color: var(--cyan);
-  font-size: 11px;
-  font-weight: 750;
-}}
-.cobe-live-tag .radar-ping {{
-  width: 6px; height: 6px;
-  border-radius: 50%;
-  background: var(--cyan);
-  box-shadow: 0 0 8px var(--cyan);
-  animation: pulse-dot 1.5s infinite;
-}}
-
-.cobe-canvas-wrapper {{
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 180px;
-  margin: 4px 0 0;
-}}
-#cobe-canvas {{
-  width: 280px;
-  height: 280px;
-  max-width: 100%;
-  aspect-ratio: 1;
-  cursor: grab;
-  filter: drop-shadow(0 0 28px rgba(34, 211, 238, 0.25));
-}}
-#cobe-canvas:active {{
-  cursor: grabbing;
-}}
-
-.metrics-grid {{
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
-}}
-
-.metric-tile {{
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  padding: 16px 18px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-card);
-  background: var(--panel-bg);
-  box-shadow: var(--shadow-magic);
-  backdrop-filter: blur(20px);
   transition: all 0.18s ease;
 }}
-.metric-tile:hover {{
+.metric-tile-hero:hover {{
   transform: translateY(-2px);
   border-color: var(--border-hover);
   background: var(--card-hover);
 }}
 
-.metric-tile-top {{
+.metric-hero-left {{
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
 }}
-.metric-tile-title {{
-  font-size: 11px;
+.metric-hero-title {{
+  font-size: 12px;
   font-weight: 700;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }}
-.metric-tile-icon {{
-  font-size: 15px;
-}}
-.metric-tile-val {{
-  margin-top: 10px;
-  font-size: 22px;
+.metric-hero-val {{
+  margin-top: 6px;
+  font-size: 26px;
   font-weight: 850;
   letter-spacing: -0.02em;
   color: var(--ink);
   line-height: 1.2;
 }}
-.metric-tile-val span {{
-  font-size: 12px;
+.metric-hero-val span {{
+  font-size: 13px;
   font-weight: 600;
   color: var(--muted);
-  margin-left: 3px;
+  margin-left: 4px;
 }}
-.metric-tile-sub {{
+.metric-hero-sub {{
   margin-top: 4px;
   font-size: 11px;
   font-weight: 600;
@@ -1165,6 +1069,24 @@ body {{
   gap: 4px;
 }}
 
+.metric-hero-icon-box {{
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: rgba(34, 211, 238, 0.08);
+  border: 1px solid rgba(34, 211, 238, 0.22);
+  color: var(--cyan);
+  font-size: 20px;
+}}
+.metric-hero-icon-box.quota-box {{
+  background: rgba(139, 92, 246, 0.08);
+  border-color: rgba(139, 92, 246, 0.22);
+  color: var(--violet);
+}}
+
+/* Main Workspace: 3/4 Bento Nodes + 1/4 Clean Route Form */
 .magic-workspace {{
   display: grid;
   grid-template-columns: minmax(0, 3fr) minmax(290px, 1fr);
@@ -1384,6 +1306,7 @@ body {{
   font-size: 13px;
 }}
 
+/* Right 1/4 Clean Route Creation Card (No Weird Orb) */
 .route-creation-card {{
   display: flex;
   flex-direction: column;
@@ -1396,56 +1319,17 @@ body {{
   backdrop-filter: blur(20px);
 }}
 
-.crystal-orb-stage {{
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 12px 0 16px;
+.form-header-clean {{
+  margin-bottom: 12px;
 }}
-.crystal-orb-wrapper {{
-  position: relative;
-  width: 76px;
-  height: 76px;
-  display: grid;
-  place-items: center;
-}}
-.crystal-orb {{
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, #fff 2%, var(--cyan) 35%, var(--violet) 75%, #05060f 100%);
-  box-shadow: 0 0 25px var(--cyan-glow), inset 0 -4px 8px rgba(0,0,0,0.6);
-  animation: floating-core 4s ease-in-out infinite;
-}}
-.crystal-ring {{
-  position: absolute;
-  width: 72px;
-  height: 28px;
-  border: 2px solid rgba(34, 211, 238, 0.4);
-  border-radius: 50%;
-  transform: rotate(-25deg);
-  box-shadow: 0 0 12px var(--cyan-glow);
-  animation: ring-spin 8s linear infinite;
-}}
-
-@keyframes floating-core {{
-  0%, 100% {{ transform: translateY(0) scale(1); }}
-  50% {{ transform: translateY(-7px) scale(1.04); }}
-}}
-@keyframes ring-spin {{
-  0% {{ transform: rotate(-25deg) rotateY(0deg); }}
-  100% {{ transform: rotate(-25deg) rotateY(360deg); }}
-}}
-
-.form-header-center {{
-  text-align: center;
-  margin-top: 4px;
-}}
-.form-header-center h3 {{
+.form-header-clean h3 {{
   font-size: 16px;
   font-weight: 850;
   letter-spacing: -0.01em;
   color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }}
 .form-selected-node {{
   margin-top: 6px;
@@ -1466,7 +1350,6 @@ body {{
   display: flex;
   flex-direction: column;
   gap: 14px;
-  margin-top: 14px;
 }}
 .form-item label {{
   display: block;
@@ -1857,19 +1740,16 @@ body {{
 }}
 
 @media (max-width: 960px) {{
-  .hero-dashboard {{ grid-template-columns: 1fr; }}
   .magic-workspace {{ grid-template-columns: 1fr; }}
+  .hero-dashboard-clean {{ grid-template-columns: 1fr; }}
 }}
 @media (max-width: 640px) {{
   .magic-shell {{ padding: 14px 12px 40px; }}
   .magic-nav {{ padding: 10px 12px; }}
-  .cobe-card, .metric-tile, .bento-nodes-box, .route-creation-card, .my-routes-box {{ padding: 16px 14px; }}
-  .metrics-grid {{ grid-template-columns: 1fr; }}
+  .metric-tile-hero, .bento-nodes-box, .route-creation-card, .my-routes-box {{ padding: 16px 14px; }}
   .node-grid {{ grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }}
   .node-card {{ min-height: 110px; padding: 10px; }}
   .nav-badge.status {{ display: none; }}
-  .cobe-canvas-wrapper {{ height: 200px; }}
-  #cobe-canvas {{ width: 200px; height: 200px; }}
 }}
 </style>
 </head>
@@ -1905,59 +1785,28 @@ body {{
     </div>
   </header>
 
-  <section class="hero-dashboard">
-    <div class="cobe-card">
-      <div class="cobe-header">
-        <div class="cobe-title-group">
-          <h3>🌐 全球中继节点态势 <span class="cobe-live-tag"><i class="radar-ping"></i>LIVE 实时连通</span></h3>
-          <p>已点亮当前在线节点，支持鼠标按住拖拽自由探索地球</p>
-        </div>
+  <!-- Top Hero: 2 Essential Clean Metric Cards -->
+  <section class="hero-dashboard-clean">
+    <div class="metric-tile-hero">
+      <div class="metric-hero-left">
+        <span class="metric-hero-title">可用加速节点</span>
+        <div class="metric-hero-val">{nodes_count} <span>Nodes</span></div>
+        <div class="metric-hero-sub">● 全节点就绪</div>
       </div>
-      
-      <div class="cobe-canvas-wrapper">
-        <canvas id="cobe-canvas" width="600" height="600"></canvas>
-      </div>
+      <div class="metric-hero-icon-box">⚡</div>
     </div>
 
-    <div class="metrics-grid">
-      <div class="metric-tile">
-        <div class="metric-tile-top">
-          <span class="metric-tile-title">可用加速节点</span>
-          <span class="metric-tile-icon">⚡</span>
-        </div>
-        <div class="metric-tile-val">{nodes_count} <span>Nodes</span></div>
-        <div class="metric-tile-sub">● 全节点就绪</div>
+    <div class="metric-tile-hero">
+      <div class="metric-hero-left">
+        <span class="metric-hero-title">我的配额使用</span>
+        <div class="metric-hero-val">{used_routes} <span>/ {route_quota}</span></div>
+        <div class="metric-hero-sub">● 随时删除释放</div>
       </div>
-
-      <div class="metric-tile">
-        <div class="metric-tile-top">
-          <span class="metric-tile-title">平均中继延迟</span>
-          <span class="metric-tile-icon">🛰️</span>
-        </div>
-        <div class="metric-tile-val" id="avg-latency-display">38 <span>ms</span></div>
-        <div class="metric-tile-sub">▲ 毫秒极速中继</div>
-      </div>
-
-      <div class="metric-tile">
-        <div class="metric-tile-top">
-          <span class="metric-tile-title">特征清洗引擎</span>
-          <span class="metric-tile-icon">🛡️</span>
-        </div>
-        <div class="metric-tile-val">100% <span>Clean</span></div>
-        <div class="metric-tile-sub">● 双向隐私伪装</div>
-      </div>
-
-      <div class="metric-tile">
-        <div class="metric-tile-top">
-          <span class="metric-tile-title">我的配额使用</span>
-          <span class="metric-tile-icon">🗂</span>
-        </div>
-        <div class="metric-tile-val">{used_routes} <span>/ {route_quota}</span></div>
-        <div class="metric-tile-sub">● 随时删除释放</div>
-      </div>
+      <div class="metric-hero-icon-box quota-box">🗂</div>
     </div>
   </section>
 
+  <!-- Main Workspace: 3/4 Left Bento Nodes + 1/4 Right Clean Form -->
   <section class="magic-workspace">
     <div class="bento-nodes-box">
       <div class="box-header">
@@ -1975,16 +1824,10 @@ body {{
 
     <div class="route-creation-card">
       <div>
-        <div class="crystal-orb-stage">
-          <div class="crystal-orb-wrapper">
-            <div class="crystal-ring"></div>
-            <div class="crystal-orb" id="crystal-orb-element"></div>
-          </div>
-          <div class="form-header-center">
-            <h3>🚀 创建专属线路</h3>
-            <div class="form-selected-node">
-              已选节点：<span class="badge-chosen-node" id="selected-node-display">{html.escape(selected_node_name)}</span>
-            </div>
+        <div class="form-header-clean">
+          <h3>🚀 创建专属线路</h3>
+          <div class="form-selected-node">
+            已选节点：<span class="badge-chosen-node" id="selected-node-display">{html.escape(selected_node_name)}</span>
           </div>
         </div>
 
@@ -2046,61 +1889,8 @@ body {{
 </main>
 
 <script nonce="{csp_nonce}">
-{COBE_STANDALONE_JS}
-
 const nodes = {nodes_json};
 let selected = {selected_node_id};
-
-const REGION_GEO = {{
-  'HK': {{ lat: 22.31, lng: 114.16, name: '香港', flag: '🇭🇰' }},
-  'JP': {{ lat: 35.67, lng: 139.65, name: '日本', flag: '🇯🇵' }},
-  'SG': {{ lat: 1.35,  lng: 103.81, name: '新加坡', flag: '🇸🇬' }},
-  'TW': {{ lat: 25.03, lng: 121.56, name: '台湾', flag: '🇹🇼' }},
-  'US': {{ lat: 37.77, lng: -122.41, name: '美国', flag: '🇺🇸' }},
-  'KR': {{ lat: 37.56, lng: 126.97, name: '韩国', flag: '🇰🇷' }},
-  'DE': {{ lat: 50.11, lng: 8.68, name: '德国', flag: '🇩🇪' }},
-  'GB': {{ lat: 51.50, lng: -0.12, name: '英国', flag: '🇬🇧' }}
-}};
-
-function resolveNodeGeo(node) {{
-  const code = (node.code || '').toUpperCase();
-  const cName = node.country_name || '';
-  for (const [k, v] of Object.entries(REGION_GEO)) {{
-    if (code.includes(k) || cName.includes(v.name)) {{
-      return {{ ...v, id: node.id, nodeName: node.name }};
-    }}
-  }}
-  return {{ lat: 22.0 + (node.id * 5) % 25, lng: 110.0 + (node.id * 10) % 30, name: cName || node.name, flag: '🌐', id: node.id, nodeName: node.name }};
-}}
-
-const activeNodeGeos = nodes.map(resolveNodeGeo);
-
-function getMarkers(activeId) {{
-  const markers = [
-    {{ location: [31.23, 121.47], size: 0.05 }}
-  ];
-  activeNodeGeos.forEach(g => {{
-    markers.push({{
-      location: [g.lat, g.lng],
-      size: g.id === activeId ? 0.09 : 0.05
-    }});
-  }});
-  return markers;
-}}
-
-const regionOrbStyles = {{
-  hk: 'radial-gradient(circle at 35% 30%, #fff 2%, #a855f7 35%, #ec4899 75%, #05060f 100%)',
-  jp: 'radial-gradient(circle at 35% 30%, #fff 2%, #38bdf8 35%, #ec4899 75%, #05060f 100%)',
-  sg: 'radial-gradient(circle at 35% 30%, #fff 2%, #34d399 35%, #0891b2 75%, #05060f 100%)',
-  tw: 'radial-gradient(circle at 35% 30%, #fff 2%, #f59e0b 35%, #ef4444 75%, #05060f 100%)',
-  us: 'radial-gradient(circle at 35% 30%, #fff 2%, #60a5fa 35%, #8b5cf6 75%, #05060f 100%)',
-  global: 'radial-gradient(circle at 35% 30%, #fff 2%, #22d3ee 35%, #8b5cf6 75%, #05060f 100%)'
-}};
-
-let currentPhi = 0;
-let currentTheta = 0.2;
-let targetPhi = 0;
-let targetTheta = 0.2;
 
 function pick(id) {{
   selected = id;
@@ -2108,37 +1898,18 @@ function pick(id) {{
   if (nodeInput) nodeInput.value = id;
   
   let chosenName = '未选择';
-  let countryName = '';
   document.querySelectorAll('.node-card').forEach(card => {{
     const active = Number(card.dataset.nodeId) === id;
     card.classList.toggle('selected', active);
     card.setAttribute('aria-pressed', String(active));
     if (active) {{
       chosenName = card.dataset.nodeName || ('节点 #' + id);
-      countryName = card.dataset.country || '';
     }}
   }});
   
   const displayEl = document.getElementById('selected-node-display');
   if (displayEl) {{
     displayEl.textContent = chosenName;
-  }}
-
-  const targetGeo = activeNodeGeos.find(g => g.id === id);
-  if (targetGeo) {{
-    targetPhi = (targetGeo.lng * Math.PI) / 180;
-    targetTheta = (targetGeo.lat * Math.PI) / 180 * 0.5;
-  }}
-
-  const orbEl = document.getElementById('crystal-orb-element');
-  if (orbEl) {{
-    let key = 'global';
-    if (countryName.includes('香港') || chosenName.toLowerCase().includes('hk')) key = 'hk';
-    else if (countryName.includes('日本') || chosenName.toLowerCase().includes('jp')) key = 'jp';
-    else if (countryName.includes('新加坡') || chosenName.toLowerCase().includes('sg')) key = 'sg';
-    else if (countryName.includes('台湾') || chosenName.toLowerCase().includes('tw')) key = 'tw';
-    else if (countryName.includes('美') || chosenName.toLowerCase().includes('us')) key = 'us';
-    orbEl.style.background = regionOrbStyles[key] || regionOrbStyles.global;
   }}
 }}
 
@@ -2151,72 +1922,6 @@ document.querySelectorAll('.node-card').forEach(card => {{
   card.addEventListener('click', () => pick(Number(card.dataset.nodeId)));
 }});
 
-// COBE WebGL Globe Initialization
-let globeInstance = null;
-
-function initCobeGlobe() {{
-  const canvas = document.getElementById('cobe-canvas');
-  if (!canvas || !window.createGlobe) return;
-
-  const isDark = document.body.dataset.theme !== 'light';
-  let pointerInteracting = null;
-  let pointerInteractionMovement = 0;
-
-  if (globeInstance) {{
-    try {{ globeInstance.destroy(); }} catch (e) {{}}
-  }}
-
-  globeInstance = window.createGlobe(canvas, {{
-    devicePixelRatio: Math.min(window.devicePixelRatio || 1, 2),
-    width: 600,
-    height: 600,
-    phi: 0,
-    theta: 0.2,
-    dark: isDark ? 1 : 0,
-    diffuse: isDark ? 1.25 : 1.45,
-    mapSamples: 16000,
-    mapBrightness: isDark ? 6.5 : 4.5,
-    baseColor: isDark ? [0.35, 0.42, 0.58] : [0.82, 0.88, 0.96],
-    markerColor: isDark ? [0.13, 0.82, 0.93] : [0.08, 0.65, 0.92],
-    glowColor: isDark ? [0.18, 0.25, 0.45] : [0.88, 0.93, 1.0],
-    markers: getMarkers(selected),
-    onRender: (state) => {{
-      if (!pointerInteracting) {{
-        currentPhi += 0.0035;
-        if (targetPhi !== 0) {{
-          const diff = ((targetPhi - currentPhi) % (Math.PI * 2) + Math.PI * 3) % (Math.PI * 2) - Math.PI;
-          currentPhi += diff * 0.02;
-        }}
-      }}
-      state.phi = currentPhi;
-      state.theta = currentTheta;
-      state.markers = getMarkers(selected);
-    }}
-  }});
-
-  canvas.addEventListener('pointerdown', (e) => {{
-    pointerInteracting = e.clientX - pointerInteractionMovement;
-    canvas.style.cursor = 'grabbing';
-  }});
-
-  window.addEventListener('pointerup', () => {{
-    pointerInteracting = null;
-    canvas.style.cursor = 'grab';
-  }});
-
-  window.addEventListener('pointermove', (e) => {{
-    if (pointerInteracting !== null) {{
-      const delta = e.clientX - pointerInteracting;
-      pointerInteractionMovement = delta;
-      currentPhi = delta * 0.006;
-    }}
-  }});
-}}
-
-initCobeGlobe();
-
-const latencyRecords = [];
-
 async function probe(node) {{
   const badge = document.querySelector('[data-latency="' + node.id + '"]');
   if (!badge) return;
@@ -2228,7 +1933,6 @@ async function probe(node) {{
     await fetch(node.probe_url + '?t=' + Date.now(), {{ mode: 'no-cors', cache: 'no-store' }});
     const ms = Math.round(performance.now() - start);
     textEl.textContent = ms + ' ms';
-    latencyRecords.push(ms);
     if (ms < 120) {{
       badge.className = 'latency-badge fast';
     }} else if (ms < 280) {{
@@ -2236,22 +1940,13 @@ async function probe(node) {{
     }} else {{
       badge.className = 'latency-badge slow';
     }}
-    updateAvgLatency();
   }} catch (e) {{
     textEl.textContent = '超时';
     badge.className = 'latency-badge error';
   }}
 }}
 
-function updateAvgLatency() {{
-  if (!latencyRecords.length) return;
-  const avg = Math.round(latencyRecords.reduce((a, b) => a + b, 0) / latencyRecords.length);
-  const avgEl = document.getElementById('avg-latency-display');
-  if (avgEl) avgEl.innerHTML = avg + ' <span>ms</span>';
-}}
-
 function probeAll() {{
-  latencyRecords.length = 0;
   nodes.forEach(probe);
 }}
 document.getElementById('test-nodes')?.addEventListener('click', probeAll);
@@ -2325,7 +2020,6 @@ function applyUserTheme(theme) {{
     userThemeToggle.title = isDark ? '切换到浅色主题' : '切换到深色主题';
   }}
   try {{ localStorage.setItem(userThemeKey, resolved); }} catch (e) {{}}
-  initCobeGlobe();
 }}
 
 applyUserTheme(savedUserTheme || 'dark');
