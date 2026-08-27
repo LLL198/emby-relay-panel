@@ -1,20 +1,20 @@
-#!/usr/bin/env python3
-"""HTTP entry point for the emby-relay-panel user and admin interfaces."""
-
-import asyncio
-import html
-import json
-import os
-import re
-import secrets
-from urllib.parse import parse_qs
-
-from aiohttp import web
-
-from nginx_renderer import RendererError, normalize_origin as normalize_route_origin
-
-LISTEN_HOST = os.environ.get("LISTEN_HOST", "127.0.0.1")
-LISTEN_PORT = int(os.environ.get("LISTEN_PORT", "8787"))
+#!/usr/bin/env python3
+"""HTTP entry point for the emby-relay-panel user and admin interfaces."""
+
+import asyncio
+import html
+import json
+import os
+import re
+import secrets
+from urllib.parse import parse_qs
+
+from aiohttp import web
+
+from nginx_renderer import RendererError, normalize_origin as normalize_route_origin
+
+LISTEN_HOST = os.environ.get("LISTEN_HOST", "127.0.0.1")
+LISTEN_PORT = int(os.environ.get("LISTEN_PORT", "8787"))
 PROXY_DOMAIN_SUFFIX = os.environ.get("PROXY_DOMAIN_SUFFIX", "panel.example.com").lower().strip(".")
 
 DASHBOARD_UI_CSS = r"""
@@ -544,20 +544,20 @@ body[data-theme='light'] .theme-toggle:hover{color:#304a7d}
 
 
 def normalized_origin(value: str) -> str:
-    value = value.strip()
-    if "://" not in value:
-        value = "https://" + value
-    try:
-        return normalize_route_origin(value, allow_insecure_http=False)
-    except RendererError as exc:
-        raise ValueError(str(exc)) from exc
-
-
-def is_base_proxy_host(request: web.Request) -> bool:
-    host = request.headers.get("host", "").split(":", 1)[0].lower().strip(".")
-    return host == PROXY_DOMAIN_SUFFIX
-
-
+    value = value.strip()
+    if "://" not in value:
+        value = "https://" + value
+    try:
+        return normalize_route_origin(value, allow_insecure_http=False)
+    except RendererError as exc:
+        raise ValueError(str(exc)) from exc
+
+
+def is_base_proxy_host(request: web.Request) -> bool:
+    host = request.headers.get("host", "").split(":", 1)[0].lower().strip(".")
+    return host == PROXY_DOMAIN_SUFFIX
+
+
 async def generator_response(request: web.Request):
     if request.method not in {"GET", "POST"}:
         raise web.HTTPMethodNotAllowed(request.method, ["GET", "POST"])
@@ -586,14 +586,20 @@ async def generator_response(request: web.Request):
         selected_node_id = nodes[0]["id"] if nodes else 0
     if nodes and selected_node_id not in {node["id"] for node in nodes}:
         selected_node_id = nodes[0]["id"]
+    
+    selected_node_name = "未选择"
+    for n in nodes:
+        if n["id"] == selected_node_id:
+            selected_node_name = n["name"]
+            break
     result_html = ""
     if raw_url:
         try:
             if not panel.user_route_creation_enabled:
-                raise ValueError("route creation is temporarily disabled")
+                raise ValueError("线路创建功能已由管理员临时关闭")
             origin = normalized_origin(raw_url)
             if not selected_node_id:
-                raise ValueError("no node available")
+                raise ValueError("暂无可用节点，无法创建线路")
             host, https_url = await asyncio.to_thread(
                 panel.create_frontend_route,
                 origin,
@@ -604,386 +610,1085 @@ async def generator_response(request: web.Request):
             result_html = f"""
             <section class="result-box">
                 <div class="result-header">
-                    <span class="badge-success">✓ 线路创建成功</span>
-                    <span class="result-meta">分配节点：<code>{html.escape(host)}</code></span>
+                    <div class="result-status-title">
+                        <span class="badge-success-glow">✓ 线路创建成功</span>
+                        <span class="result-node-info">加速节点：<code>{html.escape(host)}</code></span>
+                    </div>
                 </div>
-                <div class="result-content">
-                    <label class="result-label">专属 HTTPS 访问地址</label>
-                    <div class="copy-group">
+                <div class="result-body">
+                    <label class="result-label">专属 HTTPS 播放地址</label>
+                    <div class="copy-field-wrap">
                         <input readonly value="{html.escape(https_url, quote=True)}" id="res-url">
-                        <button type="button" class="btn-copy" data-copy="{html.escape(https_url, quote=True)}">
-                            <span class="copy-text">复制地址</span>
+                        <button type="button" class="btn-copy-magic" data-copy="{html.escape(https_url, quote=True)}">
+                            <span class="copy-text">一键复制</span>
                         </button>
                     </div>
+                    <p class="result-hint">亡 请直接将此地址复制填入 Emby 客户端作为服务器地址使用。</p>
                 </div>
             </section>
             """
         except Exception as exc:
-            result_html = f"<div class='alert-error'><span class='alert-icon'>⚠</span><div class='alert-msg'><strong>生成失败</strong><span>{html.escape(str(exc))}。示例：https://emby.example.com:8096</span></div></div>"
+            result_html = f"""
+            <div class="alert-error-box">
+                <span class="alert-error-icon">⚠</span>
+                <div class="alert-error-text">
+                    <strong>生成线路失败</strong>
+                    <span>{html.escape(str(exc))}（示例格式：https://emby.example.com:8096）</span>
+                </div>
+            </div>
+            """
 
     node_cards_parts = []
     for node in nodes:
-        meta_label = node["code"].lower() if node["is_local"] else (node["country_name"] or node["health"])
+        meta_label = node["code"].upper() if node["is_local"] else (node["country_name"] or node["health"])
         is_selected = node["id"] == selected_node_id
+        kind_label = "VPS" if not node.get("is_local") else "本地节点"
         node_cards_parts.append(
-            f"<button type='button' class='node-card{' selected' if is_selected else ''}' data-node-id='{node['id']}' aria-pressed={'true' if is_selected else 'false'}>"
+            f"<button type='button' class='node-card{' selected' if is_selected else ''}' "
+            f"data-node-id='{node['id']}' data-node-name='{html.escape(node['name'], quote=True)}' aria-pressed={'true' if is_selected else 'false'}>"
             f"  <div class='node-card-top'>"
             f"    <div class='node-flag'>{node['flag_markup']}</div>"
-            f"    <span class='node-name'>{html.escape(node['name'])}</span>"
+            f"    <div class='node-info-group'>"
+            f"      <span class='node-name' title='{html.escape(node['name'], quote=True)}'>{html.escape(node['name'])}</span>"
+            f"      <span class='node-country-tag'>{html.escape(node.get('country_name') or meta_label)}</span>"
+            f"    </div>"
             f"  </div>"
             f"  <div class='node-card-bottom'>"
-            f"    <span class='node-location'>{html.escape(meta_label)}</span>"
+            f"    <span class='node-kind-badge'>{html.escape(kind_label)}</span>"
             f"    <span class='latency-badge' data-latency='{node['id']}'><i class='latency-dot'></i><span class='latency-text'>待测速</span></span>"
             f"  </div>"
             f"</button>"
         )
-    node_cards = "".join(node_cards_parts) or "<div class='empty-state'>暂无可用节点，请联系管理员添加。</div>"
+    node_cards = "".join(node_cards_parts) or "<div class='empty-nodes-state'>暂无可用节点，请联系管理员在后叠添加。</div>"
     nodes_json = json.dumps(nodes, separators=(",", ":"), ensure_ascii=False).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+    
     route_rows = []
     for route in panel.user_routes(int(user["id"])):
-        state = "已暂停" if route["suspended_by_owner"] else ("已下发" if route["deployed"] else "部署失败")
+        state = "已暂停" if route["suspended_by_owner"] else ("已下发" if route["deployed"] else "部罢失败")
         state_class = "state-paused" if route["suspended_by_owner"] else ("state-active" if route["deployed"] else "state-failed")
-        error = f"<div class='route-error'>{html.escape(route['last_error'])}</div>" if route["last_error"] else ""
+        error = f"<div class='route-error-msg'>{html.escape(route['last_error'])}</div>" if route["last_error"] else ""
         note = str(route["notes"] or "")
         note_display = html.escape(note) if note else "添加备注"
-        note_class = "" if note else " empty"
-        note_editor = f"<td class='col-note'><div class='note-view'><span class='note-text{note_class}'>{note_display}</span><button type='button' class='btn-note-edit' title='编辑备注'>✎</button></div><form class='note-form' method='post' action='/my/routes/{route['id']}/note'><input type='hidden' name='csrf' value='{html.escape(csrf_token, quote=True)}'><input name='notes' maxlength='500' value='{html.escape(note, quote=True)}' placeholder='线路备注'><button type='submit' class='btn-note-save'>保存</button><button type='button' class='btn-note-cancel'>取消</button></form></td>"
+        note_class = "" if note else " empty-note"
+        note_editor = (
+            f"<td class='col-note'>"
+            f"  <div class='note-view-box'>"
+            f"    <span class='note-text{note_class}'>{note_display}</span>"
+            f"    <button type='button' class='btn-note-edit' title='编辑备注'>✎</button>"
+            f"  </div>"
+            f"  <form class='note-inline-form' method='post' action='/my/routes/{route['id']}/note'>"
+            f"    <input type='hidden' name='csrf' value='{html.escape(csrf_token, quote=True)}'>"
+            f"    <input name='notes' maxlength='500' value='{html.escape(note, quote=True)}' placeholder='输入线路备注'>"
+            f"    <button type='submit' class='btn-note-save'>保存</button>"
+            f"    <button type='button' class='btn-note-cancel'>取消</button>"
+            f"  </form>"
+            f"</td>"
+        )
         route_rows.append(
             f"<tr class='route-row'>"
-            f"<td class='col-origin'><span class='url-text text-muted' title='{html.escape(route['origin'], quote=True)}'>{html.escape(route['origin'])}</span></td>"
-            f"<td class='col-public'><div class='copy-inline'><span class='url-text text-primary' title='{html.escape(route['public_url'], quote=True)}'>{html.escape(route['public_url'])}</span><button type='button' class='btn-mini-copy' data-copy='{html.escape(route['public_url'], quote=True)}' title='复制访问地址'>复制</button></div></td>"
-            f"<td class='col-node'><span class='tag-node'>{html.escape(route['node_name'])}</span></td>"
-            f"{note_editor}"
-            f"<td class='col-status'><span class='status-tag {state_class}'><i class='dot'></i>{state}</span>{error}</td>"
-            f"<td class='col-action'><form method='post' action='/my/routes/{route['id']}/delete'><input type='hidden' name='csrf' value='{html.escape(csrf_token, quote=True)}'><button class='btn-delete' title='删除该线路并释放额度'>删除</button></form></td>"
+            f"  <td class='col-origin'><span class='url-badge origin-url' title='{html.escape(route['origin'], quote=True)}'>{html.escape(route['origin'])}</span></td>"
+            f"  <td class='col-public'>"
+            f"    <div class='copy-flex-cell'>"
+            f"      <span class='url-badge public-url' title='{html.escape(route['public_url'], quote=True)}'>{html.escape(route['public_url'])}</span>"
+            f"      <button type='button' class='btn-table-copy' data-copy='{html.escape(route['public_url'], quote=True)}' title='复制专属诿问地址'>复制</button>"
+            f"    </div>"
+            f"  </td>"
+            f"  <td class='col-node'><span class='node-tag-pill'>{html.escape(route['node_name'])}</span></td>"
+            f"  {note_editor}"
+            f"  <td class='col-status'><span class='status-pill {state_class}'><i class='pulse-dot'></i>{state}</span>{error}</td>"
+            f"  <td class='col-action'>"
+            f"    <form method='post' action='/my/routes/{route['id']}/delete' onsubmit='return confirm(\"确定删除该反代线路吗？删除后将释放额度。\")'>"
+            f"      <input type='hidden' name='csrf' value='{html.escape(csrf_token, quote=True)}'>"
+            f"      <button class='btn-table-delete' title='删除该线路并释放配额'>删除</button>"
+            f"    </form>"
+            f"  </td>"
             f"</tr>"
         )
     used_routes, route_quota = panel.user_route_usage(int(user["id"]))
-    my_routes_html = "".join(route_rows) or "<tr><td colspan='6' class='table-empty'><div class='empty-icon'>✦</div><p>暂无反代线路，在上方输入源站地址即可快速生成。</p></td></tr>"
+    my_routes_html = "".join(route_rows) or "<tr><td colspan='6' class='table-empty-box'><div class='empty-sparkle'>✨</div><p>暂无反代线路，在上方选择节点并输入源站即可快速生成专属线路。</p></td></tr>"
     expiry_label = panel._display_expiry(user["expires_at"])
-    admin_link = "<a class='btn-nav-admin' href='/_admin'><span>管理后台</span></a>" if int(user["is_admin"] or 0) else ""
+    admin_link = "<a class='btn-nav-admin' href='/_admin'><span>⚩ 管理后叠</span></a>" if int(user["is_admin"] or 0) else ""
     csp_nonce = secrets.token_urlsafe(16)
-
     body = f"""<!doctype html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Emby Relay · 节点与线路管理</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E⚡%3C/text%3E%3C/svg%3E">
 <style>
-:root{{
-  --bg:#09090b;
-  --card:#121215;
-  --card-subtle:#18181b;
-  --border:#27272a;
-  --border-hover:#3f3f46;
-  --border-active:#3b82f6;
-  --text:#fafafa;
-  --text-secondary:#a1a1aa;
-  --text-muted:#71717a;
-  --primary:#3b82f6;
-  --primary-hover:#2563eb;
-  --primary-subtle:rgba(59,130,246,0.1);
-  --success:#10b981;
-  --success-bg:rgba(16,185,129,0.12);
-  --danger:#ef4444;
-  --danger-bg:rgba(239,68,68,0.12);
-  --warning:#f59e0b;
-  --radius-sm:6px;
-  --radius-md:10px;
-  --radius-lg:14px;
+:root {{
+  color-scheme: dark;
+  --bg: #040711;
+  --panel-bg: rgba(10, 15, 30, 0.76);
+  --panel-solid: #0b1122;
+  --card-bg: rgba(18, 25, 48, 0.72);
+  --card-hover: rgba(26, 36, 68, 0.88);
+  --card-selected: rgba(17, 34, 60, 0.95);
+  --border: rgba(148, 163, 184, 0.14);
+  --border-hover: rgba(167, 139, 250, 0.38);
+  --border-active: rgba(34, 211, 238, 0.65);
+  --ink: #f8fafc;
+  --ink-secondary: #cbd5e1;
+  --muted: #94a3b8;
+  --muted-dark: #64748b;
+  --violet: #8b5cf6;
+  --violet-glow: rgba(139, 92, 246, 0.28);
+  --cyan: #22d3ee;
+  --cyan-glow: rgba(34, 211, 238, 0.24);
+  --emerald: #34d399;
+  --emerald-bg: rgba(16, 185, 129, 0.12);
+  --danger: #fb7185;
+  --danger-bg: rgba(244, 63, 94, 0.12);
+  --shadow-magic: 0 20px 60px rgba(0, 0, 0, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --radius-panel: 22px;
+  --radius-card: 16px;
+  --radius-sm: 10px;
 }}
-body[data-theme='light']{{
-  --bg:#f8fafc;
-  --card:#ffffff;
-  --card-subtle:#f1f5f9;
-  --border:#e2e8f0;
-  --border-hover:#cbd5e1;
-  --border-active:#2563eb;
-  --text:#0f172a;
-  --text-secondary:#475569;
-  --text-muted:#94a3b8;
-  --primary:#2563eb;
-  --primary-hover:#1d4ed8;
-  --primary-subtle:rgba(37,99,235,0.08);
-  --success:#059669;
-  --success-bg:rgba(5,150,105,0.1);
-  --danger:#dc2626;
-  --danger-bg:rgba(220,38,38,0.1);
-  --warning:#d97706;
+
+body[data-theme='light'] {{
+  color-scheme: light;
+  --bg: #f5f7fc;
+  --panel-bg: rgba(255, 255, 255, 0.88);
+  --panel-solid: #ffffff;
+  --card-bg: rgba(241, 245, 252, 0.82);
+  --card-hover: rgba(235, 241, 255, 0.95);
+  --card-selected: rgba(237, 246, 255, 0.98);
+  --border: rgba(148, 163, 184, 0.25);
+  --border-hover: rgba(139, 92, 246, 0.45);
+  --border-active: rgba(14, 165, 233, 0.75);
+  --ink: #0f172a;
+  --ink-secondary: #334155;
+  --muted: #64748b;
+  --muted-dark: #94a3b8;
+  --violet-glow: rgba(139, 92, 246, 0.15);
+  --cyan-glow: rgba(14, 165, 233, 0.15);
+  --emerald-bg: rgba(16, 185, 129, 0.15);
+  --danger-bg: rgba(244, 63, 94, 0.12);
+  --shadow-magic: 0 16px 45px rgba(15, 23, 42, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }}
-*{{box-sizing:border-box;margin:0;padding:0}}
-html{{min-height:100%;background:var(--bg)}}
-body{{
-  min-height:100vh;
-  background:var(--bg);
-  color:var(--text);
-  font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
-  transition:background .2s ease,color .2s ease;
+
+* {{ box-sizing: border-box; margin: 0; padding: 0; }}
+html {{ background: var(--bg); min-height: 100%; }}
+body {{
+  position: relative;
+  min-height: 100vh;
+  color: var(--ink);
+  font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+  overflow-x: hidden;
+  background: var(--bg);
 }}
-.app-header{{
-  position:sticky;top:0;z-index:40;display:flex;align-items:center;justify-content:space-between;
-  height:56px;padding:0 24px;border-bottom:1px solid var(--border);background:var(--card);
+
+/* Magic UI Aurora Background */
+.aurora-bg {{
+  position: fixed;
+  inset: -30%;
+  pointer-events: none;
+  z-index: 0;
+  filter: blur(55px);
+  opacity: 0.65;
 }}
-.nav-brand{{display:flex;align-items:center;gap:8px;text-decoration:none;}}
-.brand-icon{{display:grid;place-items:center;width:28px;height:28px;border-radius:6px;background:var(--primary);color:#fff;font-size:14px;font-weight:700;}}
-.brand-title{{font-size:15px;font-weight:700;color:var(--text);letter-spacing:-0.01em;}}
-.nav-right{{display:flex;align-items:center;gap:10px;}}
-.nav-chip{{
-  display:inline-flex;align-items:center;height:30px;padding:0 10px;
-  border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--card-subtle);
-  color:var(--text-secondary);font-size:12px;font-weight:500;
+.aurora-blob {{
+  position: absolute;
+  border-radius: 50%;
+  animation: aurora-drift 22s ease-in-out infinite alternate;
 }}
-.nav-chip b{{color:var(--primary);font-weight:700;margin-left:3px;}}
-.btn-icon{{
-  display:grid;place-items:center;width:30px;height:30px;border:1px solid var(--border);
-  border-radius:var(--radius-sm);background:var(--card-subtle);color:var(--text-secondary);
-  font-size:14px;cursor:pointer;transition:all .15s ease;
+.blob-1 {{
+  width: 500px; height: 500px;
+  top: 20%; left: 15%;
+  background: radial-gradient(circle, rgba(139, 92, 246, 0.25), transparent 70%);
 }}
-.btn-icon:hover{{border-color:var(--border-hover);color:var(--text);}}
-.nav-link{{
-  display:inline-flex;align-items:center;height:30px;padding:0 10px;border:1px solid var(--border);
-  border-radius:var(--radius-sm);background:var(--card-subtle);color:var(--text-secondary);
-  font-size:12px;font-weight:500;text-decoration:none;transition:all .15s ease;
+.blob-2 {{
+  width: 550px; height: 550px;
+  top: 40%; right: 15%;
+  background: radial-gradient(circle, rgba(34, 211, 238, 0.18), transparent 70%);
+  animation-delay: -7s;
 }}
-.nav-link:hover{{border-color:var(--border-hover);color:var(--text);}}
-.btn-nav-admin{{
-  display:inline-flex;align-items:center;height:30px;padding:0 10px;border:1px solid var(--border-active);
-  border-radius:var(--radius-sm);background:var(--primary-subtle);color:var(--primary);
-  font-size:12px;font-weight:600;text-decoration:none;transition:all .15s ease;
+.blob-3 {{
+  width: 420px; height: 420px;
+  bottom: 10%; left: 45%;
+  background: radial-gradient(circle, rgba(59, 130, 246, 0.16), transparent 70%);
+  animation-delay: -14s;
 }}
-.btn-nav-admin:hover{{background:var(--primary);color:#fff;}}
-.btn-logout{{
-  height:30px;padding:0 10px;border:1px solid var(--border);border-radius:var(--radius-sm);
-  background:transparent;color:var(--text-muted);font:inherit;font-size:12px;font-weight:500;
-  cursor:pointer;transition:all .15s ease;
+
+.grid-mesh {{
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image: 
+    linear-gradient(rgba(148, 163, 184, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.04) 1px, transparent 1px);
+  background-size: 40px 40px;
+  mask-image: radial-gradient(ellipse at 50% 30%, black 20%, transparent 80%);
 }}
-.btn-logout:hover{{border-color:var(--danger);color:var(--danger);}}
-.main-container{{max-width:1000px;margin:0 auto;padding:28px 20px 60px;display:grid;gap:24px;}}
-.panel-card{{
-  padding:24px;border:1px solid var(--border);border-radius:var(--radius-lg);
-  background:var(--card);
+
+@keyframes aurora-drift {{
+  0% {{ transform: translate(0, 0) scale(1); }}
+  50% {{ transform: translate(40px, -30px) scale(1.1); }}
+  100% {{ transform: translate(-30px, 40px) scale(0.95); }}
 }}
-.panel-header{{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:18px;}}
-.panel-title{{font-size:16px;font-weight:700;color:var(--text);letter-spacing:-0.01em;}}
-.panel-subtitle{{margin-top:2px;font-size:12px;color:var(--text-muted);}}
-.btn-secondary{{
-  display:inline-flex;align-items:center;gap:5px;height:32px;padding:0 12px;
-  border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--card-subtle);
-  color:var(--text-secondary);font:inherit;font-size:12px;font-weight:600;cursor:pointer;
-  transition:all .15s ease;
+
+/* Shell & Floating Nav */
+.magic-shell {{
+  position: relative;
+  z-index: 1;
+  width: min(100%, 1280px);
+  margin: 0 auto;
+  padding: 20px 24px 60px;
 }}
-.btn-secondary:hover{{border-color:var(--border-hover);color:var(--text);}}
-.node-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-bottom:20px;}}
-.node-card{{
-  display:flex;flex-direction:column;justify-content:space-between;min-height:84px;padding:12px;
-  text-align:left;border:1.5px solid var(--border);border-radius:var(--radius-md);
-  background:var(--card-subtle);cursor:pointer;transition:all .15s ease;
+
+.magic-nav {{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 62px;
+  margin-bottom: 24px;
+  padding: 10px 18px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--panel-bg);
+  box-shadow: var(--shadow-magic);
+  backdrop-filter: blur(20px) saturate(140%);
 }}
-.node-card:hover{{border-color:var(--border-hover);}}
-.node-card.selected{{border-color:var(--primary);background:var(--primary-subtle);}}
-.node-card-top{{display:flex;align-items:center;gap:8px;}}
-.node-flag{{display:grid;place-items:center;}}
-.node-flag img, .node-flag span{{width:24px;height:16px;border-radius:2px;}}
-.node-name{{font-size:13px;font-weight:700;color:var(--text);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;}}
-.node-card-bottom{{display:flex;align-items:center;justify-content:space-between;margin-top:12px;}}
-.node-location{{font-size:11px;color:var(--text-muted);}}
-.latency-badge{{
-  display:inline-flex;align-items:center;gap:4px;padding:2px 6px;border-radius:999px;
-  background:rgba(148,163,184,0.1);color:var(--text-muted);font-size:10px;font-weight:600;
+
+.nav-brand {{
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-decoration: none;
+  color: var(--ink);
 }}
-.latency-dot{{width:5px;height:5px;border-radius:50%;background:currentColor;}}
-.latency-badge.fast{{background:var(--success-bg);color:var(--success);}}
-.latency-badge.medium{{background:rgba(245,158,11,0.12);color:var(--warning);}}
-.latency-badge.slow,.latency-badge.error{{background:var(--danger-bg);color:var(--danger);}}
-.panel-divider{{height:1px;background:var(--border);margin:20px 0;}}
-.form-group{{margin-bottom:16px;}}
-.form-label{{display:block;margin-bottom:6px;font-size:13px;font-weight:600;color:var(--text);}}
-.label-optional{{font-weight:400;color:var(--text-muted);font-size:12px;}}
-.form-input{{
-  width:100%;height:42px;padding:0 14px;outline:0;border:1px solid var(--border);
-  border-radius:var(--radius-sm);background:var(--card-subtle);color:var(--text);
-  font:inherit;font-size:13px;transition:border-color .15s ease,box-shadow .15s ease;
+.brand-gem {{
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+  background: linear-gradient(135deg, var(--violet), var(--cyan));
+  box-shadow: 0 0 20px var(--violet-glow);
+  color: #fff;
+  font-size: 16px;
 }}
-.form-input:focus{{border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-subtle);}}
-.btn-primary{{
-  width:100%;height:44px;border:0;border-radius:var(--radius-sm);background:var(--primary);
-  color:#fff;font:inherit;font-size:14px;font-weight:700;cursor:pointer;transition:background .15s ease;
+.brand-meta strong {{
+  display: block;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  background: linear-gradient(90deg, var(--ink), var(--ink-secondary));
+  -webkit-background-clip: text;
+  color: transparent;
 }}
-.btn-primary:hover{{background:var(--primary-hover);}}
-.result-box{{
-  padding:20px 24px;border:1.5px solid var(--success);border-radius:var(--radius-lg);
-  background:var(--card);
+.brand-meta small {{
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.05em;
 }}
-.result-header{{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;}}
-.badge-success{{
-  display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:999px;
-  background:var(--success-bg);color:var(--success);font-size:12px;font-weight:700;
+
+.nav-actions {{
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
 }}
-.result-meta code{{
-  padding:2px 6px;border-radius:4px;background:var(--card-subtle);border:1px solid var(--border);
-  color:var(--primary);font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;
+.nav-badge {{
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card-bg);
+  color: var(--ink-secondary);
+  font-size: 12px;
+  font-weight: 600;
 }}
-.result-label{{display:block;margin-bottom:6px;font-size:12px;font-weight:600;color:var(--text-secondary);}}
-.copy-group{{display:flex;gap:8px;}}
-.copy-group input{{
-  width:100%;height:42px;padding:0 12px;border:1px solid var(--border);border-radius:var(--radius-sm);
-  background:var(--card-subtle);color:var(--primary);font-family:ui-monospace,SFMono-Regular,Consolas,monospace;
-  font-size:13px;font-weight:600;outline:0;
+.nav-badge.quota b {{ color: var(--cyan); }}
+.nav-badge.status .dot {{
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--emerald);
+  box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.2);
+  animation: pulse-dot 2s infinite ease-in-out;
 }}
-.btn-copy{{
-  flex:0 0 auto;height:42px;padding:0 18px;border:1px solid var(--border);border-radius:var(--radius-sm);
-  background:var(--card-subtle);color:var(--text);font:inherit;font-size:13px;font-weight:600;
-  cursor:pointer;transition:all .15s ease;
+
+@keyframes pulse-dot {{
+  0%, 100% {{ transform: scale(1); opacity: 1; }}
+  50% {{ transform: scale(1.3); opacity: 0.7; }}
 }}
-.btn-copy:hover{{border-color:var(--primary);color:var(--primary);}}
-.alert-error{{
-  display:flex;align-items:flex-start;gap:10px;padding:14px 18px;border:1px solid rgba(239,68,68,0.3);
-  border-radius:var(--radius-md);background:var(--danger-bg);color:var(--danger);font-size:13px;
+
+.nav-btn-icon, .nav-link-btn, .btn-nav-admin, .btn-logout {{
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card-bg);
+  color: var(--ink-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.18s ease;
 }}
-.alert-icon{{font-size:16px;line-height:1.2;}}
-.alert-msg strong{{display:block;margin-bottom:2px;font-weight:700;}}
-.table-wrap{{overflow-x:auto;-webkit-overflow-scrolling:touch;}}
-.data-table{{width:100%;min-width:760px;border-collapse:collapse;margin-top:8px;}}
-.data-table th{{
-  padding:10px 12px;border-bottom:1px solid var(--border);color:var(--text-muted);
-  font-size:12px;font-weight:600;text-align:left;
+.nav-btn-icon {{ width: 34px; padding: 0; font-size: 15px; }}
+.nav-btn-icon:hover, .nav-link-btn:hover, .btn-logout:hover {{
+  border-color: var(--border-hover);
+  background: var(--card-hover);
+  color: var(--ink);
+  transform: translateY(-1px);
 }}
-.data-table td{{
-  padding:12px;border-bottom:1px solid var(--border);color:var(--text-secondary);
-  font-size:13px;vertical-align:middle;
+.btn-nav-admin {{
+  border-color: rgba(34, 211, 238, 0.35);
+  background: rgba(34, 211, 238, 0.08);
+  color: var(--cyan);
 }}
-.data-table tr.route-row:hover td{{background:var(--card-subtle);}}
-.data-table tr:last-child td{{border-bottom:0;}}
-.url-text{{
-  display:inline-block;max-width:220px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;
-  font-size:12px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;vertical-align:middle;
+.btn-nav-admin:hover {{
+  border-color: var(--cyan);
+  background: rgba(34, 211, 238, 0.15);
+  color: #fff;
 }}
-.text-muted{{color:var(--text-muted);}}
-.text-primary{{color:var(--primary);font-weight:600;}}
-.copy-inline{{display:flex;align-items:center;gap:6px;}}
-.btn-mini-copy{{
-  flex:0 0 auto;height:24px;padding:0 8px;border:1px solid var(--border);border-radius:4px;
-  background:var(--card);color:var(--text-secondary);font:inherit;font-size:11px;font-weight:600;
-  cursor:pointer;transition:all .15s ease;
+/* Main Workspace: 3/4 Left Bento Nodes + 1/4 Right Compact Form */
+.magic-workspace {{
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(280px, 1fr);
+  gap: 22px;
+  margin-bottom: 24px;
 }}
-.btn-mini-copy:hover{{border-color:var(--primary);color:var(--primary);}}
-.tag-node{{
-  display:inline-block;padding:2px 8px;border-radius:4px;border:1px solid var(--border);
-  background:var(--card-subtle);color:var(--text);font-size:11px;font-weight:600;
+
+.bento-nodes-box {{
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  background: var(--panel-bg);
+  box-shadow: var(--shadow-magic);
+  backdrop-filter: blur(20px);
 }}
-.status-tag{{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;}}
-.status-tag .dot{{width:5px;height:5px;border-radius:50%;background:currentColor;}}
-.status-tag.state-active{{background:var(--success-bg);color:var(--success);}}
-.status-tag.state-failed{{background:var(--danger-bg);color:var(--danger);}}
-.status-tag.state-paused{{background:rgba(148,163,184,0.12);color:var(--text-muted);}}
-.route-error{{margin-top:3px;color:var(--danger);font-size:11px;}}
-.col-note{{min-width:140px;}}
-.note-view{{display:inline-flex;align-items:center;gap:6px;}}
-.note-text{{max-width:150px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--text);font-size:12px;font-weight:500;}}
-.note-text.empty{{color:var(--text-muted);}}
-.btn-note-edit{{
-  display:grid;place-items:center;width:22px;height:22px;padding:0;border:1px solid var(--border);
-  border-radius:4px;background:var(--card);color:var(--text-muted);font-size:11px;cursor:pointer;
+
+.box-header {{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
 }}
-.btn-note-edit:hover{{border-color:var(--primary);color:var(--primary);}}
-.note-form{{display:none;align-items:center;gap:5px;}}
-.note-form.is-open{{display:flex;}}
-.note-form input{{width:120px;height:28px;padding:0 6px;font-size:12px;border-radius:4px;border:1px solid var(--border);background:var(--card);color:var(--text);}}
-.btn-note-save{{height:28px;padding:0 8px;border:0;border-radius:4px;background:var(--primary);color:#fff;font-size:11px;font-weight:600;cursor:pointer;}}
-.btn-note-cancel{{height:28px;padding:0 6px;border:1px solid var(--border);border-radius:4px;background:var(--card);color:var(--text-muted);font-size:11px;cursor:pointer;}}
-.btn-delete{{
-  height:28px;padding:0 10px;border:1px solid rgba(239,68,68,0.3);border-radius:var(--radius-sm);
-  background:var(--danger-bg);color:var(--danger);font:inherit;font-size:11px;font-weight:600;
-  cursor:pointer;transition:all .15s ease;
+.box-header-title h2 {{
+  font-size: 17px;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--ink);
 }}
-.btn-delete:hover{{background:var(--danger);color:#fff;}}
-.count-tag{{padding:2px 8px;border-radius:999px;background:var(--card-subtle);border:1px solid var(--border);font-size:11px;font-weight:600;color:var(--text-muted);}}
-.table-empty{{padding:40px 16px;text-align:center;color:var(--text-muted);font-size:13px;}}
-.empty-icon{{font-size:20px;color:var(--primary);margin-bottom:6px;}}
-.empty-state{{padding:24px 16px;text-align:center;color:var(--text-muted);font-size:13px;}}
-@media(max-width:768px){{
-  .app-header{{padding:0 16px;}}
-  .main-container{{padding:16px 12px 48px;gap:16px;}}
-  .panel-card{{padding:18px 14px;}}
-  .node-grid{{grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;}}
-  .nav-right .nav-chip.expiry{{display:none;}}
+.box-header-title p {{
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+}}
+
+.btn-probe-magic {{
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 13px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card-bg);
+  color: var(--ink-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}}
+.btn-probe-magic:hover {{
+  border-color: var(--border-hover);
+  background: var(--card-hover);
+  color: var(--cyan);
+  transform: translateY(-1px);
+}}
+
+.node-grid {{
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 12px;
+}}
+
+/* Node Card & Flag UI */
+.node-card {{
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 104px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--card-bg);
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}}
+.node-card:after {{
+  content: "";
+  position: absolute;
+  width: 8px; height: 8px;
+  right: 12px; top: 12px;
+  border-radius: 50%;
+  border: 1.5px solid var(--muted-dark);
+  background: transparent;
+  transition: all 0.2s ease;
+}}
+.node-card:hover {{
+  transform: translateY(-2px);
+  border-color: var(--border-hover);
+  background: var(--card-hover);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.2);
+}}
+.node-card.selected {{
+  border-color: var(--border-active);
+  background: var(--card-selected);
+  box-shadow: 0 0 0 1px var(--cyan), 0 12px 30px var(--cyan-glow);
+}}
+.node-card.selected:after {{
+  border-color: var(--cyan);
+  background: var(--cyan);
+  box-shadow: 0 0 10px var(--cyan);
+}}
+
+.node-card-top {{
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}}
+.node-flag {{
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+}}
+.flag-icon {{
+  display: block;
+  width: 30px;
+  height: 20px;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.32);
+}}
+.node-info-group {{
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}}
+.node-name {{
+  display: block;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--ink);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}}
+.node-country-tag {{
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}}
+
+.node-card-bottom {{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 14px;
+}}
+.node-kind-badge {{
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: rgba(148, 163, 184, 0.08);
+  color: var(--muted);
+  text-transform: uppercase;
+}}
+
+.latency-badge {{
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+}}
+.latency-dot {{
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--muted-dark);
+}}
+.latency-badge.fast {{ color: var(--emerald); }}
+.latency-badge.fast .latency-dot {{ background: var(--emerald); box-shadow: 0 0 6px var(--emerald); }}
+.latency-badge.medium {{ color: #fbbf24; }}
+.latency-badge.medium .latency-dot {{ background: #fbbf24; }}
+.latency-badge.slow, .latency-badge.error {{ color: var(--danger); }}
+.latency-badge.slow .latency-dot, .latency-badge.error .latency-dot {{ background: var(--danger); }}
+
+.empty-nodes-state {{
+  padding: 30px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+}}
+
+/* Right Form Card (1/4 Column) */
+.route-creation-card {{
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 24px 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  background: var(--panel-bg);
+  box-shadow: var(--shadow-magic);
+  backdrop-filter: blur(20px);
+}}
+
+.form-header {{
+  margin-bottom: 16px;
+}}
+.form-header h3 {{
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--ink);
+}}
+.form-selected-node {{
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}}
+.badge-chosen-node {{
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  color: var(--cyan);
+  font-weight: 700;
+}}
+
+.magic-form {{
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}}
+.form-item label {{
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-secondary);
+}}
+.form-item label .opt-tag {{
+  font-weight: 400;
+  color: var(--muted);
+}}
+.magic-input {{
+  width: 100%;
+  height: 42px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card-bg);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+  transition: all 0.18s ease;
+}}
+.magic-input::placeholder {{ color: var(--muted-dark); }}
+.magic-input:focus {{
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 3px var(--cyan-glow);
+  background: var(--card-selected);
+}}
+
+.btn-generate-shimmer {{
+  position: relative;
+  width: 100%;
+  height: 44px;
+  margin-top: 4px;
+  border: 1px solid rgba(167, 139, 250, 0.4);
+  border-radius: var(--radius-sm);
+  background: linear-gradient(110deg, #6d28d9, #7c3aed 45%, #0891b2);
+  background-size: 200% 100%;
+  box-shadow: 0 10px 25px var(--violet-glow);
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  overflow: hidden;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}}
+.btn-generate-shimmer:before {{
+  content: "";
+  position: absolute;
+  inset: -2px auto -2px -45%;
+  width: 35%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.45), transparent);
+  transform: skewX(-20deg);
+  animation: shimmer-btn 3.5s infinite ease-in-out;
+}}
+.btn-generate-shimmer:hover {{
+  transform: translateY(-2px);
+  box-shadow: 0 14px 32px var(--violet-glow), 0 0 20px var(--cyan-glow);
+}}
+
+@keyframes shimmer-btn {{
+  0%, 60% {{ left: -45%; }}
+  100% {{ left: 130%; }}
+}}
+
+.form-footnote {{
+  margin-top: 14px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted-dark);
+}}
+/* Result & Error Boxes */
+.result-box {{
+  margin-bottom: 24px;
+  padding: 20px 24px;
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  border-radius: var(--radius-panel);
+  background: var(--panel-bg);
+  box-shadow: 0 16px 40px rgba(16, 185, 129, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(20px);
+}}
+.result-header {{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}}
+.result-status-title {{
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}}
+.badge-success-glow {{
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--emerald-bg);
+  border: 1px solid rgba(52, 211, 153, 0.4);
+  color: var(--emerald);
+  font-size: 12px;
+  font-weight: 800;
+}}
+.result-node-info {{
+  font-size: 12px;
+  color: var(--muted);
+}}
+.result-node-info code {{
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--card-bg);
+  color: var(--cyan);
+  font-family: ui-monospace, monospace;
+}}
+.result-label {{
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-secondary);
+}}
+.copy-field-wrap {{
+  display: flex;
+  gap: 10px;
+}}
+.copy-field-wrap input {{
+  flex: 1;
+  height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card-bg);
+  color: var(--cyan);
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+  font-weight: 700;
+  outline: none;
+}}
+.btn-copy-magic {{
+  flex: 0 0 auto;
+  height: 44px;
+  padding: 0 20px;
+  border: 1px solid rgba(34, 211, 238, 0.4);
+  border-radius: var(--radius-sm);
+  background: rgba(34, 211, 238, 0.12);
+  color: var(--cyan);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 750;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}}
+.btn-copy-magic:hover {{
+  background: var(--cyan);
+  color: #040711;
+  box-shadow: 0 0 18px var(--cyan-glow);
+}}
+.result-hint {{
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--muted);
+}}
+
+.alert-error-box {{
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 24px;
+  padding: 16px 20px;
+  border: 1px solid rgba(251, 113, 133, 0.35);
+  border-radius: var(--radius-panel);
+  background: var(--danger-bg);
+  color: var(--danger);
+}}
+.alert-error-icon {{ font-size: 18px; line-height: 1; }}
+.alert-error-text strong {{ display: block; margin-bottom: 2px; font-size: 13px; }}
+.alert-error-text span {{ font-size: 12px; }}
+
+/* My Routes Glass Table */
+.my-routes-box {{
+  position: relative;
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  background: var(--panel-bg);
+  box-shadow: var(--shadow-magic);
+  backdrop-filter: blur(20px);
+}}
+.routes-table-wrap {{
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin-top: 10px;
+}}
+.magic-data-table {{
+  width: 100%;
+  min-width: 820px;
+  border-collapse: separate;
+  border-spacing: 0 8px;
+}}
+.magic-data-table th {{
+  padding: 8px 12px;
+  border: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  text-align: left;
+}}
+.magic-data-table td {{
+  padding: 12px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--ink-secondary);
+  font-size: 13px;
+  vertical-align: middle;
+  transition: background 0.18s ease, border-color 0.18s ease;
+}}
+.magic-data-table td:first-child {{
+  border-left: 1px solid var(--border);
+  border-radius: 12px 0 0 12px;
+}}
+.magic-data-table td:last-child {{
+  border-right: 1px solid var(--border);
+  border-radius: 0 12px 12px 0;
+}}
+.magic-data-table tr.route-row:hover td {{
+  border-color: var(--border-hover);
+  background: var(--card-hover);
+}}
+
+.url-badge {{
+  display: inline-block;
+  max-width: 220px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}}
+.url-badge.origin-url {{ color: var(--muted); }}
+.url-badge.public-url {{ color: var(--cyan); font-weight: 700; }}
+
+.copy-flex-cell {{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}}
+.btn-table-copy {{
+  flex: 0 0 auto;
+  height: 26px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card-bg);
+  color: var(--ink-secondary);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}}
+.btn-table-copy:hover {{
+  border-color: var(--cyan);
+  color: var(--cyan);
+}}
+
+.node-tag-pill {{
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: rgba(148, 163, 184, 0.08);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink);
+}}
+
+.status-pill {{
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+}}
+.status-pill .pulse-dot {{
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}}
+.status-pill.state-active {{ background: var(--emerald-bg); color: var(--emerald); }}
+.status-pill.state-failed {{ background: var(--danger-bg); color: var(--danger); }}
+.status-pill.state-paused {{ background: rgba(148, 163, 184, 0.12); color: var(--muted); }}
+.route-error-msg {{ margin-top: 3px; font-size: 11px; color: var(--danger); }}
+
+.col-note {{ min-width: 140px; }}
+.note-view-box {{ display: inline-flex; align-items: center; gap: 6px; }}
+.note-text {{ max-width: 140px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--ink); font-size: 12px; }}
+.note-text.empty-note {{ color: var(--muted-dark); }}
+.btn-note-edit {{
+  display: grid;
+  place-items: center;
+  width: 22px; height: 22px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+}}
+.btn-note-edit:hover {{ border-color: var(--violet); color: var(--violet); }}
+.note-inline-form {{ display: none; align-items: center; gap: 5px; }}
+.note-inline-form.is-open {{ display: flex; }}
+.note-inline-form input {{
+  width: 110px; height: 26px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--card-bg);
+  color: var(--ink);
+  font-size: 11px;
+}}
+.btn-note-save {{
+  height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--violet);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}}
+.btn-note-cancel {{
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+}}
+
+.btn-table-delete {{
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid rgba(251, 113, 133, 0.3);
+  border-radius: 6px;
+  background: var(--danger-bg);
+  color: var(--danger);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}}
+.btn-table-delete:hover {{
+  background: var(--danger);
+  color: #fff;
+}}
+
+.table-empty-box {{
+  padding: 40px 16px;
+  text-align: center;
+  color: var(--muted);
+}}
+.empty-sparkle {{
+  font-size: 24px;
+  color: var(--violet);
+  margin-bottom: 6px;
+}}
+
+/* Responsive Breakpoints */
+@media (max-width: 960px) {{
+  .magic-workspace {{
+    grid-template-columns: 1fr;
+  }}
+}}
+@media (max-width: 640px) {{
+  .magic-shell {{ padding: 14px 12px 40px; }}
+  .magic-nav {{ padding: 10px 12px; }}
+  .bento-nodes-box, .route-creation-card, .my-routes-box {{ padding: 18px 14px; }}
+  .node-grid {{ grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }}
+  .node-card {{ min-height: 92px; padding: 10px; }}
+  .nav-badge.status {{ display: none; }}
 }}
 </style>
 </head>
 <body data-theme="dark">
-<header class="app-header">
-  <a href="/" class="nav-brand">
-    <span class="brand-icon">⚡</span>
-    <span class="brand-title">Emby Relay</span>
-  </a>
-  <div class="nav-right">
-    <span class="nav-chip">👤 {html.escape(user['username'])}</span>
-    <span class="nav-chip">线路 <b>{used_routes}</b>/{route_quota}</span>
-    <span class="nav-chip expiry">{html.escape(expiry_label)}</span>
-    <button type="button" class="btn-icon" id="user-theme-toggle" title="切换主题" aria-label="切换主题">☼</button>
-    <a class="nav-link" href="/account">账号安全</a>
-    {admin_link}
-    <form method="post" action="/logout" style="margin:0">
-      <input type="hidden" name="csrf" value="{html.escape(csrf_token, quote=True)}">
-      <button type="submit" class="btn-logout">退出</button>
-    </form>
-  </div>
-</header>
 
-<main class="main-container">
-  <section class="panel-card">
-    <div class="panel-header">
+<div class="aurora-bg">
+  <div class="aurora-blob blob-1"></div>
+  <div class="aurora-blob blob-2"></div>
+  <div class="aurora-blob blob-3"></div>
+</div>
+<div class="grid-mesh"></div>
+
+<main class="magic-shell">
+  <!-- Floating Glass Nav -->
+  <header class="magic-nav">
+    <a href="/" class="nav-brand">
+      <span class="brand-gem">✨</span>
+      <div class="brand-meta">
+        <strong>Emby Relay</strong>
+        <small>智能媒体反代</small>
+      </div>
+    </a>
+    <div class="nav-actions">
+      <span class="nav-badge user">✤ {html.escape(user['username'])}</span>
+      <span class="nav-badge quota">皂 线路 <b>{used_routes}</b>/{route_quota}</span>
+      <span class="nav-badge status"><i class="dot"></i>{html.escape(expiry_label)}</span>
+      <button type="button" class="nav-btn-icon" id="user-theme-toggle" title="切换深色/浅色主题" aria-label="切换主题">☼</button>
+      <a class="nav-link-btn" href="/account">账号安全</a>
+      {admin_link}
+      <form method="post" action="/logout" style="margin:0">
+        <input type="hidden" name="csrf" value="{html.escape(csrf_token, quote=True)}">
+        <button type="submit" class="btn-logout">退出</button>
+      </form>
+    </div>
+  </header>
+  <!-- Main Workspace: 3/4 Bento Nodes + 1/4 Compact Form -->
+  <section class="magic-workspace">
+    <!-- Left 3/4: Node Matrix -->
+    <div class="bento-nodes-box">
+      <div class="box-header">
+        <div class="box-header-title">
+          <h2>✨ 选择加速节点</h2>
+          <p>点凾卡片选择节点，浏览器将实时探测各节点连接延迟</p>
+        </div>
+        <button type="button" class="btn-probe-magic" id="test-nodes">⚡ 探测延迟</button>
+      </div>
+
+      <div class="node-grid" id="nodes">
+        {node_cards}
+      </div>
+    </div>
+
+    <!-- Right 1/4: Compact Route Form -->
+    <div class="route-creation-card">
       <div>
-        <h2 class="panel-title">选择节点</h2>
-        <p class="panel-subtitle">点击选择目标加速节点</p>
+        <div class="form-header">
+          <h3>斷 创建专属线路</h3>
+          <div class="form-selected-node">
+            已选节点：<span class="badge-chosen-node" id="selected-node-display">{html.escape(selected_node_name)}</span>
+          </div>
+        </div>
+
+        <form class="magic-form" method="post">
+          <input type="hidden" name="csrf" value="{html.escape(csrf_token, quote=True)}">
+          <input type="hidden" name="node_id" id="node-id" value="{selected_node_id}">
+
+          <div class="form-item">
+            <label>源站地址 (Emby URL)</label>
+            <input class="magic-input" required name="url" placeholder="https://emby.domain.com:8096" value="{html.escape(raw_url)}">
+          </div>
+
+          <div class="form-item">
+            <label>线路备注 <span class="opt-tag">（可选）</span></label>
+            <input class="magic-input" name="route_note" maxlength="500" placeholder="例如：主力影视库、日漫" value="{html.escape(raw_route_note, quote=True)}">
+          </div>
+
+          <button type="submit" class="btn-generate-shimmer">立即生成反代线路</button>
+        </form>
       </div>
-      <button type="button" class="btn-secondary" id="test-nodes">⚡ 探测延迟</button>
+
+      <p class="form-footnote">✡ 全链路清洗源站及代理特征，保障隐私与高码率流畅播放体验。</p>
     </div>
-
-    <div class="node-grid" id="nodes">
-      {node_cards}
-    </div>
-
-    <div class="panel-divider"></div>
-
-    <form method="post">
-      <input type="hidden" name="csrf" value="{html.escape(csrf_token, quote=True)}">
-      <input type="hidden" name="node_id" id="node-id" value="{selected_node_id}">
-      
-      <div class="form-group">
-        <label class="form-label">源站地址 (Emby Server URL)</label>
-        <input class="form-input" required name="url" placeholder="https://emby.example.com:8096" value="{html.escape(raw_url)}">
-      </div>
-      
-      <div class="form-group">
-        <label class="form-label">线路备注 <span class="label-optional">（可选）</span></label>
-        <input class="form-input" name="route_note" maxlength="500" placeholder="例如：主力影视库、日漫专用" value="{html.escape(raw_route_note, quote=True)}">
-      </div>
-      
-      <button type="submit" class="btn-primary">立即生成反代线路</button>
-    </form>
   </section>
 
+  <!-- Result Banner if Created -->
   {result_html}
 
-  <section class="panel-card">
-    <div class="panel-header">
-      <div>
-        <h2 class="panel-title">我的反代线路</h2>
-        <p class="panel-subtitle">已创建的专属访问地址列表</p>
+  <!-- My Routes List -->
+  <section class="my-routes-box">
+    <div class="box-header">
+      <div class="box-header-title">
+        <h2>皂 我的反代线路</h2>
+        <p>已创建的专属诿问地址，删除后将实时释放配额</p>
       </div>
-      <span class="count-tag">{used_routes} 条</span>
+      <span class="nav-badge">共 {used_routes} 条</span>
     </div>
 
-    <div class="table-wrap">
-      <table class="data-table">
+    <div class="routes-table-wrap">
+      <table class="magic-data-table">
         <thead>
           <tr>
-            <th>原线路（源站）</th>
+            <th>源站地址</th>
             <th>专属反代地址</th>
-            <th>节点</th>
+            <th>分配节点</th>
             <th>备注</th>
             <th>状态</th>
             <th>操作</th>
@@ -1005,11 +1710,21 @@ function pick(id) {{
   selected = id;
   const nodeInput = document.getElementById('node-id');
   if (nodeInput) nodeInput.value = id;
+  
+  let chosenName = '未选择';
   document.querySelectorAll('.node-card').forEach(card => {{
     const active = Number(card.dataset.nodeId) === id;
     card.classList.toggle('selected', active);
     card.setAttribute('aria-pressed', String(active));
+    if (active) {{
+      chosenName = card.dataset.nodeName || ('节点 #' + id);
+    }}
   }});
+  
+  const displayEl = document.getElementById('selected-node-display');
+  if (displayEl) {{
+    displayEl.textContent = chosenName;
+  }}
 }}
 
 document.querySelectorAll('.node-card').forEach(card => {{
@@ -1021,22 +1736,22 @@ async function probe(node) {{
   if (!badge) return;
   const textEl = badge.querySelector('.latency-text') || badge;
   textEl.textContent = '…';
-  badge.className = 'latency-badge';
+  bacge.className = 'latency-badge';
   const start = performance.now();
   try {{
     await fetch(node.probe_url + '?t=' + Date.now(), {{ mode: 'no-cors', cache: 'no-store' }});
     const ms = Math.round(performance.now() - start);
     textEl.textContent = ms + ' ms';
     if (ms < 120) {{
-      badge.className = 'latency-badge fast';
+      bacge.className = 'latency-badge fast';
     }} else if (ms < 280) {{
-      badge.className = 'latency-badge medium';
+      bacge.className = 'latency-badge medium';
     }} else {{
-      badge.className = 'latency-badge slow';
+      bacge.className = 'latency-badge slow';
     }}
   }} catch (e) {{
     textEl.textContent = '超时';
-    badge.className = 'latency-badge error';
+    bacge.className = 'latency-badge error';
   }}
 }}
 
@@ -1077,23 +1792,23 @@ document.querySelectorAll('[data-copy]').forEach(button => {{
     setTimeout(() => {{
       if (copyTextSpan) copyTextSpan.textContent = oldText;
       else button.textContent = oldText;
-    }}, 1500);
+    }}, 1600);
   }});
 }});
 
 document.querySelectorAll('.col-note').forEach(cell => {{
-  const view = cell.querySelector('.note-view');
-  const form = cell.querySelector('.note-form');
+  const view = cell.querySelector('.note-view-box');
+  const form = cell.querySelector('.note-inline-form');
   const input = form?.querySelector('input[name="notes"]');
   cell.querySelector('.btn-note-edit')?.addEventListener('click', () => {{
-    view.style.display = 'none';
-    form.classList.add('is-open');
+    if (view) view.style.display = 'none';
+    form?.classList.add('is-open');
     input?.focus();
     input?.select();
   }});
   cell.querySelector('.btn-note-cancel')?.addEventListener('click', () => {{
-    form.classList.remove('is-open');
-    view.style.display = '';
+    form?.classList.remove('is-open');
+    if (view) view.style.display = '';
   }});
 }});
 
@@ -1128,115 +1843,116 @@ userThemeToggle?.addEventListener('click', () => {{
     )
     return response
 
-async def handle(request: web.Request):
-    if request.path == "/__health":
-        return web.Response(text="ok\n")
-    if request.path == "/favicon.ico":
-        return web.Response(status=204)
 
-    panel = request.app.get("panel")
-    if is_base_proxy_host(request) and (request.path == "/_admin" or request.path.startswith("/_admin/")) and panel is not None:
-        return await panel.handle(request)
-    if is_base_proxy_host(request) and request.path == "/_agent/heartbeat" and panel is not None:
-        return await panel.agent_heartbeat(request)
-    if is_base_proxy_host(request) and panel is not None and (
-        request.path in {"/login", "/register", "/logout", "/account", "/account/password"}
-        or re.fullmatch(r"/my/routes/\d+/(delete|note)", request.path)
-    ):
-        return await panel.handle_user(request)
-
-    if is_base_proxy_host(request) and request.path in {"/", "/gen"}:
-        return await generator_response(request)
-
-    # Generated routes are served directly by Nginx.  This process is only the
-    # UI/control plane and must never act as a generic outbound proxy.
-    raise web.HTTPNotFound()
-
-@web.middleware
-async def security_headers(request: web.Request, handler):
-    try:
-        response = await handler(request)
-    except web.HTTPException as exc:
-        response = exc
-    response.headers.setdefault("Cache-Control", "no-store")
-    response.headers.setdefault("Strict-Transport-Security", "max-age=31536000")
-    response.headers.setdefault("X-Content-Type-Options", "nosniff")
-    response.headers.setdefault("X-Frame-Options", "DENY")
-    response.headers.setdefault("Referrer-Policy", "no-referrer")
-    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
-    response.headers.setdefault(
-        "Content-Security-Policy",
-        "default-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; "
-        "form-action 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
-        "script-src 'self'; connect-src 'self' https:",
-    )
-    response.headers["Server"] = ""
-    return response
-
-
-async def create_app():
-    app = web.Application(client_max_size=8 * 1024**2, middlewares=[security_headers])
-    from panel import ProxyPanel
-    panel = ProxyPanel(normalized_origin)
-    panel.setup()
-    await panel.refresh_local_location()
-    app["panel"] = panel
-    async def reconcile_users(application: web.Application) -> None:
-        while True:
-            try:
-                await asyncio.to_thread(application["panel"].reconcile_inactive_users)
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                # A failed remote-node cleanup remains visible on the route and is retried later.
-                pass
-            await asyncio.sleep(60)
-
-    async def collect_traffic(application: web.Application) -> None:
-        while True:
-            try:
-                await asyncio.to_thread(application["panel"].collect_traffic_usage)
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                # A single unavailable node is retried on the next collection pass.
-                pass
-            await asyncio.sleep(60)
-
-    async def renew_node_certificates(application: web.Application) -> None:
-        interval = max(3600, int(os.environ.get("CERT_RENEW_INTERVAL", "21600")))
-        while True:
-            try:
-                await asyncio.to_thread(application["panel"].renew_node_certificates)
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                # Renewal failures leave the previous certificate in place and
-                # are retried on the next pass; operators can inspect logs.
-                pass
-            await asyncio.sleep(interval)
-
-    async def start_reconciler(application: web.Application) -> None:
-        application["user_reconciler"] = asyncio.create_task(reconcile_users(application))
-        application["traffic_collector"] = asyncio.create_task(collect_traffic(application))
-        application["certificate_renewer"] = asyncio.create_task(renew_node_certificates(application))
-
-    async def stop_reconciler(application: web.Application) -> None:
-        for name in ("user_reconciler", "traffic_collector", "certificate_renewer"):
-            task = application.get(name)
-            if task:
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
-
-    app.on_startup.append(start_reconciler)
-    app.on_cleanup.append(stop_reconciler)
-    app.router.add_route("*", "/{path_info:.*}", handle)
-
-    return app
-
-
-if __name__ == "__main__":
-    web.run_app(create_app(), host=LISTEN_HOST, port=LISTEN_PORT)
+async def handle(request: web.Request):
+    if request.path == "/__health":
+        return web.Response(text="ok\n")
+    if request.path == "/favicon.ico":
+        return web.Response(status=204)
+
+    panel = request.app.get("panel")
+    if is_base_proxy_host(request) and (request.path == "/_admin" or request.path.startswith("/_admin/")) and panel is not None:
+        return await panel.handle(request)
+    if is_base_proxy_host(request) and request.path == "/_agent/heartbeat" and panel is not None:
+        return await panel.agent_heartbeat(request)
+    if is_base_proxy_host(request) and panel is not None and (
+        request.path in {"/login", "/register", "/logout", "/account", "/account/password"}
+        or re.fullmatch(r"/my/routes/\d+/(delete|note)", request.path)
+    ):
+        return await panel.handle_user(request)
+
+    if is_base_proxy_host(request) and request.path in {"/", "/gen"}:
+        return await generator_response(request)
+
+    # Generated routes are served directly by Nginx.  This process is only the
+    # UI/control plane and must never act as a generic outbound proxy.
+    raise web.HTTPNotFound()
+
+@web.middleware
+async def security_headers(request: web.Request, handler):
+    try:
+        response = await handler(request)
+    except web.HTTPException as exc:
+        response = exc
+    response.headers.setdefault("Cache-Control", "no-store")
+    response.headers.setdefault("Strict-Transport-Security", "max-age=31536000")
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; "
+        "form-action 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+        "script-src 'self'; connect-src 'self' https:",
+    )
+    response.headers["Server"] = ""
+    return response
+
+
+async def create_app():
+    app = web.Application(client_max_size=8 * 1024**2, middlewares=[security_headers])
+    from panel import ProxyPanel
+    panel = ProxyPanel(normalized_origin)
+    panel.setup()
+    await panel.refresh_local_location()
+    app["panel"] = panel
+    async def reconcile_users(application: web.Application) -> None:
+        while True:
+            try:
+                await asyncio.to_thread(application["panel"].reconcile_inactive_users)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # A failed remote-node cleanup remains visible on the route and is retried later.
+                pass
+            await asyncio.sleep(60)
+
+    async def collect_traffic(application: web.Application) -> None:
+        while True:
+            try:
+                await asyncio.to_thread(application["panel"].collect_traffic_usage)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # A single unavailable node is retried on the next collection pass.
+                pass
+            await asyncio.sleep(60)
+
+    async def renew_node_certificates(application: web.Application) -> None:
+        interval = max(3600, int(os.environ.get("CERT_RENEW_INTERVAL", "21600")))
+        while True:
+            try:
+                await asyncio.to_thread(application["panel"].renew_node_certificates)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # Renewal failures leave the previous certificate in place and
+                # are retried on the next pass; operators can inspect logs.
+                pass
+            await asyncio.sleep(interval)
+
+    async def start_reconciler(application: web.Application) -> None:
+        application["user_reconciler"] = asyncio.create_task(reconcile_users(application))
+        application["traffic_collector"] = asyncio.create_task(collect_traffic(application))
+        application["certificate_renewer"] = asyncio.create_task(renew_node_certificates(application))
+
+    async def stop_reconciler(application: web.Application) -> None:
+        for name in ("user_reconciler", "traffic_collector", "certificate_renewer"):
+            task = application.get(name)
+            if task:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+
+    app.on_startup.append(start_reconciler)
+    app.on_cleanup.append(stop_reconciler)
+    app.router.add_route("*", "/{path_info:.*}", handle)
+
+    return app
+
+
+if __name__ == "__main__":
+    web.run_app(create_app(), host=LISTEN_HOST, port=LISTEN_PORT)
