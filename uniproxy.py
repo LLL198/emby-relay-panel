@@ -601,92 +601,1061 @@ async def generator_response(request: web.Request):
                 int(user["id"]),
                 raw_route_note,
             )
-            checks_section = "<p class='hint'>线路已下发到所选节点。可点击上方“测试延迟”从当前浏览器重新测试节点。</p>"
+            checks_section = "<p class='hint'>线路已下发到所选节点。可点击上方“重新测试”重新检测各节点网络延迟。</p>"
             result_html = f"""
-            <section class="result">
-                <span class="eyebrow">线路已就绪</span>
-                <label>完整 HTTPS 地址</label>
-                <div class="copy-field"><input readonly value="{html.escape(https_url, quote=True)}"><button type="button" class="copy-route" data-copy="{html.escape(https_url, quote=True)}">复制</button></div>
-                <p class="hint">已分配节点域名：{html.escape(host)}。正在播放的连接不会因后续节点操作被中断。</p>
+            <section class="result-card">
+                <div class="result-header">
+                    <span class="badge-success">✓ 线路已就绪</span>
+                    <span class="hint">已分配节点域名：{html.escape(host)}</span>
+                </div>
+                <label>完整 HTTPS 访问地址</label>
+                <div class="copy-field">
+                    <input readonly value="{html.escape(https_url, quote=True)}">
+                    <button type="button" class="copy-route btn-copy" data-copy="{html.escape(https_url, quote=True)}">复制</button>
+                </div>
                 {checks_section}
             </section>
             """
         except Exception as exc:
-            result_html = f"<p class='error'>{html.escape(str(exc))}。示例：https://emby.example.com</p>"
+            result_html = f"<div class='error-banner'><span>⚠</span><span>{html.escape(str(exc))}。示例：https://emby.example.com</span></div>"
 
     node_cards_parts = []
     for node in nodes:
         meta_label = node["code"].lower() if node["is_local"] else (node["country_name"] or node["health"])
         node_cards_parts.append(
             f"<button type='button' title='{html.escape(node['name'], quote=True)}' aria-pressed={'true' if node['id'] == selected_node_id else 'false'} class='node-card{' selected' if node['id'] == selected_node_id else ''}' data-node-id='{node['id']}'>"
-            f"<span class='node-title'><span class='node-flag'>{node['flag_markup']}</span></span>"
-            f"<span class='node-name'>{html.escape(node['name'])}</span>"
-            f"<span class='node-meta'><small>{html.escape(meta_label)}</small><b class='latency' data-latency='{node['id']}'>待测试</b></span></button>"
+            f"<div class='node-card-flag'>{node['flag_markup']}</div>"
+            f"<span class='node-card-name'>{html.escape(node['name'])}</span>"
+            f"<div class='node-card-footer'><span class='node-card-loc'>{html.escape(meta_label)}</span><span class='latency' data-latency='{node['id']}'>待测试</span></div>"
+            f"</button>"
         )
     node_cards = "".join(node_cards_parts) or "<p class='hint'>暂时没有可用节点。</p>"
     nodes_json = json.dumps(nodes, separators=(",", ":"), ensure_ascii=False).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
     route_rows = []
     for route in panel.user_routes(int(user["id"])):
         state = "已暂停" if route["suspended_by_owner"] else ("已下发" if route["deployed"] else "部署失败")
-        state_class = "off" if route["suspended_by_owner"] else ("" if route["deployed"] else "error-state")
-        error = f"<br><span class='route-error'>{html.escape(route['last_error'])}</span>" if route["last_error"] else ""
+        state_class = "state-paused" if route["suspended_by_owner"] else ("state-active" if route["deployed"] else "state-failed")
+        error = f"<div class='route-error'>{html.escape(route['last_error'])}</div>" if route["last_error"] else ""
         note = str(route["notes"] or "")
         note_display = html.escape(note) if note else "未填写"
         note_class = "" if note else " empty"
-        note_editor = f"<td class='route-note-cell'><div class='route-note-view'><span class='route-note-text{note_class}'>{note_display}</span><button type='button' class='note-edit' title='编辑备注' aria-label='编辑备注'>✎</button></div><form class='route-note-form' method='post' action='/my/routes/{route['id']}/note'><input type='hidden' name='csrf' value='{html.escape(csrf_token, quote=True)}'><input name='notes' maxlength='500' value='{html.escape(note, quote=True)}' placeholder='线路备注'><button type='submit'>保存</button><button type='button' class='note-cancel'>取消</button></form></td>"
+        note_editor = f"<td class='route-note-cell'><div class='route-note-view'><span class='route-note-text{note_class}'>{note_display}</span><button type='button' class='note-edit' title='编辑备注' aria-label='编辑备注'>✎</button></div><form class='route-note-form' method='post' action='/my/routes/{route['id']}/note'><input type='hidden' name='csrf' value='{html.escape(csrf_token, quote=True)}'><input name='notes' maxlength='500' value='{html.escape(note, quote=True)}' placeholder='线路备注'><button type='submit' class='btn-save'>保存</button><button type='button' class='note-cancel'>取消</button></form></td>"
         route_rows.append(
-            f"<tr><td><span class='route-url'>{html.escape(route['origin'])}</span></td>"
-            f"<td><div class='route-link-cell'><span class='route-url'>{html.escape(route['public_url'])}</span><button type='button' class='copy-route' data-copy='{html.escape(route['public_url'], quote=True)}'>复制</button></div></td>"
-            f"<td>{html.escape(route['node_name'])}</td>{note_editor}<td><span class='route-state {state_class}'>{state}</span>{error}</td><td><form method='post' action='/my/routes/{route['id']}/delete'>"
-            f"<input type='hidden' name='csrf' value='{html.escape(csrf_token, quote=True)}'><button class='delete-route'>删除</button></form></td></tr>"
+            f"<tr>"
+            f"<td><span class='route-url origin-url'>{html.escape(route['origin'])}</span></td>"
+            f"<td><div class='route-link-cell'><span class='route-url public-url'>{html.escape(route['public_url'])}</span><button type='button' class='copy-route' data-copy='{html.escape(route['public_url'], quote=True)}'>复制</button></div></td>"
+            f"<td><span class='node-tag'>{html.escape(route['node_name'])}</span></td>"
+            f"{note_editor}"
+            f"<td><span class='route-state {state_class}'>{state}</span>{error}</td>"
+            f"<td class='action-cell'><form method='post' action='/my/routes/{route['id']}/delete'><input type='hidden' name='csrf' value='{html.escape(csrf_token, quote=True)}'><button class='delete-route' title='删除此线路'>删除</button></form></td>"
+            f"</tr>"
         )
     used_routes, route_quota = panel.user_route_usage(int(user["id"]))
-    my_routes_html = "".join(route_rows) or "<tr><td colspan='6' class='hint'>你还没有创建线路。</td></tr>"
+    my_routes_html = "".join(route_rows) or "<tr><td colspan='6' class='empty-table'>你还没有创建线路，在上方输入源站地址即可快速生成。</td></tr>"
     expiry_label = panel._display_expiry(user["expires_at"])
-    admin_link = "<a class='admin-link' href='/_admin'>管理后台</a>" if int(user["is_admin"] or 0) else ""
+    admin_link = "<a class='action-pill admin-pill' href='/_admin'>⚡ 管理后台</a>" if int(user["is_admin"] or 0) else ""
     csp_nonce = secrets.token_urlsafe(16)
 
     body = f"""<!doctype html>
 <html lang="zh-CN">
+<head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Emby Relay · 线路面板</title>
+<title>Emby Relay · 节点与线路管理</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E">
 <link rel="shortcut icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E">
 <style>
-*{{box-sizing:border-box}}body{{margin:0;min-height:100vh;overflow-x:hidden;color:#24334d;background:linear-gradient(145deg,#f8fbff 0%,#f4f7fe 47%,#eef7f8 100%);font-family:"PingFang SC","Microsoft YaHei",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}}body:before,body:after{{content:"";position:fixed;z-index:-1;pointer-events:none;border-radius:50%;filter:blur(8px)}}body:before{{width:42vw;height:42vw;left:-15vw;top:-16vw;background:radial-gradient(circle,rgba(174,195,255,.45),rgba(174,195,255,0) 70%)}}body:after{{width:46vw;height:46vw;right:-14vw;bottom:-23vw;background:radial-gradient(circle,rgba(172,228,221,.42),rgba(172,228,221,0) 70%)}}
-    main{{max-width:980px;margin:0 auto;padding:30px 24px 62px}}.topbar{{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:55px}}.brand{{display:flex;align-items:center;gap:10px;color:#33455f;font-weight:750;letter-spacing:.04em;font-size:15px}}.brand-mark{{display:grid;place-items:center;width:34px;height:34px;border:1px solid #d9e3f7;border-radius:12px;color:#6079b7;background:linear-gradient(145deg,#fff,#edf3ff);box-shadow:0 8px 20px rgba(96,121,183,.12)}}.live{{display:flex;gap:8px;align-items:center;color:#61718a;font-size:12px;padding:8px 12px;border:1px solid rgba(192,205,226,.7);border-radius:999px;background:rgba(255,255,255,.65);box-shadow:0 5px 16px rgba(73,99,143,.06)}}.live i{{width:7px;height:7px;border-radius:50%;background:#61bd8a;box-shadow:0 0 0 4px rgba(97,189,138,.12)}}.account-actions{{display:flex;align-items:center;gap:8px}}.account-actions a{{color:#526b9f;font-size:12px;text-decoration:none}}.logout-form{{margin:0}}button.logout{{height:34px;padding:0 10px;border-color:#d7e0ef;background:#f9fbff;box-shadow:none;color:#617595;font-size:12px}}
-.hero{{max-width:710px;margin:0 auto 34px;text-align:center}}h1{{margin:9px 0 16px;color:#293b59;font-size:clamp(38px,6vw,64px);line-height:1.15;letter-spacing:-.055em;font-weight:780}}h1 span{{color:#657dbc}}.eyebrow{{display:inline-flex;align-items:center;gap:7px;color:#6682bb;font-size:13px;font-weight:700;letter-spacing:.08em}}.eyebrow:before{{content:"";width:18px;height:1px;background:#a9b9dd}}.subtitle,.hint{{color:#71809a;line-height:1.8}}.subtitle{{max-width:570px;margin:0 auto;font-size:15px}}.workspace,.result{{position:relative;overflow:hidden;margin-top:20px;padding:27px 28px;border:1px solid rgba(208,219,238,.88);border-radius:22px;background:rgba(255,255,255,.7);box-shadow:0 20px 55px rgba(75,98,142,.1);backdrop-filter:blur(18px)}}.workspace:after{{content:"";position:absolute;width:260px;height:260px;right:-145px;top:-180px;border-radius:50%;background:radial-gradient(circle,rgba(181,202,249,.25),rgba(181,202,249,0) 68%);pointer-events:none}}
-.section-line{{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:16px}}.section-line h2{{margin:0;color:#405572;font-size:15px;letter-spacing:.01em}}.section-line span{{font-size:12px;color:#8795aa}}.nodes{{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;max-width:540px;margin:0 auto 17px}}.node-card{{display:flex;flex-direction:column;justify-content:center;gap:5px;min-height:82px;padding:8px 10px;text-align:center;color:#18243a;border:2px solid #edf0f5;border-radius:16px;background:rgba(255,255,255,.94);cursor:pointer;transition:transform .18s,border-color .18s,box-shadow .18s,background .18s}}.node-card:hover{{transform:translateY(-2px);border-color:#cbd8ef;box-shadow:0 8px 18px rgba(87,111,157,.1)}}.node-card.selected{{border-color:#2763ff;background:#fbfdff;box-shadow:0 0 0 1px #2763ff,0 8px 18px rgba(39,99,255,.1)}}.node-title{{display:flex;align-items:center;justify-content:center;min-height:24px}}.node-flag{{display:grid;place-items:center;line-height:1}}.flag-icon{{display:block;width:30px;height:20px;border-radius:3px;box-shadow:0 1px 4px rgba(55,72,104,.22)}}.node-name{{display:block;overflow:hidden;color:#485e7d;font-size:11px;font-weight:700;line-height:1.35;white-space:nowrap;text-overflow:ellipsis}}.node-meta{{display:flex;align-items:center;justify-content:space-between;gap:8px}}.node-card small{{overflow:hidden;color:#8a96a8;font-size:10px;white-space:nowrap;text-overflow:ellipsis}}.latency{{flex:0 0 auto;color:#667b9f;font-size:10px;font-weight:700}}
-    .tools{{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:18px 0 7px}}button{{height:47px;padding:0 20px;border:1px solid #607abc;border-radius:12px;background:linear-gradient(135deg,#6d84bd,#5873ae);box-shadow:0 10px 20px rgba(82,108,165,.2);color:#fff;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;transition:transform .16s,box-shadow .16s}}button:hover{{transform:translateY(-1px);box-shadow:0 13px 23px rgba(82,108,165,.28)}}button.secondary{{height:38px;padding:0 13px;border-color:#d7e0ef;background:#f9fbff;box-shadow:none;color:#617595}}button.copy-route{{height:30px;margin:6px 0 0 7px;padding:0 9px;border-color:#d7e0ef;background:#f9fbff;box-shadow:none;color:#526b9f;font-size:11px}}.copy-field{{display:flex;gap:8px;align-items:center}}.copy-field button.copy-route{{height:42px;flex:0 0 auto;margin:6px 0 0;padding:0 14px;font-size:13px}}.route-form{{padding-top:20px;border-top:1px solid #e6ebf4}}.route-note-field{{margin-top:10px}}label{{display:block;margin:0 0 9px;color:#536882;font-size:13px;font-weight:720}}.row{{display:flex;gap:10px}}input{{width:100%;min-width:0;padding:13px 15px;outline:0;color:#30435f;border:1px solid #d8e1ef;border-radius:12px;background:#fff;font:15px inherit;transition:border-color .18s,box-shadow .18s}}input::placeholder{{color:#a5b0c1}}input:focus{{border-color:#8fa7dc;box-shadow:0 0 0 4px rgba(143,167,220,.16)}}.row button{{min-width:116px}}.hint{{margin:10px 0 0;font-size:12px}}.error{{padding:14px;border:1px solid #f2c8d0;border-radius:13px;color:#b85f6d;background:#fff5f6}}.result{{border-color:#c9daf1}}.result input{{margin-top:6px}}.result .eyebrow{{margin-bottom:15px}}.my-routes{{margin-top:20px;padding:22px 24px;border:1px solid rgba(208,219,238,.88);border-radius:20px;background:rgba(255,255,255,.7);box-shadow:0 18px 48px rgba(75,98,142,.08)}}.my-routes h2{{margin:0;color:#405572;font-size:16px}}.routes-scroll{{overflow-x:auto;-webkit-overflow-scrolling:touch}}.my-routes table{{width:100%;min-width:800px;margin-top:14px;border-collapse:collapse}}.my-routes th,.my-routes td{{padding:10px 7px;border-bottom:1px solid #e4ebf5;text-align:left;vertical-align:top;font-size:12px}}.route-url{{color:#315fbd;word-break:break-all}}.route-note-cell{{min-width:170px}}.route-note-view{{display:inline-flex;align-items:center;gap:6px;max-width:210px}}.route-note-text{{overflow:hidden;color:#526b9f;white-space:nowrap;text-overflow:ellipsis}}.route-note-text.empty{{color:#97a4b7}}button.note-edit{{width:25px;height:25px;margin:0;padding:0;border:1px solid #d7e0ef;border-radius:7px;background:#f9fbff;box-shadow:none;color:#526b9f;font-size:13px;line-height:1}}button.note-edit:hover{{transform:none;background:#eef3fb;box-shadow:none}}.route-note-form{{display:none;align-items:center;gap:5px}}.route-note-form.is-open{{display:flex}}.route-note-form input{{width:145px;height:32px;padding:6px 8px;font-size:12px}}.route-note-form button{{height:30px;padding:0 9px;font-size:11px}}.route-note-form .note-cancel{{border-color:#d7e0ef;background:#f9fbff;box-shadow:none;color:#617595}}button.delete-route{{height:32px;padding:0 9px;border-color:#f2c8d0;background:#fff5f6;box-shadow:none;color:#b85f6d;font-size:12px}}.route-error{{color:#b85f6d}}
-@media(max-width:650px){{main{{padding:20px 14px 40px}}.topbar{{margin-bottom:38px}}.brand{{font-size:14px}}.hero{{margin-bottom:25px}}.workspace,.result{{padding:19px 16px;border-radius:18px}}.section-line{{align-items:flex-start;flex-direction:column;gap:5px}}.nodes{{gap:10px}}.node-card{{min-height:78px;padding:8px 7px;border-radius:15px}}.node-title{{min-height:22px}}.flag-icon{{width:27px;height:18px}}.node-meta{{display:flex}}.node-card small,.node-name,.latency{{font-size:9px}}.row{{flex-direction:column}}.row button{{width:100%}}.tools{{align-items:flex-start;flex-direction:column}}}}
+:root{{
+  --bg-page:#f8fafc;
+  --bg-glow1:rgba(99,102,241,0.08);
+  --bg-glow2:rgba(34,211,238,0.06);
+  --panel:rgba(255,255,255,0.85);
+  --panel-card:#ffffff;
+  --panel-card-hover:#fafcff;
+  --border:rgba(226,232,240,0.85);
+  --border-strong:rgba(203,213,225,0.9);
+  --text-main:#0f172a;
+  --text-muted:#475569;
+  --text-faint:#94a3b8;
+  --primary:#6366f1;
+  --primary-hover:#4f46e5;
+  --primary-light:rgba(99,102,241,0.08);
+  --accent:#06b6d4;
+  --success:#10b981;
+  --success-bg:rgba(16,185,129,0.1);
+  --danger:#ef4444;
+  --danger-bg:rgba(239,68,68,0.08);
+  --shadow-sm:0 1px 2px rgba(0,0,0,0.04);
+  --shadow-md:0 10px 30px -4px rgba(15,23,42,0.06), 0 4px 12px -2px rgba(15,23,42,0.03);
+  --shadow-lg:0 20px 45px -10px rgba(15,23,42,0.08);
+  --card-border-selected:#6366f1;
+  --card-glow-selected:rgba(99,102,241,0.18);
+}}
+body[data-theme='dark']{{
+  --bg-page:#06080f;
+  --bg-glow1:rgba(139,92,246,0.18);
+  --bg-glow2:rgba(34,211,238,0.12);
+  --panel:rgba(15,23,42,0.78);
+  --panel-card:rgba(20,28,48,0.85);
+  --panel-card-hover:rgba(30,41,69,0.9);
+  --border:rgba(255,255,255,0.09);
+  --border-strong:rgba(255,255,255,0.16);
+  --text-main:#f8fafc;
+  --text-muted:#94a3b8;
+  --text-faint:#64748b;
+  --primary:#818cf8;
+  --primary-hover:#6366f1;
+  --primary-light:rgba(129,140,248,0.15);
+  --accent:#22d3ee;
+  --success:#34d399;
+  --success-bg:rgba(52,211,153,0.15);
+  --danger:#f87171;
+  --danger-bg:rgba(248,113,113,0.15);
+  --shadow-sm:0 1px 2px rgba(0,0,0,0.3);
+  --shadow-md:0 10px 30px -4px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.06);
+  --shadow-lg:0 25px 60px -10px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.08);
+  --card-border-selected:#818cf8;
+  --card-glow-selected:rgba(129,140,248,0.3);
+}}
+*{{box-sizing:border-box}}
+html{{min-height:100%;background:var(--bg-page)}}
+body{{
+  position:relative;
+  margin:0;
+  min-height:100vh;
+  overflow-x:hidden;
+  background:radial-gradient(ellipse 80% 50% at 50% -10%,var(--bg-glow1),transparent 65%),
+             radial-gradient(ellipse 60% 40% at 90% 90%,var(--bg-glow2),transparent 60%),
+             var(--bg-page);
+  color:var(--text-main);
+  font:14px/1.6 Inter,"PingFang SC","Microsoft YaHei",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  transition:background .25s ease,color .25s ease;
+}}
+body:before{{
+  content:"";
+  position:fixed;
+  inset:0;
+  pointer-events:none;
+  opacity:0.4;
+  background-image:linear-gradient(rgba(148,163,184,0.06) 1px,transparent 1px),
+                   linear-gradient(90deg,rgba(148,163,184,0.06) 1px,transparent 1px);
+  background-size:32px 32px;
+}}
+main{{
+  position:relative;
+  z-index:1;
+  max-width:1040px;
+  margin:0 auto;
+  padding:24px 20px 64px;
+}}
+/* TopBar */
+.topbar{{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+  margin-bottom:36px;
+  padding:12px 18px;
+  border:1px solid var(--border);
+  border-radius:18px;
+  background:var(--panel);
+  box-shadow:var(--shadow-md);
+  backdrop-filter:blur(16px);
+  -webkit-backdrop-filter:blur(16px);
+}}
+.brand{{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  text-decoration:none;
+}}
+.brand-icon{{
+  display:grid;
+  place-items:center;
+  width:36px;
+  height:36px;
+  border:1px solid rgba(196,181,253,0.3);
+  border-radius:11px;
+  background:linear-gradient(135deg,rgba(99,102,241,0.2),rgba(34,211,238,0.1));
+  box-shadow:inset 0 1px rgba(255,255,255,0.2),0 0 16px rgba(99,102,241,0.15);
+  color:#a78bfa;
+  font-size:16px;
+}}
+.brand-title{{
+  display:flex;
+  flex-direction:column;
+  line-height:1.2;
+}}
+.brand-title strong{{
+  font-size:16px;
+  font-weight:800;
+  letter-spacing:-0.02em;
+  background:linear-gradient(90deg,var(--text-main),var(--primary));
+  -webkit-background-clip:text;
+  -webkit-text-fill-color:transparent;
+}}
+.brand-title small{{
+  margin-top:2px;
+  color:var(--text-faint);
+  font-size:11px;
+  font-weight:600;
+  letter-spacing:0.02em;
+}}
+.topbar-right{{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  flex-wrap:wrap;
+}}
+.user-pills{{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}}
+.pill{{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:5px 11px;
+  border:1px solid var(--border);
+  border-radius:999px;
+  background:var(--panel-card);
+  color:var(--text-muted);
+  font-size:12px;
+  font-weight:600;
+  box-shadow:var(--shadow-sm);
+}}
+.pill-quota b{{
+  color:var(--primary);
+}}
+.pill-live i{{
+  width:7px;
+  height:7px;
+  border-radius:50%;
+  background:var(--success);
+  box-shadow:0 0 0 3px var(--success-bg);
+}}
+.action-pill{{
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+  height:32px;
+  padding:0 12px;
+  border:1px solid var(--border);
+  border-radius:999px;
+  background:var(--panel-card);
+  color:var(--text-muted);
+  font-size:12px;
+  font-weight:650;
+  text-decoration:none;
+  cursor:pointer;
+  transition:all .18s ease;
+}}
+.action-pill:hover{{
+  border-color:var(--primary);
+  color:var(--primary);
+  background:var(--primary-light);
+}}
+.admin-pill{{
+  border-color:rgba(139,92,246,0.3);
+  color:var(--primary);
+}}
+button.theme-toggle{{
+  width:34px;
+  height:34px;
+  padding:0;
+  display:grid;
+  place-items:center;
+  border:1px solid var(--border);
+  border-radius:50%;
+  background:var(--panel-card);
+  color:var(--text-muted);
+  font-size:15px;
+  cursor:pointer;
+  transition:all .18s ease;
+}}
+button.theme-toggle:hover{{
+  border-color:var(--primary);
+  color:var(--primary);
+  transform:scale(1.05);
+}}
+button.logout-btn{{
+  height:32px;
+  padding:0 12px;
+  border:1px solid var(--border);
+  border-radius:999px;
+  background:transparent;
+  color:var(--text-faint);
+  font-size:12px;
+  font-weight:600;
+  cursor:pointer;
+  transition:all .18s ease;
+}}
+button.logout-btn:hover{{
+  border-color:var(--danger);
+  color:var(--danger);
+  background:var(--danger-bg);
+}}
+/* Hero Header */
+.hero{{
+  text-align:center;
+  margin:20px auto 32px;
+  max-width:680px;
+}}
+.hero-tag{{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:4px 12px;
+  margin-bottom:14px;
+  border:1px solid var(--border);
+  border-radius:999px;
+  background:var(--panel);
+  color:var(--primary);
+  font-size:11px;
+  font-weight:700;
+  letter-spacing:0.04em;
+  text-transform:uppercase;
+  box-shadow:var(--shadow-sm);
+}}
+.hero h1{{
+  margin:0 0 10px;
+  color:var(--text-main);
+  font-size:clamp(26px,4vw,38px);
+  font-weight:800;
+  line-height:1.2;
+  letter-spacing:-0.035em;
+}}
+.hero h1 span{{
+  background:linear-gradient(135deg,#6366f1 0%,#8b5cf6 50%,#06b6d4 100%);
+  -webkit-background-clip:text;
+  -webkit-text-fill-color:transparent;
+}}
+.hero p{{
+  margin:0 auto;
+  color:var(--text-muted);
+  font-size:14px;
+  line-height:1.6;
+  max-width:540px;
+}}
+/* Section Panel */
+.panel-box{{
+  position:relative;
+  margin-top:24px;
+  padding:26px 28px;
+  border:1px solid var(--border);
+  border-radius:24px;
+  background:var(--panel);
+  box-shadow:var(--shadow-md);
+  backdrop-filter:blur(16px);
+  -webkit-backdrop-filter:blur(16px);
+}}
+.section-header{{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+  margin-bottom:18px;
+}}
+.section-header h2{{
+  margin:0;
+  color:var(--text-main);
+  font-size:16px;
+  font-weight:750;
+  letter-spacing:-0.01em;
+}}
+.section-header span{{
+  color:var(--text-faint);
+  font-size:12px;
+}}
+/* Node Cards */
+.nodes-grid{{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(148px,1fr));
+  gap:12px;
+  margin-bottom:18px;
+}}
+.node-card{{
+  position:relative;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:space-between;
+  min-height:92px;
+  padding:12px 10px 10px;
+  text-align:center;
+  border:1.5px solid var(--border);
+  border-radius:16px;
+  background:var(--panel-card);
+  cursor:pointer;
+  transition:all .18s cubic-bezier(0.4,0,0.2,1);
+  box-shadow:var(--shadow-sm);
+}}
+.node-card:hover{{
+  border-color:var(--border-strong);
+  background:var(--panel-card-hover);
+  transform:translateY(-2px);
+  box-shadow:var(--shadow-md);
+}}
+.node-card.selected{{
+  border-color:var(--card-border-selected);
+  background:var(--panel-card);
+  box-shadow:0 0 0 2px var(--card-border-selected),0 10px 24px -4px var(--card-glow-selected);
+  transform:translateY(-2px);
+}}
+.node-card.selected:after{{
+  content:"✓";
+  position:absolute;
+  top:6px;
+  right:7px;
+  width:16px;
+  height:16px;
+  display:grid;
+  place-items:center;
+  border-radius:50%;
+  background:var(--primary);
+  color:#fff;
+  font-size:10px;
+  font-weight:800;
+}}
+.node-card-flag{{
+  display:grid;
+  place-items:center;
+  min-height:22px;
+}}
+.flag-icon{{
+  display:block;
+  width:30px;
+  height:20px;
+  border-radius:3px;
+  box-shadow:0 1px 4px rgba(0,0,0,0.15);
+}}
+.node-card-name{{
+  display:block;
+  margin:6px 0 4px;
+  color:var(--text-main);
+  font-size:12px;
+  font-weight:750;
+  line-height:1.3;
+  overflow:hidden;
+  white-space:nowrap;
+  text-overflow:ellipsis;
+  max-width:100%;
+}}
+.node-card-footer{{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  width:100%;
+  gap:6px;
+  padding-top:4px;
+  border-top:1px dashed var(--border);
+}}
+.node-card-loc{{
+  color:var(--text-faint);
+  font-size:10px;
+  font-weight:600;
+  overflow:hidden;
+  white-space:nowrap;
+  text-overflow:ellipsis;
+}}
+.latency{{
+  font-size:10px;
+  font-weight:750;
+  color:var(--text-faint);
+  flex:0 0 auto;
+}}
+.latency.fast{{color:var(--success);}}
+.latency.medium{{color:#f59e0b;}}
+.latency.slow{{color:#ef4444;}}
+.latency.error{{color:var(--danger);}}
+/* Node Action bar */
+.node-tools{{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding-bottom:18px;
+  border-bottom:1px solid var(--border);
+  margin-bottom:20px;
+}}
+.btn-probe{{
+  height:36px;
+  padding:0 14px;
+  border:1px solid var(--border);
+  border-radius:10px;
+  background:var(--panel-card);
+  color:var(--text-muted);
+  font-size:12px;
+  font-weight:700;
+  cursor:pointer;
+  transition:all .18s ease;
+}}
+.btn-probe:hover{{
+  border-color:var(--primary);
+  color:var(--primary);
+  background:var(--primary-light);
+}}
+/* Route Form */
+.route-form label{{
+  display:block;
+  margin-bottom:8px;
+  color:var(--text-main);
+  font-size:13px;
+  font-weight:700;
+}}
+.form-row{{
+  display:flex;
+  gap:10px;
+}}
+input{{
+  width:100%;
+  min-width:0;
+  height:48px;
+  padding:0 16px;
+  outline:0;
+  border:1px solid var(--border);
+  border-radius:12px;
+  background:var(--panel-card);
+  color:var(--text-main);
+  font:inherit;
+  font-size:14px;
+  box-shadow:var(--shadow-sm);
+  transition:border-color .18s ease,box-shadow .18s ease,background .18s ease;
+}}
+input::placeholder{{
+  color:var(--text-faint);
+}}
+input:hover{{
+  border-color:var(--border-strong);
+}}
+input:focus{{
+  border-color:var(--primary);
+  box-shadow:0 0 0 3px var(--primary-light);
+}}
+.btn-generate{{
+  flex:0 0 auto;
+  height:48px;
+  padding:0 24px;
+  border:0;
+  border-radius:12px;
+  background:linear-gradient(135deg,#6366f1 0%,#7c3aed 50%,#06b6d4 100%);
+  color:#fff;
+  font:inherit;
+  font-size:14px;
+  font-weight:750;
+  cursor:pointer;
+  box-shadow:0 8px 24px -4px rgba(99,102,241,0.35);
+  transition:all .18s ease;
+}}
+.btn-generate:hover{{
+  transform:translateY(-1px);
+  box-shadow:0 12px 28px -2px rgba(99,102,241,0.45);
+}}
+.btn-generate:active{{
+  transform:translateY(0);
+}}
+.form-note-row{{
+  margin-top:12px;
+}}
+.form-note-row input{{
+  height:42px;
+  font-size:13px;
+}}
+.form-hint{{
+  margin:12px 0 0;
+  color:var(--text-faint);
+  font-size:12px;
+  line-height:1.5;
+}}
+/* Result Section */
+.result-card{{
+  margin-top:20px;
+  padding:22px 24px;
+  border:1.5px solid rgba(16,185,129,0.35);
+  border-radius:20px;
+  background:var(--panel);
+  box-shadow:0 12px 32px -4px rgba(16,185,129,0.12);
+  backdrop-filter:blur(16px);
+  -webkit-backdrop-filter:blur(16px);
+}}
+.result-header{{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom:14px;
+  flex-wrap:wrap;
+}}
+.badge-success{{
+  display:inline-flex;
+  align-items:center;
+  padding:4px 10px;
+  border-radius:999px;
+  background:var(--success-bg);
+  color:var(--success);
+  font-size:12px;
+  font-weight:750;
+}}
+.copy-field{{
+  display:flex;
+  gap:10px;
+  align-items:center;
+  margin-top:8px;
+}}
+.copy-field input{{
+  font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+  font-size:13px;
+  font-weight:600;
+  color:var(--primary);
+  background:var(--panel-card);
+}}
+.btn-copy{{
+  flex:0 0 auto;
+  height:48px;
+  padding:0 20px;
+  border:1px solid var(--border);
+  border-radius:12px;
+  background:var(--panel-card);
+  color:var(--text-main);
+  font:inherit;
+  font-size:13px;
+  font-weight:700;
+  cursor:pointer;
+  transition:all .18s ease;
+}}
+.btn-copy:hover{{
+  border-color:var(--primary);
+  color:var(--primary);
+  background:var(--primary-light);
+}}
+.error-banner{{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  margin-top:20px;
+  padding:14px 18px;
+  border:1px solid rgba(239,68,68,0.3);
+  border-radius:16px;
+  background:var(--danger-bg);
+  color:var(--danger);
+  font-size:13px;
+  font-weight:600;
+}}
+/* My Routes Table */
+.routes-scroll{{
+  overflow-x:auto;
+  -webkit-overflow-scrolling:touch;
+}}
+table{{
+  width:100%;
+  min-width:760px;
+  margin-top:10px;
+  border-collapse:collapse;
+}}
+th{{
+  padding:10px 12px;
+  border-bottom:1.5px solid var(--border);
+  color:var(--text-faint);
+  font-size:12px;
+  font-weight:700;
+  text-align:left;
+}}
+td{{
+  padding:12px 12px;
+  border-bottom:1px solid var(--border);
+  color:var(--text-muted);
+  font-size:13px;
+  vertical-align:middle;
+}}
+tr:last-child td{{
+  border-bottom:0;
+}}
+tbody tr:hover td{{
+  background:var(--primary-light);
+}}
+.route-url{{
+  display:inline-block;
+  max-width:230px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+  font-size:12px;
+  font-weight:600;
+  overflow:hidden;
+  white-space:nowrap;
+  text-overflow:ellipsis;
+  vertical-align:middle;
+}}
+.origin-url{{
+  color:var(--text-muted);
+}}
+.public-url{{
+  color:var(--primary);
+}}
+.route-link-cell{{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}}
+button.copy-route{{
+  flex:0 0 auto;
+  height:26px;
+  padding:0 8px;
+  border:1px solid var(--border);
+  border-radius:6px;
+  background:var(--panel-card);
+  color:var(--text-muted);
+  font-size:11px;
+  font-weight:600;
+  cursor:pointer;
+  transition:all .18s ease;
+}}
+button.copy-route:hover{{
+  border-color:var(--primary);
+  color:var(--primary);
+  background:var(--primary-light);
+}}
+.node-tag{{
+  display:inline-block;
+  padding:3px 8px;
+  border-radius:6px;
+  background:var(--panel-card);
+  border:1px solid var(--border);
+  color:var(--text-main);
+  font-size:11px;
+  font-weight:700;
+}}
+.route-state{{
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+  padding:3px 9px;
+  border-radius:999px;
+  font-size:11px;
+  font-weight:700;
+}}
+.state-active{{
+  background:var(--success-bg);
+  color:var(--success);
+}}
+.state-failed{{
+  background:var(--danger-bg);
+  color:var(--danger);
+}}
+.state-paused{{
+  background:rgba(148,163,184,0.12);
+  color:var(--text-faint);
+}}
+.route-error{{
+  margin-top:4px;
+  color:var(--danger);
+  font-size:11px;
+}}
+.route-note-cell{{
+  min-width:140px;
+}}
+.route-note-view{{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+}}
+.route-note-text{{
+  max-width:150px;
+  overflow:hidden;
+  white-space:nowrap;
+  text-overflow:ellipsis;
+  color:var(--text-main);
+  font-size:12px;
+}}
+.route-note-text.empty{{
+  color:var(--text-faint);
+}}
+button.note-edit{{
+  display:grid;
+  place-items:center;
+  width:22px;
+  height:22px;
+  padding:0;
+  border:1px solid var(--border);
+  border-radius:6px;
+  background:var(--panel-card);
+  color:var(--text-faint);
+  font-size:11px;
+  cursor:pointer;
+  transition:all .18s ease;
+}}
+button.note-edit:hover{{
+  border-color:var(--primary);
+  color:var(--primary);
+}}
+.route-note-form{{
+  display:none;
+  align-items:center;
+  gap:5px;
+}}
+.route-note-form.is-open{{
+  display:flex;
+}}
+.route-note-form input{{
+  width:130px;
+  height:30px;
+  padding:0 8px;
+  font-size:12px;
+  border-radius:6px;
+}}
+.btn-save{{
+  height:30px;
+  padding:0 9px;
+  border:0;
+  border-radius:6px;
+  background:var(--primary);
+  color:#fff;
+  font-size:11px;
+  font-weight:700;
+  cursor:pointer;
+}}
+.note-cancel{{
+  height:30px;
+  padding:0 8px;
+  border:1px solid var(--border);
+  border-radius:6px;
+  background:var(--panel-card);
+  color:var(--text-muted);
+  font-size:11px;
+  cursor:pointer;
+}}
+button.delete-route{{
+  height:28px;
+  padding:0 10px;
+  border:1px solid rgba(239,68,68,0.25);
+  border-radius:8px;
+  background:var(--danger-bg);
+  color:var(--danger);
+  font-size:11px;
+  font-weight:700;
+  cursor:pointer;
+  transition:all .18s ease;
+}}
+button.delete-route:hover{{
+  border-color:var(--danger);
+  background:var(--danger);
+  color:#fff;
+}}
+.empty-table{{
+  padding:32px 16px;
+  text-align:center;
+  color:var(--text-faint);
+  font-size:13px;
+}}
+@media(max-width:768px){{
+  main{{padding:16px 14px 48px;}}
+  .topbar{{flex-direction:column;align-items:flex-start;gap:12px;padding:14px;}}
+  .topbar-right{{width:100%;justify-content:space-between;}}
+  .panel-box{{padding:18px 16px;border-radius:20px;}}
+  .form-row{{flex-direction:column;}}
+  .btn-generate{{width:100%;}}
+  .nodes-grid{{grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;}}
+  .node-card{{min-height:82px;padding:10px 8px 8px;}}
+}}
 </style>
-<style>{DASHBOARD_UI_CSS}</style>
-    <body data-theme="light"><main class="app-shell"><nav class="topbar"><a class="brand" href="/"><span class="brand-mark" aria-hidden="true">✦</span><span class="brand-copy"><strong>Emby Relay</strong><small>节点与线路管理</small></span></a><div class="account-actions"><div class="live"><i></i>{html.escape(user['username'])} · {used_routes}/{route_quota} 条 · {html.escape(expiry_label)}</div>{admin_link}<a href="/account">账号安全</a><button type="button" class="theme-toggle" id="user-theme-toggle" aria-label="切换到黑色主题" title="切换到黑色主题">☾</button><form class="logout-form" method="post" action="/logout"><input type="hidden" name="csrf" value="{html.escape(csrf_token, quote=True)}"><button class="logout">退出</button></form></div></nav>
-<header class="hero"><div class="hero-copy"><span class="eyebrow">Private Media Access</span><h1>为播放选择<br><span>更合适的线路。</span></h1><p class="subtitle">测试节点延迟，为你的媒体站点生成独立访问地址。线路之间互不影响，可以随时切换。</p></div><div class="hero-stats"><div class="stat"><span class="stat-label">线路额度</span><strong>{used_routes} / {route_quota}</strong><small>已创建 / 可创建</small></div><div class="stat"><span class="stat-label">账号有效期</span><strong>{html.escape(expiry_label)}</strong><small>当前账户状态正常</small></div></div></header>
-<section class="workspace"><div class="section-line"><h2>选择节点</h2><span>延迟由当前浏览器测量</span></div><div class="nodes" id="nodes">{node_cards}</div><div class="tools"><button type="button" class="secondary" id="test-nodes">重新测试延迟</button><span class="hint">生成后，线路会部署到当前选中的节点。</span></div>
-    <form class="route-form" method="post"><input type="hidden" name="csrf" value="{html.escape(csrf_token, quote=True)}"><input type="hidden" name="node_id" id="node-id" value="{selected_node_id}"><label>原始网站地址</label><div class="row"><input required name="url" placeholder="https://emby.example.com" value="{html.escape(raw_url)}"><button>生成访问地址</button></div><label class="route-note-field">线路备注（可选）<input name="route_note" maxlength="500" placeholder="例如：影视库 1" value="{html.escape(raw_route_note, quote=True)}"></label><p class="hint">线路会归属到你的账号。会清理来源和代理链标识，重写安全的媒体跳转，并保持视频流式播放。</p></form></section>
-    {result_html}
-    <section class="my-routes"><div class="section-line"><h2>我的线路</h2><span>删除线路后会释放额度</span></div><div class="routes-scroll"><table><thead><tr><th>原线路（源站）</th><th>反代线路（访问地址）</th><th>节点</th><th>备注</th><th>状态</th><th></th></tr></thead><tbody>{my_routes_html}</tbody></table></div></section>
-    </main>
-    <script nonce="{csp_nonce}">
-const nodes={nodes_json}; let selected={selected_node_id};
-function pick(id){{selected=id;document.getElementById('node-id').value=id;document.querySelectorAll('.node-card').forEach(card=>{{const active=Number(card.dataset.nodeId)===id;card.classList.toggle('selected',active);card.setAttribute('aria-pressed',String(active));}});}}
+</head>
+<body data-theme="light">
+<main>
+  <!-- TopBar -->
+  <header class="topbar">
+    <a href="/" class="brand">
+      <span class="brand-icon">✦</span>
+      <span class="brand-title">
+        <strong>Emby Relay</strong>
+        <small>节点与线路管理</small>
+      </span>
+    </a>
+    <div class="topbar-right">
+      <div class="user-pills">
+        <span class="pill pill-user">👤 {html.escape(user['username'])}</span>
+        <span class="pill pill-quota">🗂 额度 <b>{used_routes}</b>/{route_quota} 条</span>
+        <span class="pill pill-live"><i></i>{html.escape(expiry_label)}</span>
+      </div>
+      <button type="button" class="theme-toggle" id="user-theme-toggle" title="切换主题" aria-label="切换主题">☾</button>
+      <a class="action-pill" href="/account">🔐 账号安全</a>
+      {admin_link}
+      <form class="logout-form" method="post" action="/logout" style="margin:0">
+        <input type="hidden" name="csrf" value="{html.escape(csrf_token, quote=True)}">
+        <button type="submit" class="logout-btn">退出</button>
+      </form>
+    </div>
+  </header>
+
+  <!-- Hero Header -->
+  <section class="hero">
+    <span class="hero-tag">✦ 智能媒体反代</span>
+    <h1>让每一次播放 <span>走更合适的线路</span></h1>
+    <p>选择最优节点生成专属反代入口，智能优化连接质量与流式播放体验。</p>
+  </section>
+
+  <!-- Workspace Box -->
+  <section class="panel-box">
+    <div class="section-header">
+      <h2>选择节点</h2>
+      <span>延迟由当前浏览器实时测量</span>
+    </div>
+    <div class="nodes-grid" id="nodes">
+      {node_cards}
+    </div>
+    <div class="node-tools">
+      <button type="button" class="btn-probe" id="test-nodes">⚡ 重新测试延迟</button>
+      <span class="hint" style="margin:0;color:var(--text-faint);font-size:12px;">生成后，线路将实时下发到所选节点。</span>
+    </div>
+
+    <form class="route-form" method="post">
+      <input type="hidden" name="csrf" value="{html.escape(csrf_token, quote=True)}">
+      <input type="hidden" name="node_id" id="node-id" value="{selected_node_id}">
+      <label>原始网站地址 (源站)</label>
+      <div class="form-row">
+        <input required name="url" placeholder="https://emby.example.com" value="{html.escape(raw_url)}">
+        <button type="submit" class="btn-generate">生成访问地址</button>
+      </div>
+      <div class="form-note-row">
+        <input name="route_note" maxlength="500" placeholder="线路备注（可选，例如：主力影视库）" value="{html.escape(raw_route_note, quote=True)}">
+      </div>
+      <p class="form-hint">线路会自动归属到你的账号；系统将清理来源特征与代理链路标识，保障隐私并支持完整流式媒体播放。</p>
+    </form>
+  </section>
+
+  {result_html}
+
+  <!-- My Routes Section -->
+  <section class="panel-box">
+    <div class="section-header">
+      <h2>我的线路</h2>
+      <span>删除线路后会立即释放额度</span>
+    </div>
+    <div class="routes-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>原线路（源站）</th>
+            <th>反代线路（访问地址）</th>
+            <th>节点</th>
+            <th>备注</th>
+            <th>状态</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          {my_routes_html}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<script nonce="{csp_nonce}">
+const nodes={nodes_json};
+let selected={selected_node_id};
+
+function pick(id){{
+  selected=id;
+  document.getElementById('node-id').value=id;
+  document.querySelectorAll('.node-card').forEach(card=>{{
+    const active=Number(card.dataset.nodeId)===id;
+    card.classList.toggle('selected',active);
+    card.setAttribute('aria-pressed',String(active));
+  }});
+}}
+
 document.querySelectorAll('.node-card').forEach(card=>card.addEventListener('click',()=>pick(Number(card.dataset.nodeId))));
-async function probe(node){{const label=document.querySelector('[data-latency="'+node.id+'"]');label.textContent='测试中…';const start=performance.now();try{{await fetch(node.probe_url+'?t='+Date.now(),{{mode:'no-cors',cache:'no-store'}});label.textContent=Math.round(performance.now()-start)+' ms';}}catch(e){{label.textContent='无法连接';}}}}
-function probeAll(){{nodes.forEach(probe);}} document.getElementById('test-nodes').addEventListener('click',probeAll); if(nodes.length){{probeAll();}}
-async function copyText(value){{try{{if(navigator.clipboard&&window.isSecureContext){{await navigator.clipboard.writeText(value);return true;}}const field=document.createElement('textarea');field.value=value;field.readOnly=true;field.style.cssText='position:fixed;opacity:0';document.body.append(field);field.select();const copied=document.execCommand('copy');field.remove();return copied;}}catch(e){{return false;}}}}
-document.querySelectorAll('[data-copy]').forEach(button=>button.addEventListener('click',async()=>{{const label=button.textContent;button.textContent=(await copyText(button.dataset.copy))?'已复制':'复制失败';setTimeout(()=>button.textContent=label,1200);}}));
-document.querySelectorAll('.route-note-cell').forEach(cell=>{{const view=cell.querySelector('.route-note-view');const form=cell.querySelector('.route-note-form');const input=form?.querySelector('input[name="notes"]');cell.querySelector('.note-edit')?.addEventListener('click',()=>{{view.hidden=true;form.classList.add('is-open');input?.focus();input?.select();}});cell.querySelector('.note-cancel')?.addEventListener('click',()=>{{form.classList.remove('is-open');view.hidden=false;}});}});
+
+async function probe(node){{
+  const label=document.querySelector('[data-latency="'+node.id+'"]');
+  if(!label) return;
+  label.textContent='测速中…';
+  label.className='latency';
+  const start=performance.now();
+  try{{
+    await fetch(node.probe_url+'?t='+Date.now(),{{mode:'no-cors',cache:'no-store'}});
+    const ms=Math.round(performance.now()-start);
+    label.textContent=ms+' ms';
+    if(ms<120){{
+      label.className='latency fast';
+    }}else if(ms<250){{
+      label.className='latency medium';
+    }}else{{
+      label.className='latency slow';
+    }}
+  }}catch(e){{
+    label.textContent='无法连接';
+    label.className='latency error';
+  }}
+}}
+
+function probeAll(){{nodes.forEach(probe);}}
+document.getElementById('test-nodes')?.addEventListener('click',probeAll);
+if(nodes.length){{probeAll();}}
+
+async function copyText(value){{
+  try{{
+    if(navigator.clipboard&&window.isSecureContext){{
+      await navigator.clipboard.writeText(value);
+      return true;
+    }}
+    const field=document.createElement('textarea');
+    field.value=value;
+    field.readOnly=true;
+    field.style.cssText='position:fixed;opacity:0';
+    document.body.append(field);
+    field.select();
+    const copied=document.execCommand('copy');
+    field.remove();
+    return copied;
+  }}catch(e){{
+    return false;
+  }}
+}}
+
+document.querySelectorAll('[data-copy]').forEach(button=>button.addEventListener('click',async()=>{{
+  const label=button.textContent;
+  const ok=await copyText(button.dataset.copy);
+  button.textContent=ok?'✓ 已复制':'复制失败';
+  setTimeout(()=>button.textContent=label,1400);
+}}));
+
+document.querySelectorAll('.route-note-cell').forEach(cell=>{{
+  const view=cell.querySelector('.route-note-view');
+  const form=cell.querySelector('.route-note-form');
+  const input=form?.querySelector('input[name="notes"]');
+  cell.querySelector('.note-edit')?.addEventListener('click',()=>{{
+    view.style.display='none';
+    form.classList.add('is-open');
+    input?.focus();
+    input?.select();
+  }});
+  cell.querySelector('.note-cancel')?.addEventListener('click',()=>{{
+    form.classList.remove('is-open');
+    view.style.display='';
+  }});
+}});
+
 const userThemeKey='emby-relay-user-theme';
 const userThemeToggle=document.getElementById('user-theme-toggle');
 let savedUserTheme='';
 try{{savedUserTheme=localStorage.getItem(userThemeKey)||'';}}catch(e){{}}
-function applyUserTheme(theme){{const resolved=theme==='dark'?'dark':'light';document.body.dataset.theme=resolved;if(userThemeToggle){{const dark=resolved==='dark';userThemeToggle.textContent=dark?'☼':'☾';userThemeToggle.setAttribute('aria-label',dark?'切换到白色主题':'切换到黑色主题');userThemeToggle.title=dark?'切换到白色主题':'切换到黑色主题';}}try{{localStorage.setItem(userThemeKey,resolved);}}catch(e){{}}}}
+
+function applyUserTheme(theme){{
+  const resolved=theme==='dark'?'dark':'light';
+  document.body.dataset.theme=resolved;
+  if(userThemeToggle){{
+    const dark=resolved==='dark';
+    userThemeToggle.textContent=dark?'☼':'☾';
+    userThemeToggle.setAttribute('aria-label',dark?'切换到白色主题':'切换到黑色主题');
+    userThemeToggle.title=dark?'切换到白色主题':'切换到黑色主题';
+  }}
+  try{{localStorage.setItem(userThemeKey,resolved);}}catch(e){{}}
+}}
+
 applyUserTheme(savedUserTheme||'light');
 userThemeToggle?.addEventListener('click',()=>applyUserTheme(document.body.dataset.theme==='dark'?'light':'dark'));
 </script>
-</main></body>
+</body>
 </html>"""
     response = web.Response(text=body, content_type="text/html")
     response.headers["Content-Security-Policy"] = (
@@ -694,7 +1663,6 @@ userThemeToggle?.addEventListener('click',()=>applyUserTheme(document.body.datas
         f"img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'nonce-{csp_nonce}'; connect-src 'self' https:"
     )
     return response
-
 
 async def handle(request: web.Request):
     if request.path == "/__health":

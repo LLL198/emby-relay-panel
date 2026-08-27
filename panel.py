@@ -1417,7 +1417,8 @@ class ProxyPanel:
 
     def register_page(self, request: web.Request, error: str = "") -> web.Response:
         csrf_token = self._anonymous_csrf(request)
-        content = f"""<form method='post' action='/register'><input type='hidden' name='csrf' value='{html.escape(csrf_token, quote=True)}'><label>邀请码<input required name='invite_code' autocomplete='off' maxlength='128'></label><label>用户名<input required name='username' autocomplete='username' pattern='[A-Za-z0-9._-]+'></label><label>密码<input required type='password' name='password' autocomplete='new-password'></label><label>确认密码<input required type='password' name='confirm_password' autocomplete='new-password'></label><button>注册并登录</button></form><p class='links'><span>已有账号？</span><a href='/login'>返回登录</a></p>"""
+        content = f"""<h1>邀请码注册</h1>
+<form method='post' action='/register'><input type='hidden' name='csrf' value='{html.escape(csrf_token, quote=True)}'><label>邀请码<input required name='invite_code' autocomplete='off' maxlength='128'></label><label>用户名<input required name='username' autocomplete='username' pattern='[A-Za-z0-9._-]+'></label><label>密码<input required type='password' name='password' autocomplete='new-password'></label><label>确认密码<input required type='password' name='confirm_password' autocomplete='new-password'></label><button>注册并登录</button></form><p class='links'><span>已有账号？</span><a href='/login'>返回登录</a></p>"""
         return self._user_page("注册", content, csrf_token=csrf_token, error=error)
 
     def account_page(self, request: web.Request, user, error: str = "", notice: str = "") -> web.Response:
