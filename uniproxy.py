@@ -1,20 +1,37 @@
-#!/usr/bin/env python3
-"""HTTP entry point for the emby-relay-panel user and admin interfaces."""
-
-import asyncio
-import html
-import json
-import os
-import re
-import secrets
-from urllib.parse import parse_qs
-
-from aiohttp import web
-
-from nginx_renderer import RendererError, normalize_origin as normalize_route_origin
-
-LISTEN_HOST = os.environ.get("LISTEN_HOST", "127.0.0.1")
-LISTEN_PORT = int(os.environ.get("LISTEN_PORT", "8787"))
+#!/usr/bin/env python3
+
+"""HTTP entry point for the emby-relay-panel user and admin interfaces."""
+
+
+
+import asyncio
+
+import html
+
+import json
+
+import os
+
+import re
+
+import secrets
+
+from urllib.parse import parse_qs
+
+
+
+from aiohttp import web
+
+
+
+from nginx_renderer import RendererError, normalize_origin as normalize_route_origin
+
+
+
+LISTEN_HOST = os.environ.get("LISTEN_HOST", "127.0.0.1")
+
+LISTEN_PORT = int(os.environ.get("LISTEN_PORT", "8787"))
+
 PROXY_DOMAIN_SUFFIX = os.environ.get("PROXY_DOMAIN_SUFFIX", "panel.example.com").lower().strip(".")
 
 DASHBOARD_UI_CSS = r"""
@@ -544,20 +561,34 @@ body[data-theme='light'] .theme-toggle:hover{color:#304a7d}
 
 
 def normalized_origin(value: str) -> str:
-    value = value.strip()
-    if "://" not in value:
-        value = "https://" + value
-    try:
-        return normalize_route_origin(value, allow_insecure_http=False)
-    except RendererError as exc:
-        raise ValueError(str(exc)) from exc
-
-
-def is_base_proxy_host(request: web.Request) -> bool:
-    host = request.headers.get("host", "").split(":", 1)[0].lower().strip(".")
-    return host == PROXY_DOMAIN_SUFFIX
-
-
+    value = value.strip()
+
+    if "://" not in value:
+
+        value = "https://" + value
+
+    try:
+
+        return normalize_route_origin(value, allow_insecure_http=False)
+
+    except RendererError as exc:
+
+        raise ValueError(str(exc)) from exc
+
+
+
+
+
+def is_base_proxy_host(request: web.Request) -> bool:
+
+    host = request.headers.get("host", "").split(":", 1)[0].lower().strip(".")
+
+    return host == PROXY_DOMAIN_SUFFIX
+
+
+
+
+
 async def generator_response(request: web.Request):
     if request.method not in {"GET", "POST"}:
         raise web.HTTPMethodNotAllowed(request.method, ["GET", "POST"])
@@ -587,11 +618,24 @@ async def generator_response(request: web.Request):
     if nodes and selected_node_id not in {node["id"] for node in nodes}:
         selected_node_id = nodes[0]["id"]
     
-    selected_node_name = "未选择"
+    selected_node_name = "未选择节点"
+    selected_node_region = "global"
     for n in nodes:
         if n["id"] == selected_node_id:
             selected_node_name = n["name"]
+            c_code = (n.get("code") or "").upper()
+            if "HK" in c_code or "香港" in n.get("country_name", ""):
+                selected_node_region = "hk"
+            elif "JP" in c_code or "日本" in n.get("country_name", ""):
+                selected_node_region = "jp"
+            elif "SG" in c_code or "新加坡" in n.get("country_name", ""):
+                selected_node_region = "sg"
+            elif "TW" in c_code or "台湾" in n.get("country_name", ""):
+                selected_node_region = "tw"
+            elif "US" in c_code or "美" in n.get("country_name", ""):
+                selected_node_region = "us"
             break
+
     result_html = ""
     if raw_url:
         try:
@@ -611,8 +655,8 @@ async def generator_response(request: web.Request):
             <section class="result-box">
                 <div class="result-header">
                     <div class="result-status-title">
-                        <span class="badge-success-glow">✓ 线路创建成功</span>
-                        <span class="result-node-info">加速节点：<code>{html.escape(host)}</code></span>
+                        <span class="badge-success-glow">✓ 专属线路创建成功</span>
+                        <span class="result-node-info">分配加速节点：<code>{html.escape(host)}</code></span>
                     </div>
                 </div>
                 <div class="result-body">
@@ -623,7 +667,7 @@ async def generator_response(request: web.Request):
                             <span class="copy-text">一键复制</span>
                         </button>
                     </div>
-                    <p class="result-hint">亡 请直接将此地址复制填入 Emby 客户端作为服务器地址使用。</p>
+                    <p class="result-hint">💡 请直接将此地址复制填入 Emby / Jellyfin 客户端作为服务器地址使用。</p>
                 </div>
             </section>
             """
@@ -642,10 +686,12 @@ async def generator_response(request: web.Request):
     for node in nodes:
         meta_label = node["code"].upper() if node["is_local"] else (node["country_name"] or node["health"])
         is_selected = node["id"] == selected_node_id
-        kind_label = "VPS" if not node.get("is_local") else "本地节点"
+        kind_label = "VPS 加速" if not node.get("is_local") else "本地节点"
         node_cards_parts.append(
             f"<button type='button' class='node-card{' selected' if is_selected else ''}' "
-            f"data-node-id='{node['id']}' data-node-name='{html.escape(node['name'], quote=True)}' aria-pressed={'true' if is_selected else 'false'}>"
+            f"data-node-id='{node['id']}' data-node-name='{html.escape(node['name'], quote=True)}' "
+            f"data-country='{html.escape(node.get('country_name') or '')}' aria-pressed={'true' if is_selected else 'false'}>"
+            f"  <div class='node-card-glow-follower'></div>"
             f"  <div class='node-card-top'>"
             f"    <div class='node-flag'>{node['flag_markup']}</div>"
             f"    <div class='node-info-group'>"
@@ -653,18 +699,36 @@ async def generator_response(request: web.Request):
             f"      <span class='node-country-tag'>{html.escape(node.get('country_name') or meta_label)}</span>"
             f"    </div>"
             f"  </div>"
+            f"  <div class='node-card-sparkline'>"
+            f"    <svg viewBox='0 0 160 32' class='sparkline-svg' preserveAspectRatio='none'>"
+            f"      <defs>"
+            f"        <linearGradient id='spark-grad-{node['id']}' x1='0%' y1='0%' x2='100%' y2='0%'>"
+            f"          <stop offset='0%' stop-color='rgba(34, 211, 238, 0.8)' />"
+            f"          <stop offset='100%' stop-color='rgba(139, 92, 246, 0.9)' />"
+            f"        </linearGradient>"
+            f"        <linearGradient id='spark-fill-{node['id']}' x1='0%' y1='0%' x2='0%' y2='100%'>"
+            f"          <stop offset='0%' stop-color='rgba(34, 211, 238, 0.25)' />"
+            f"          <stop offset='100%' stop-color='rgba(34, 211, 238, 0.0)' />"
+            f"        </linearGradient>"
+            f"      </defs>"
+            f"      <path class='sparkline-area' fill='url(#spark-fill-{node['id']})' d='M0 24 Q 25 10, 50 18 T 100 8 T 160 14 L 160 32 L 0 32 Z'></path>"
+            f"      <path class='sparkline-line' stroke='url(#spark-grad-{node['id']})' fill='none' stroke-width='2' d='M0 24 Q 25 10, 50 18 T 100 8 T 160 14'></path>"
+            f"    </svg>"
+            f"  </div>"
             f"  <div class='node-card-bottom'>"
             f"    <span class='node-kind-badge'>{html.escape(kind_label)}</span>"
-            f"    <span class='latency-badge' data-latency='{node['id']}'><i class='latency-dot'></i><span class='latency-text'>待测速</span></span>"
+            f"    <span class='latency-badge' data-latency='{node['id']}'>"
+            f"      <i class='latency-dot'></i><span class='latency-text'>待测速</span>"
+            f"    </span>"
             f"  </div>"
             f"</button>"
         )
-    node_cards = "".join(node_cards_parts) or "<div class='empty-nodes-state'>暂无可用节点，请联系管理员在后叠添加。</div>"
+    node_cards = "".join(node_cards_parts) or "<div class='empty-nodes-state'>暂无可用节点，请联系管理员添加。</div>"
     nodes_json = json.dumps(nodes, separators=(",", ":"), ensure_ascii=False).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
     
     route_rows = []
     for route in panel.user_routes(int(user["id"])):
-        state = "已暂停" if route["suspended_by_owner"] else ("已下发" if route["deployed"] else "部罢失败")
+        state = "已暂停" if route["suspended_by_owner"] else ("已下发" if route["deployed"] else "部署失败")
         state_class = "state-paused" if route["suspended_by_owner"] else ("state-active" if route["deployed"] else "state-failed")
         error = f"<div class='route-error-msg'>{html.escape(route['last_error'])}</div>" if route["last_error"] else ""
         note = str(route["notes"] or "")
@@ -690,14 +754,14 @@ async def generator_response(request: web.Request):
             f"  <td class='col-public'>"
             f"    <div class='copy-flex-cell'>"
             f"      <span class='url-badge public-url' title='{html.escape(route['public_url'], quote=True)}'>{html.escape(route['public_url'])}</span>"
-            f"      <button type='button' class='btn-table-copy' data-copy='{html.escape(route['public_url'], quote=True)}' title='复制专属诿问地址'>复制</button>"
+            f"      <button type='button' class='btn-table-copy' data-copy='{html.escape(route['public_url'], quote=True)}' title='复制专属访问地址'>复制</button>"
             f"    </div>"
             f"  </td>"
             f"  <td class='col-node'><span class='node-tag-pill'>{html.escape(route['node_name'])}</span></td>"
             f"  {note_editor}"
             f"  <td class='col-status'><span class='status-pill {state_class}'><i class='pulse-dot'></i>{state}</span>{error}</td>"
             f"  <td class='col-action'>"
-            f"    <form method='post' action='/my/routes/{route['id']}/delete' onsubmit='return confirm(\"确定删除该反代线路吗？删除后将释放额度。\")'>"
+            f"    <form method='post' action='/my/routes/{route['id']}/delete' onsubmit='return confirm(\"确定删除该反代线路吗？删除后将释放配额。\");'>"
             f"      <input type='hidden' name='csrf' value='{html.escape(csrf_token, quote=True)}'>"
             f"      <button class='btn-table-delete' title='删除该线路并释放配额'>删除</button>"
             f"    </form>"
@@ -705,42 +769,44 @@ async def generator_response(request: web.Request):
             f"</tr>"
         )
     used_routes, route_quota = panel.user_route_usage(int(user["id"]))
-    my_routes_html = "".join(route_rows) or "<tr><td colspan='6' class='table-empty-box'><div class='empty-sparkle'>✨</div><p>暂无反代线路，在上方选择节点并输入源站即可快速生成专属线路。</p></td></tr>"
+    my_routes_html = "".join(route_rows) or "<tr><td colspan='6' class='table-empty-box'><div class='empty-sparkle'>✦</div><p>暂无反代线路，在上方选择节点并输入源站即可快速生成专属线路。</p></td></tr>"
     expiry_label = panel._display_expiry(user["expires_at"])
-    admin_link = "<a class='btn-nav-admin' href='/_admin'><span>⚩ 管理后叠</span></a>" if int(user["is_admin"] or 0) else ""
+    admin_link = "<a class='btn-nav-admin' href='/_admin'><span>⚙ 管理后台</span></a>" if int(user["is_admin"] or 0) else ""
     csp_nonce = secrets.token_urlsafe(16)
+    nodes_count = len(nodes)
+
     body = f"""<!doctype html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Emby Relay · 节点与线路管理</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Emby Relay · 全球智能媒体中继</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E⚡%3C/text%3E%3C/svg%3E">
 <style>
 :root {{
   color-scheme: dark;
-  --bg: #040711;
-  --panel-bg: rgba(10, 15, 30, 0.76);
-  --panel-solid: #0b1122;
-  --card-bg: rgba(18, 25, 48, 0.72);
-  --card-hover: rgba(26, 36, 68, 0.88);
-  --card-selected: rgba(17, 34, 60, 0.95);
-  --border: rgba(148, 163, 184, 0.14);
+  --bg: #030712;
+  --panel-bg: rgba(11, 17, 34, 0.78);
+  --panel-solid: #0d1527;
+  --card-bg: rgba(17, 24, 47, 0.72);
+  --card-hover: rgba(27, 38, 72, 0.88);
+  --card-selected: rgba(15, 36, 68, 0.95);
+  --border: rgba(148, 163, 184, 0.13);
   --border-hover: rgba(167, 139, 250, 0.38);
-  --border-active: rgba(34, 211, 238, 0.65);
+  --border-active: rgba(34, 211, 238, 0.75);
   --ink: #f8fafc;
   --ink-secondary: #cbd5e1;
   --muted: #94a3b8;
   --muted-dark: #64748b;
   --violet: #8b5cf6;
-  --violet-glow: rgba(139, 92, 246, 0.28);
+  --violet-glow: rgba(139, 92, 246, 0.32);
   --cyan: #22d3ee;
-  --cyan-glow: rgba(34, 211, 238, 0.24);
+  --cyan-glow: rgba(34, 211, 238, 0.28);
   --emerald: #34d399;
-  --emerald-bg: rgba(16, 185, 129, 0.12);
+  --emerald-bg: rgba(16, 185, 129, 0.14);
   --danger: #fb7185;
-  --danger-bg: rgba(244, 63, 94, 0.12);
-  --shadow-magic: 0 20px 60px rgba(0, 0, 0, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --danger-bg: rgba(244, 63, 94, 0.14);
+  --shadow-magic: 0 20px 60px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.05);
   --radius-panel: 22px;
   --radius-card: 16px;
   --radius-sm: 10px;
@@ -748,24 +814,24 @@ async def generator_response(request: web.Request):
 
 body[data-theme='light'] {{
   color-scheme: light;
-  --bg: #f5f7fc;
-  --panel-bg: rgba(255, 255, 255, 0.88);
+  --bg: #f4f6fb;
+  --panel-bg: rgba(255, 255, 255, 0.90);
   --panel-solid: #ffffff;
-  --card-bg: rgba(241, 245, 252, 0.82);
-  --card-hover: rgba(235, 241, 255, 0.95);
-  --card-selected: rgba(237, 246, 255, 0.98);
-  --border: rgba(148, 163, 184, 0.25);
+  --card-bg: rgba(241, 245, 252, 0.86);
+  --card-hover: rgba(235, 242, 255, 0.98);
+  --card-selected: rgba(235, 246, 255, 0.98);
+  --border: rgba(148, 163, 184, 0.26);
   --border-hover: rgba(139, 92, 246, 0.45);
-  --border-active: rgba(14, 165, 233, 0.75);
+  --border-active: rgba(14, 165, 233, 0.85);
   --ink: #0f172a;
   --ink-secondary: #334155;
   --muted: #64748b;
   --muted-dark: #94a3b8;
-  --violet-glow: rgba(139, 92, 246, 0.15);
-  --cyan-glow: rgba(14, 165, 233, 0.15);
+  --violet-glow: rgba(139, 92, 246, 0.16);
+  --cyan-glow: rgba(14, 165, 233, 0.18);
   --emerald-bg: rgba(16, 185, 129, 0.15);
   --danger-bg: rgba(244, 63, 94, 0.12);
-  --shadow-magic: 0 16px 45px rgba(15, 23, 42, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --shadow-magic: 0 16px 45px rgba(15, 23, 42, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.95);
 }}
 
 * {{ box-sizing: border-box; margin: 0; padding: 0; }}
@@ -779,36 +845,36 @@ body {{
   background: var(--bg);
 }}
 
-/* Magic UI Aurora Background */
+/* Aurora Background */
 .aurora-bg {{
   position: fixed;
-  inset: -30%;
+  inset: -35%;
   pointer-events: none;
   z-index: 0;
-  filter: blur(55px);
-  opacity: 0.65;
+  filter: blur(65px);
+  opacity: 0.68;
 }}
 .aurora-blob {{
   position: absolute;
   border-radius: 50%;
-  animation: aurora-drift 22s ease-in-out infinite alternate;
+  animation: aurora-drift 24s ease-in-out infinite alternate;
 }}
 .blob-1 {{
-  width: 500px; height: 500px;
-  top: 20%; left: 15%;
-  background: radial-gradient(circle, rgba(139, 92, 246, 0.25), transparent 70%);
+  width: 580px; height: 580px;
+  top: 15%; left: 10%;
+  background: radial-gradient(circle, rgba(139, 92, 246, 0.28), transparent 70%);
 }}
 .blob-2 {{
-  width: 550px; height: 550px;
-  top: 40%; right: 15%;
-  background: radial-gradient(circle, rgba(34, 211, 238, 0.18), transparent 70%);
-  animation-delay: -7s;
+  width: 620px; height: 620px;
+  top: 35%; right: 10%;
+  background: radial-gradient(circle, rgba(34, 211, 238, 0.22), transparent 70%);
+  animation-delay: -8s;
 }}
 .blob-3 {{
-  width: 420px; height: 420px;
-  bottom: 10%; left: 45%;
-  background: radial-gradient(circle, rgba(59, 130, 246, 0.16), transparent 70%);
-  animation-delay: -14s;
+  width: 480px; height: 480px;
+  bottom: 5%; left: 40%;
+  background: radial-gradient(circle, rgba(59, 130, 246, 0.20), transparent 70%);
+  animation-delay: -16s;
 }}
 
 .grid-mesh {{
@@ -817,19 +883,18 @@ body {{
   pointer-events: none;
   z-index: 0;
   background-image: 
-    linear-gradient(rgba(148, 163, 184, 0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(148, 163, 184, 0.04) 1px, transparent 1px);
-  background-size: 40px 40px;
+    linear-gradient(rgba(148, 163, 184, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.045) 1px, transparent 1px);
+  background-size: 42px 42px;
   mask-image: radial-gradient(ellipse at 50% 30%, black 20%, transparent 80%);
 }}
 
 @keyframes aurora-drift {{
   0% {{ transform: translate(0, 0) scale(1); }}
-  50% {{ transform: translate(40px, -30px) scale(1.1); }}
-  100% {{ transform: translate(-30px, 40px) scale(0.95); }}
+  50% {{ transform: translate(45px, -35px) scale(1.12); }}
+  100% {{ transform: translate(-35px, 45px) scale(0.92); }}
 }}
 
-/* Shell & Floating Nav */
 .magic-shell {{
   position: relative;
   z-index: 1;
@@ -838,19 +903,20 @@ body {{
   padding: 20px 24px 60px;
 }}
 
+/* Floating Nav */
 .magic-nav {{
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   min-height: 62px;
-  margin-bottom: 24px;
+  margin-bottom: 22px;
   padding: 10px 18px;
   border: 1px solid var(--border);
   border-radius: 18px;
   background: var(--panel-bg);
   box-shadow: var(--shadow-magic);
-  backdrop-filter: blur(20px) saturate(140%);
+  backdrop-filter: blur(22px) saturate(140%);
 }}
 
 .nav-brand {{
@@ -867,7 +933,7 @@ body {{
   height: 36px;
   border-radius: 11px;
   background: linear-gradient(135deg, var(--violet), var(--cyan));
-  box-shadow: 0 0 20px var(--violet-glow);
+  box-shadow: 0 0 22px var(--violet-glow);
   color: #fff;
   font-size: 16px;
 }}
@@ -954,10 +1020,203 @@ body {{
   background: rgba(34, 211, 238, 0.15);
   color: #fff;
 }}
-/* Main Workspace: 3/4 Left Bento Nodes + 1/4 Right Compact Form */
+
+/* =========================================================
+   TOP HERO: Live Global Network Radar & Metric Tiles
+========================================================= */
+.hero-dashboard {{
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
+  gap: 20px;
+  margin-bottom: 22px;
+}}
+
+.radar-card {{
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 190px;
+  padding: 20px 22px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  background: var(--panel-bg);
+  box-shadow: var(--shadow-magic);
+  backdrop-filter: blur(20px);
+  overflow: hidden;
+}}
+
+.radar-header {{
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}}
+.radar-title-group h3 {{
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}}
+.radar-title-group p {{
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}}
+.radar-live-tag {{
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(34, 211, 238, 0.12);
+  border: 1px solid rgba(34, 211, 238, 0.3);
+  color: var(--cyan);
+  font-size: 11px;
+  font-weight: 750;
+}}
+.radar-live-tag .radar-ping {{
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: 0 0 8px var(--cyan);
+  animation: pulse-dot 1.5s infinite;
+}}
+
+/* Interactive SVG World Topology Radar Map */
+.radar-svg-stage {{
+  position: relative;
+  width: 100%;
+  height: 130px;
+  margin-top: 8px;
+  z-index: 1;
+}}
+.radar-svg {{
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}}
+
+.radar-flight-path {{
+  stroke: rgba(148, 163, 184, 0.22);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 4;
+  fill: none;
+}}
+.radar-flight-path.active-path {{
+  stroke: url(#radar-beam-grad);
+  stroke-width: 2;
+  stroke-dasharray: 8 6;
+  animation: fly-dash 18s linear infinite;
+}}
+
+@keyframes fly-dash {{
+  to {{ stroke-dashoffset: -200; }}
+}}
+
+.radar-station-dot {{
+  fill: var(--cyan);
+  filter: drop-shadow(0 0 6px var(--cyan));
+}}
+.radar-station-hub {{
+  fill: #8b5cf6;
+  filter: drop-shadow(0 0 8px #8b5cf6);
+}}
+.radar-pulse-ring {{
+  fill: none;
+  stroke: var(--cyan);
+  stroke-width: 1;
+  opacity: 0.8;
+  animation: radar-expand 3s ease-out infinite;
+  transform-origin: center;
+}}
+
+@keyframes radar-expand {{
+  0% {{ r: 4; opacity: 0.9; }}
+  100% {{ r: 18; opacity: 0; }}
+}}
+
+.radar-station-label {{
+  font-size: 10px;
+  font-weight: 700;
+  fill: var(--muted);
+}}
+
+/* Metric Bento Tiles */
+.metrics-grid {{
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}}
+
+.metric-tile {{
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--panel-bg);
+  box-shadow: var(--shadow-magic);
+  backdrop-filter: blur(20px);
+  transition: all 0.18s ease;
+}}
+.metric-tile:hover {{
+  transform: translateY(-2px);
+  border-color: var(--border-hover);
+  background: var(--card-hover);
+}}
+
+.metric-tile-top {{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}}
+.metric-tile-title {{
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}}
+.metric-tile-icon {{
+  font-size: 15px;
+}}
+.metric-tile-val {{
+  margin-top: 10px;
+  font-size: 22px;
+  font-weight: 850;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  line-height: 1.2;
+}}
+.metric-tile-val span {{
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-left: 3px;
+}}
+.metric-tile-sub {{
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--emerald);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}}
+
+/* =========================================================
+   MAIN WORKSPACE: 3/4 Left Bento Nodes + 1/4 Right 3D Form
+========================================================= */
 .magic-workspace {{
   display: grid;
-  grid-template-columns: minmax(0, 3fr) minmax(280px, 1fr);
+  grid-template-columns: minmax(0, 3fr) minmax(290px, 1fr);
   gap: 22px;
   margin-bottom: 24px;
 }}
@@ -983,7 +1242,6 @@ body {{
 }}
 .box-header-title h2 {{
   font-size: 17px;
-  font-size: 17px;
   font-weight: 800;
   letter-spacing: -0.01em;
   color: var(--ink);
@@ -999,13 +1257,13 @@ body {{
   align-items: center;
   gap: 6px;
   height: 34px;
-  padding: 0 13px;
+  padding: 0 14px;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--card-bg);
   color: var(--ink-secondary);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 750;
   cursor: pointer;
   transition: all 0.18s ease;
 }}
@@ -1018,17 +1276,17 @@ body {{
 
 .node-grid {{
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 14px;
 }}
 
-/* Node Card & Flag UI */
+/* Bento Node Card & Spotlight Effect */
 .node-card {{
   position: relative;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  min-height: 104px;
+  min-height: 128px;
   padding: 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
@@ -1037,8 +1295,21 @@ body {{
   text-align: left;
   cursor: pointer;
   outline: none;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 }}
+
+/* Dynamic Spotlight Follower */
+.node-card-glow-follower {{
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(160px circle at var(--mouse-x, 50%) var(--mouse-y, 50%), rgba(34, 211, 238, 0.15), transparent 70%);
+  transition: opacity 0.3s ease;
+}}
+.node-card:hover .node-card-glow-follower {{ opacity: 1; }}
+
 .node-card:after {{
   content: "";
   position: absolute;
@@ -1053,12 +1324,12 @@ body {{
   transform: translateY(-2px);
   border-color: var(--border-hover);
   background: var(--card-hover);
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.22);
 }}
 .node-card.selected {{
   border-color: var(--border-active);
   background: var(--card-selected);
-  box-shadow: 0 0 0 1px var(--cyan), 0 12px 30px var(--cyan-glow);
+  box-shadow: 0 0 0 1px var(--cyan), 0 12px 32px var(--cyan-glow);
 }}
 .node-card.selected:after {{
   border-color: var(--cyan);
@@ -1067,6 +1338,8 @@ body {{
 }}
 
 .node-card-top {{
+  position: relative;
+  z-index: 2;
   display: flex;
   align-items: center;
   gap: 11px;
@@ -1078,10 +1351,10 @@ body {{
 }}
 .flag-icon {{
   display: block;
-  width: 30px;
-  height: 20px;
-  border-radius: 4px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.32);
+  width: 32px;
+  height: 22px;
+  border-radius: 5px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
 }}
 .node-info-group {{
   min-width: 0;
@@ -1091,7 +1364,7 @@ body {{
 }}
 .node-name {{
   display: block;
-  font-size: 13px;
+  font-size: 13.5px;
   font-weight: 800;
   color: var(--ink);
   overflow: hidden;
@@ -1105,16 +1378,30 @@ body {{
   color: var(--muted);
 }}
 
+/* Mini Sparkline Chart */
+.node-card-sparkline {{
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 24px;
+  margin: 6px 0 4px;
+}}
+.sparkline-svg {{
+  width: 100%;
+  height: 100%;
+}}
+
 .node-card-bottom {{
+  position: relative;
+  z-index: 2;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-top: 14px;
 }}
 .node-kind-badge {{
   font-size: 10px;
-  font-weight: 700;
-  padding: 1px 6px;
+  font-weight: 750;
+  padding: 2px 6px;
   border-radius: 4px;
   border: 1px solid var(--border);
   background: rgba(148, 163, 184, 0.08);
@@ -1127,7 +1414,7 @@ body {{
   align-items: center;
   gap: 5px;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 750;
   color: var(--muted);
 }}
 .latency-dot {{
@@ -1149,12 +1436,14 @@ body {{
   font-size: 13px;
 }}
 
-/* Right Form Card (1/4 Column) */
+/* =========================================================
+   RIGHT: 3D Holographic Crystal & Route Form
+========================================================= */
 .route-creation-card {{
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  padding: 24px 20px;
+  padding: 22px 20px;
   border: 1px solid var(--border);
   border-radius: var(--radius-panel);
   background: var(--panel-bg);
@@ -1162,12 +1451,56 @@ body {{
   backdrop-filter: blur(20px);
 }}
 
-.form-header {{
-  margin-bottom: 16px;
+/* 3D Holographic Crystal Orb */
+.crystal-orb-stage {{
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 0 16px;
 }}
-.form-header h3 {{
+.crystal-orb-wrapper {{
+  position: relative;
+  width: 76px;
+  height: 76px;
+  display: grid;
+  place-items: center;
+}}
+.crystal-orb {{
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff 2%, var(--cyan) 35%, var(--violet) 75%, #05060f 100%);
+  box-shadow: 0 0 25px var(--cyan-glow), inset 0 -4px 8px rgba(0,0,0,0.6);
+  animation: floating-core 4s ease-in-out infinite;
+}}
+.crystal-ring {{
+  position: absolute;
+  width: 72px;
+  height: 28px;
+  border: 2px solid rgba(34, 211, 238, 0.4);
+  border-radius: 50%;
+  transform: rotate(-25deg);
+  box-shadow: 0 0 12px var(--cyan-glow);
+  animation: ring-spin 8s linear infinite;
+}}
+
+@keyframes floating-core {{
+  0%, 100% {{ transform: translateY(0) scale(1); }}
+  50% {{ transform: translateY(-7px) scale(1.04); }}
+}}
+@keyframes ring-spin {{
+  0% {{ transform: rotate(-25deg) rotateY(0deg); }}
+  100% {{ transform: rotate(-25deg) rotateY(360deg); }}
+}}
+
+.form-header-center {{
+  text-align: center;
+  margin-top: 4px;
+}}
+.form-header-center h3 {{
   font-size: 16px;
-  font-weight: 800;
+  font-weight: 850;
+  letter-spacing: -0.01em;
   color: var(--ink);
 }}
 .form-selected-node {{
@@ -1177,29 +1510,37 @@ body {{
 }}
 .badge-chosen-node {{
   display: inline-block;
-  padding: 2px 7px;
+  padding: 2px 8px;
   border-radius: 6px;
   background: var(--card-bg);
   border: 1px solid var(--border);
   color: var(--cyan);
-  font-weight: 700;
+  font-weight: 750;
 }}
 
 .magic-form {{
   display: flex;
   flex-direction: column;
   gap: 14px;
+  margin-top: 14px;
 }}
 .form-item label {{
   display: block;
   margin-bottom: 6px;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 750;
   color: var(--ink-secondary);
 }}
 .form-item label .opt-tag {{
   font-weight: 400;
   color: var(--muted);
+}}
+
+/* Border Beam Input */
+.magic-input-wrap {{
+  position: relative;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
 }}
 .magic-input {{
   width: 100%;
@@ -1212,7 +1553,7 @@ body {{
   font: inherit;
   font-size: 13px;
   outline: none;
-  transition: all 0.18s ease;
+  transition: all 0.2s ease;
 }}
 .magic-input::placeholder {{ color: var(--muted-dark); }}
 .magic-input:focus {{
@@ -1224,16 +1565,16 @@ body {{
 .btn-generate-shimmer {{
   position: relative;
   width: 100%;
-  height: 44px;
+  height: 46px;
   margin-top: 4px;
-  border: 1px solid rgba(167, 139, 250, 0.4);
+  border: 1px solid rgba(167, 139, 250, 0.45);
   border-radius: var(--radius-sm);
   background: linear-gradient(110deg, #6d28d9, #7c3aed 45%, #0891b2);
   background-size: 200% 100%;
-  box-shadow: 0 10px 25px var(--violet-glow);
+  box-shadow: 0 12px 28px var(--violet-glow);
   color: #fff;
   font: inherit;
-  font-size: 13px;
+  font-size: 13.5px;
   font-weight: 800;
   cursor: pointer;
   overflow: hidden;
@@ -1250,7 +1591,7 @@ body {{
 }}
 .btn-generate-shimmer:hover {{
   transform: translateY(-2px);
-  box-shadow: 0 14px 32px var(--violet-glow), 0 0 20px var(--cyan-glow);
+  box-shadow: 0 16px 36px var(--violet-glow), 0 0 22px var(--cyan-glow);
 }}
 
 @keyframes shimmer-btn {{
@@ -1263,15 +1604,19 @@ body {{
   font-size: 11px;
   line-height: 1.5;
   color: var(--muted-dark);
+  text-align: center;
 }}
-/* Result & Error Boxes */
+
+/* =========================================================
+   Result, Error & My Routes Table
+========================================================= */
 .result-box {{
   margin-bottom: 24px;
   padding: 20px 24px;
-  border: 1px solid rgba(52, 211, 153, 0.35);
+  border: 1px solid rgba(52, 211, 153, 0.4);
   border-radius: var(--radius-panel);
   background: var(--panel-bg);
-  box-shadow: 0 16px 40px rgba(16, 185, 129, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  box-shadow: 0 16px 40px rgba(16, 185, 129, 0.09), inset 0 1px 0 rgba(255, 255, 255, 0.05);
   backdrop-filter: blur(20px);
 }}
 .result-header {{
@@ -1290,10 +1635,10 @@ body {{
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 4px 10px;
+  padding: 4px 11px;
   border-radius: 999px;
   background: var(--emerald-bg);
-  border: 1px solid rgba(52, 211, 153, 0.4);
+  border: 1px solid rgba(52, 211, 153, 0.45);
   color: var(--emerald);
   font-size: 12px;
   font-weight: 800;
@@ -1313,7 +1658,7 @@ body {{
   display: block;
   margin-bottom: 6px;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 750;
   color: var(--ink-secondary);
 }}
 .copy-field-wrap {{
@@ -1330,7 +1675,7 @@ body {{
   color: var(--cyan);
   font-family: ui-monospace, monospace;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 750;
   outline: none;
 }}
 .btn-copy-magic {{
@@ -1350,7 +1695,7 @@ body {{
 .btn-copy-magic:hover {{
   background: var(--cyan);
   color: #040711;
-  box-shadow: 0 0 18px var(--cyan-glow);
+  box-shadow: 0 0 20px var(--cyan-glow);
 }}
 .result-hint {{
   margin-top: 8px;
@@ -1373,7 +1718,6 @@ body {{
 .alert-error-text strong {{ display: block; margin-bottom: 2px; font-size: 13px; }}
 .alert-error-text span {{ font-size: 12px; }}
 
-/* My Routes Glass Table */
 .my-routes-box {{
   position: relative;
   padding: 24px;
@@ -1455,7 +1799,7 @@ body {{
   color: var(--ink-secondary);
   font: inherit;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 750;
   cursor: pointer;
   transition: all 0.15s ease;
 }}
@@ -1471,7 +1815,7 @@ body {{
   border: 1px solid var(--border);
   background: rgba(148, 163, 184, 0.08);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 750;
   color: var(--ink);
 }}
 
@@ -1482,7 +1826,7 @@ body {{
   padding: 3px 8px;
   border-radius: 999px;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 750;
 }}
 .status-pill .pulse-dot {{
   width: 5px; height: 5px;
@@ -1529,7 +1873,7 @@ body {{
   background: var(--violet);
   color: #fff;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 750;
   cursor: pointer;
 }}
 .btn-note-cancel {{
@@ -1552,7 +1896,7 @@ body {{
   color: var(--danger);
   font: inherit;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 750;
   cursor: pointer;
   transition: all 0.15s ease;
 }}
@@ -1574,16 +1918,16 @@ body {{
 
 /* Responsive Breakpoints */
 @media (max-width: 960px) {{
-  .magic-workspace {{
-    grid-template-columns: 1fr;
-  }}
+  .hero-dashboard {{ grid-template-columns: 1fr; }}
+  .magic-workspace {{ grid-template-columns: 1fr; }}
 }}
 @media (max-width: 640px) {{
   .magic-shell {{ padding: 14px 12px 40px; }}
   .magic-nav {{ padding: 10px 12px; }}
-  .bento-nodes-box, .route-creation-card, .my-routes-box {{ padding: 18px 14px; }}
+  .radar-card, .metric-tile, .bento-nodes-box, .route-creation-card, .my-routes-box {{ padding: 16px 14px; }}
+  .metrics-grid {{ grid-template-columns: 1fr; }}
   .node-grid {{ grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }}
-  .node-card {{ min-height: 92px; padding: 10px; }}
+  .node-card {{ min-height: 110px; padding: 10px; }}
   .nav-badge.status {{ display: none; }}
 }}
 </style>
@@ -1601,15 +1945,15 @@ body {{
   <!-- Floating Glass Nav -->
   <header class="magic-nav">
     <a href="/" class="nav-brand">
-      <span class="brand-gem">✨</span>
+      <span class="brand-gem">✦</span>
       <div class="brand-meta">
         <strong>Emby Relay</strong>
-        <small>智能媒体反代</small>
+        <small>全球智能媒体中继</small>
       </div>
     </a>
     <div class="nav-actions">
-      <span class="nav-badge user">✤ {html.escape(user['username'])}</span>
-      <span class="nav-badge quota">皂 线路 <b>{used_routes}</b>/{route_quota}</span>
+      <span class="nav-badge user">👤 {html.escape(user['username'])}</span>
+      <span class="nav-badge quota">🗂 线路 <b>{used_routes}</b>/{route_quota}</span>
       <span class="nav-badge status"><i class="dot"></i>{html.escape(expiry_label)}</span>
       <button type="button" class="nav-btn-icon" id="user-theme-toggle" title="切换深色/浅色主题" aria-label="切换主题">☼</button>
       <a class="nav-link-btn" href="/account">账号安全</a>
@@ -1620,16 +1964,111 @@ body {{
       </form>
     </div>
   </header>
-  <!-- Main Workspace: 3/4 Bento Nodes + 1/4 Compact Form -->
+
+  <!-- TOP HERO: Global Network Radar & Metric Tiles -->
+  <section class="hero-dashboard">
+    <!-- Live World Topology Radar -->
+    <div class="radar-card">
+      <div class="radar-header">
+        <div class="radar-title-group">
+          <h3>🌐 全球智能中继拓扑 <span class="radar-live-tag"><i class="radar-ping"></i>LIVE 实时连通</span></h3>
+          <p>智能调度全球优质 BGP 中继路由，实现 4K HDR 极速秒开</p>
+        </div>
+      </div>
+      
+      <div class="radar-svg-stage">
+        <svg viewBox="0 0 520 130" class="radar-svg">
+          <defs>
+            <linearGradient id="radar-beam-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stop-color="#8b5cf6" />
+              <stop offset="50%" stop-color="#22d3ee" />
+              <stop offset="100%" stop-color="#34d399" />
+            </linearGradient>
+          </defs>
+          
+          <!-- Background Grid Arc -->
+          <path d="M 40 115 Q 260 20 480 115" stroke="rgba(148, 163, 184, 0.08)" stroke-width="1" fill="none" />
+          <path d="M 80 115 Q 260 45 440 115" stroke="rgba(148, 163, 184, 0.08)" stroke-width="1" fill="none" />
+          
+          <!-- Origin Hub: CN (China) -->
+          <circle cx="90" cy="70" r="14" class="radar-pulse-ring" />
+          <circle cx="90" cy="70" r="5" class="radar-station-hub" />
+          <text x="90" y="94" text-anchor="middle" class="radar-station-label">源站 / 客户端</text>
+          
+          <!-- Route Arcs to Edge Nodes -->
+          <!-- To HK -->
+          <path d="M 90 70 Q 180 25 240 50" class="radar-flight-path active-path" />
+          <circle cx="240" cy="50" r="4.5" class="radar-station-dot" />
+          <text x="240" y="70" text-anchor="middle" class="radar-station-label">🇭🇰 香港</text>
+          
+          <!-- To JP -->
+          <path d="M 90 70 Q 230 15 350 40" class="radar-flight-path active-path" />
+          <circle cx="350" cy="40" r="4.5" class="radar-station-dot" />
+          <text x="350" y="60" text-anchor="middle" class="radar-station-label">🇯🇵 东京</text>
+          
+          <!-- To SG -->
+          <path d="M 90 70 Q 170 85 220 105" class="radar-flight-path active-path" />
+          <circle cx="220" cy="105" r="4.5" class="radar-station-dot" />
+          <text x="220" y="122" text-anchor="middle" class="radar-station-label">🇸🇬 新加坡</text>
+          
+          <!-- To US / Europe -->
+          <path d="M 90 70 Q 280 20 450 65" class="radar-flight-path active-path" />
+          <circle cx="450" cy="65" r="4.5" class="radar-station-dot" />
+          <text x="450" y="85" text-anchor="middle" class="radar-station-label">🇺🇸 美西/欧洲</text>
+        </svg>
+      </div>
+    </div>
+
+    <!-- 4 Metric Bento Tiles -->
+    <div class="metrics-grid">
+      <div class="metric-tile">
+        <div class="metric-tile-top">
+          <span class="metric-tile-title">可用加速节点</span>
+          <span class="metric-tile-icon">⚡</span>
+        </div>
+        <div class="metric-tile-val">{nodes_count} <span>Nodes</span></div>
+        <div class="metric-tile-sub">● 全节点就绪</div>
+      </div>
+
+      <div class="metric-tile">
+        <div class="metric-tile-top">
+          <span class="metric-tile-title">平均中继延迟</span>
+          <span class="metric-tile-icon">🛰️</span>
+        </div>
+        <div class="metric-tile-val" id="avg-latency-display">38 <span>ms</span></div>
+        <div class="metric-tile-sub">▲ 毫秒极速中继</div>
+      </div>
+
+      <div class="metric-tile">
+        <div class="metric-tile-top">
+          <span class="metric-tile-title">特征清洗引擎</span>
+          <span class="metric-tile-icon">🛡️</span>
+        </div>
+        <div class="metric-tile-val">100% <span>Clean</span></div>
+        <div class="metric-tile-sub">● 双向隐私伪装</div>
+      </div>
+
+      <div class="metric-tile">
+        <div class="metric-tile-top">
+          <span class="metric-tile-title">我的配额使用</span>
+          <span class="metric-tile-icon">🗂</span>
+        </div>
+        <div class="metric-tile-val">{used_routes} <span>/ {route_quota}</span></div>
+        <div class="metric-tile-sub">● 随时删除释放</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Main Workspace: 3/4 Bento Nodes + 1/4 3D Form -->
   <section class="magic-workspace">
     <!-- Left 3/4: Node Matrix -->
     <div class="bento-nodes-box">
       <div class="box-header">
         <div class="box-header-title">
-          <h2>✨ 选择加速节点</h2>
-          <p>点凾卡片选择节点，浏览器将实时探测各节点连接延迟</p>
+          <h2>✦ 选择加速节点</h2>
+          <p>点击卡片选择节点，浏览器将实时探测各节点连接延迟与稳定性</p>
         </div>
-        <button type="button" class="btn-probe-magic" id="test-nodes">⚡ 探测延迟</button>
+        <button type="button" class="btn-probe-magic" id="test-nodes">⚡ 全节点测速</button>
       </div>
 
       <div class="node-grid" id="nodes">
@@ -1637,13 +2076,19 @@ body {{
       </div>
     </div>
 
-    <!-- Right 1/4: Compact Route Form -->
+    <!-- Right 1/4: 3D Holographic Form Card -->
     <div class="route-creation-card">
       <div>
-        <div class="form-header">
-          <h3>斷 创建专属线路</h3>
-          <div class="form-selected-node">
-            已选节点：<span class="badge-chosen-node" id="selected-node-display">{html.escape(selected_node_name)}</span>
+        <div class="crystal-orb-stage">
+          <div class="crystal-orb-wrapper">
+            <div class="crystal-ring"></div>
+            <div class="crystal-orb" id="crystal-orb-element"></div>
+          </div>
+          <div class="form-header-center">
+            <h3>🚀 创建专属线路</h3>
+            <div class="form-selected-node">
+              已选节点：<span class="badge-chosen-node" id="selected-node-display">{html.escape(selected_node_name)}</span>
+            </div>
           </div>
         </div>
 
@@ -1652,20 +2097,24 @@ body {{
           <input type="hidden" name="node_id" id="node-id" value="{selected_node_id}">
 
           <div class="form-item">
-            <label>源站地址 (Emby URL)</label>
-            <input class="magic-input" required name="url" placeholder="https://emby.domain.com:8096" value="{html.escape(raw_url)}">
+            <label>源站地址 (Emby Server URL)</label>
+            <div class="magic-input-wrap">
+              <input class="magic-input" required name="url" placeholder="https://emby.domain.com:8096" value="{html.escape(raw_url)}">
+            </div>
           </div>
 
           <div class="form-item">
             <label>线路备注 <span class="opt-tag">（可选）</span></label>
-            <input class="magic-input" name="route_note" maxlength="500" placeholder="例如：主力影视库、日漫" value="{html.escape(raw_route_note, quote=True)}">
+            <div class="magic-input-wrap">
+              <input class="magic-input" name="route_note" maxlength="500" placeholder="例如：主力影视库、日漫专用" value="{html.escape(raw_route_note, quote=True)}">
+            </div>
           </div>
 
-          <button type="submit" class="btn-generate-shimmer">立即生成反代线路</button>
+          <button type="submit" class="btn-generate-shimmer">立即生成专属反代线路</button>
         </form>
       </div>
 
-      <p class="form-footnote">✡ 全链路清洗源站及代理特征，保障隐私与高码率流畅播放体验。</p>
+      <p class="form-footnote">💡 全链路清洗源站指纹与代理特征，保障隐私与高码率流畅播放体验。</p>
     </div>
   </section>
 
@@ -1676,8 +2125,8 @@ body {{
   <section class="my-routes-box">
     <div class="box-header">
       <div class="box-header-title">
-        <h2>皂 我的反代线路</h2>
-        <p>已创建的专属诿问地址，删除后将实时释放配额</p>
+        <h2>🗂 我的反代线路</h2>
+        <p>已创建的专属访问地址，删除后将实时释放配额</p>
       </div>
       <span class="nav-badge">共 {used_routes} 条</span>
     </div>
@@ -1706,18 +2155,29 @@ body {{
 const nodes = {nodes_json};
 let selected = {selected_node_id};
 
+const regionOrbStyles = {{
+  hk: 'radial-gradient(circle at 35% 30%, #fff 2%, #a855f7 35%, #ec4899 75%, #05060f 100%)',
+  jp: 'radial-gradient(circle at 35% 30%, #fff 2%, #38bdf8 35%, #ec4899 75%, #05060f 100%)',
+  sg: 'radial-gradient(circle at 35% 30%, #fff 2%, #34d399 35%, #0891b2 75%, #05060f 100%)',
+  tw: 'radial-gradient(circle at 35% 30%, #fff 2%, #f59e0b 35%, #ef4444 75%, #05060f 100%)',
+  us: 'radial-gradient(circle at 35% 30%, #fff 2%, #60a5fa 35%, #8b5cf6 75%, #05060f 100%)',
+  global: 'radial-gradient(circle at 35% 30%, #fff 2%, #22d3ee 35%, #8b5cf6 75%, #05060f 100%)'
+}};
+
 function pick(id) {{
   selected = id;
   const nodeInput = document.getElementById('node-id');
   if (nodeInput) nodeInput.value = id;
   
   let chosenName = '未选择';
+  let countryName = '';
   document.querySelectorAll('.node-card').forEach(card => {{
     const active = Number(card.dataset.nodeId) === id;
     card.classList.toggle('selected', active);
     card.setAttribute('aria-pressed', String(active));
     if (active) {{
       chosenName = card.dataset.nodeName || ('节点 #' + id);
+      countryName = card.dataset.country || '';
     }}
   }});
   
@@ -1725,37 +2185,72 @@ function pick(id) {{
   if (displayEl) {{
     displayEl.textContent = chosenName;
   }}
+
+  // Update Crystal Orb Color dynamically
+  const orbEl = document.getElementById('crystal-orb-element');
+  if (orbEl) {{
+    let key = 'global';
+    if (countryName.includes('香港') || chosenName.toLowerCase().includes('hk')) key = 'hk';
+    else if (countryName.includes('日本') || chosenName.toLowerCase().includes('jp')) key = 'jp';
+    else if (countryName.includes('新加坡') || chosenName.toLowerCase().includes('sg')) key = 'sg';
+    else if (countryName.includes('台湾') || chosenName.toLowerCase().includes('tw')) key = 'tw';
+    else if (countryName.includes('美') || chosenName.toLowerCase().includes('us')) key = 'us';
+    orbEl.style.background = regionOrbStyles[key] || regionOrbStyles.global;
+  }}
 }}
 
+// Spotlight Card Hover Listener
 document.querySelectorAll('.node-card').forEach(card => {{
+  card.addEventListener('mousemove', (e) => {{
+    const rect = card.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    card.style.setProperty('--mouse-x', x + 'px');
+    card.style.setProperty('--mouse-y', y + 'px');
+  }});
   card.addEventListener('click', () => pick(Number(card.dataset.nodeId)));
 }});
+
+// Latency Probing
+const latencyRecords = [];
 
 async function probe(node) {{
   const badge = document.querySelector('[data-latency="' + node.id + '"]');
   if (!badge) return;
   const textEl = badge.querySelector('.latency-text') || badge;
   textEl.textContent = '…';
-  bacge.className = 'latency-badge';
+  badge.className = 'latency-badge';
   const start = performance.now();
   try {{
     await fetch(node.probe_url + '?t=' + Date.now(), {{ mode: 'no-cors', cache: 'no-store' }});
     const ms = Math.round(performance.now() - start);
     textEl.textContent = ms + ' ms';
+    latencyRecords.push(ms);
     if (ms < 120) {{
-      bacge.className = 'latency-badge fast';
+      badge.className = 'latency-badge fast';
     }} else if (ms < 280) {{
-      bacge.className = 'latency-badge medium';
+      badge.className = 'latency-badge medium';
     }} else {{
-      bacge.className = 'latency-badge slow';
+      badge.className = 'latency-badge slow';
     }}
+    updateAvgLatency();
   }} catch (e) {{
     textEl.textContent = '超时';
-    bacge.className = 'latency-badge error';
+    badge.className = 'latency-badge error';
   }}
 }}
 
-function probeAll() {{ nodes.forEach(probe); }}
+function updateAvgLatency() {{
+  if (!latencyRecords.length) return;
+  const avg = Math.round(latencyRecords.reduce((a, b) => a + b, 0) / latencyRecords.length);
+  const avgEl = document.getElementById('avg-latency-display');
+  if (avgEl) avgEl.innerHTML = avg + ' <span>ms</span>';
+}}
+
+function probeAll() {{
+  latencyRecords.length = 0;
+  nodes.forEach(probe);
+}}
 document.getElementById('test-nodes')?.addEventListener('click', probeAll);
 if (nodes.length) {{ probeAll(); }}
 
@@ -1844,115 +2339,227 @@ userThemeToggle?.addEventListener('click', () => {{
     return response
 
 
-async def handle(request: web.Request):
-    if request.path == "/__health":
-        return web.Response(text="ok\n")
-    if request.path == "/favicon.ico":
-        return web.Response(status=204)
-
-    panel = request.app.get("panel")
-    if is_base_proxy_host(request) and (request.path == "/_admin" or request.path.startswith("/_admin/")) and panel is not None:
-        return await panel.handle(request)
-    if is_base_proxy_host(request) and request.path == "/_agent/heartbeat" and panel is not None:
-        return await panel.agent_heartbeat(request)
-    if is_base_proxy_host(request) and panel is not None and (
-        request.path in {"/login", "/register", "/logout", "/account", "/account/password"}
-        or re.fullmatch(r"/my/routes/\d+/(delete|note)", request.path)
-    ):
-        return await panel.handle_user(request)
-
-    if is_base_proxy_host(request) and request.path in {"/", "/gen"}:
-        return await generator_response(request)
-
-    # Generated routes are served directly by Nginx.  This process is only the
-    # UI/control plane and must never act as a generic outbound proxy.
-    raise web.HTTPNotFound()
-
-@web.middleware
-async def security_headers(request: web.Request, handler):
-    try:
-        response = await handler(request)
-    except web.HTTPException as exc:
-        response = exc
-    response.headers.setdefault("Cache-Control", "no-store")
-    response.headers.setdefault("Strict-Transport-Security", "max-age=31536000")
-    response.headers.setdefault("X-Content-Type-Options", "nosniff")
-    response.headers.setdefault("X-Frame-Options", "DENY")
-    response.headers.setdefault("Referrer-Policy", "no-referrer")
-    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
-    response.headers.setdefault(
-        "Content-Security-Policy",
-        "default-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; "
-        "form-action 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
-        "script-src 'self'; connect-src 'self' https:",
-    )
-    response.headers["Server"] = ""
-    return response
-
-
-async def create_app():
-    app = web.Application(client_max_size=8 * 1024**2, middlewares=[security_headers])
-    from panel import ProxyPanel
-    panel = ProxyPanel(normalized_origin)
-    panel.setup()
-    await panel.refresh_local_location()
-    app["panel"] = panel
-    async def reconcile_users(application: web.Application) -> None:
-        while True:
-            try:
-                await asyncio.to_thread(application["panel"].reconcile_inactive_users)
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                # A failed remote-node cleanup remains visible on the route and is retried later.
-                pass
-            await asyncio.sleep(60)
-
-    async def collect_traffic(application: web.Application) -> None:
-        while True:
-            try:
-                await asyncio.to_thread(application["panel"].collect_traffic_usage)
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                # A single unavailable node is retried on the next collection pass.
-                pass
-            await asyncio.sleep(60)
-
-    async def renew_node_certificates(application: web.Application) -> None:
-        interval = max(3600, int(os.environ.get("CERT_RENEW_INTERVAL", "21600")))
-        while True:
-            try:
-                await asyncio.to_thread(application["panel"].renew_node_certificates)
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                # Renewal failures leave the previous certificate in place and
-                # are retried on the next pass; operators can inspect logs.
-                pass
-            await asyncio.sleep(interval)
-
-    async def start_reconciler(application: web.Application) -> None:
-        application["user_reconciler"] = asyncio.create_task(reconcile_users(application))
-        application["traffic_collector"] = asyncio.create_task(collect_traffic(application))
-        application["certificate_renewer"] = asyncio.create_task(renew_node_certificates(application))
-
-    async def stop_reconciler(application: web.Application) -> None:
-        for name in ("user_reconciler", "traffic_collector", "certificate_renewer"):
-            task = application.get(name)
-            if task:
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
-
-    app.on_startup.append(start_reconciler)
-    app.on_cleanup.append(stop_reconciler)
-    app.router.add_route("*", "/{path_info:.*}", handle)
-
-    return app
-
-
-if __name__ == "__main__":
-    web.run_app(create_app(), host=LISTEN_HOST, port=LISTEN_PORT)
+async def handle(request: web.Request):
+
+    if request.path == "/__health":
+
+        return web.Response(text="ok\n")
+
+    if request.path == "/favicon.ico":
+
+        return web.Response(status=204)
+
+
+
+    panel = request.app.get("panel")
+
+    if is_base_proxy_host(request) and (request.path == "/_admin" or request.path.startswith("/_admin/")) and panel is not None:
+
+        return await panel.handle(request)
+
+    if is_base_proxy_host(request) and request.path == "/_agent/heartbeat" and panel is not None:
+
+        return await panel.agent_heartbeat(request)
+
+    if is_base_proxy_host(request) and panel is not None and (
+
+        request.path in {"/login", "/register", "/logout", "/account", "/account/password"}
+
+        or re.fullmatch(r"/my/routes/\d+/(delete|note)", request.path)
+
+    ):
+
+        return await panel.handle_user(request)
+
+
+
+    if is_base_proxy_host(request) and request.path in {"/", "/gen"}:
+
+        return await generator_response(request)
+
+
+
+    # Generated routes are served directly by Nginx.  This process is only the
+
+    # UI/control plane and must never act as a generic outbound proxy.
+
+    raise web.HTTPNotFound()
+
+
+
+@web.middleware
+
+async def security_headers(request: web.Request, handler):
+
+    try:
+
+        response = await handler(request)
+
+    except web.HTTPException as exc:
+
+        response = exc
+
+    response.headers.setdefault("Cache-Control", "no-store")
+
+    response.headers.setdefault("Strict-Transport-Security", "max-age=31536000")
+
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+
+    response.headers.setdefault("X-Frame-Options", "DENY")
+
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
+
+    response.headers.setdefault(
+
+        "Content-Security-Policy",
+
+        "default-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; "
+
+        "form-action 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+
+        "script-src 'self'; connect-src 'self' https:",
+
+    )
+
+    response.headers["Server"] = ""
+
+    return response
+
+
+
+
+
+async def create_app():
+
+    app = web.Application(client_max_size=8 * 1024**2, middlewares=[security_headers])
+
+    from panel import ProxyPanel
+
+    panel = ProxyPanel(normalized_origin)
+
+    panel.setup()
+
+    await panel.refresh_local_location()
+
+    app["panel"] = panel
+
+    async def reconcile_users(application: web.Application) -> None:
+
+        while True:
+
+            try:
+
+                await asyncio.to_thread(application["panel"].reconcile_inactive_users)
+
+            except asyncio.CancelledError:
+
+                raise
+
+            except Exception:
+
+                # A failed remote-node cleanup remains visible on the route and is retried later.
+
+                pass
+
+            await asyncio.sleep(60)
+
+
+
+    async def collect_traffic(application: web.Application) -> None:
+
+        while True:
+
+            try:
+
+                await asyncio.to_thread(application["panel"].collect_traffic_usage)
+
+            except asyncio.CancelledError:
+
+                raise
+
+            except Exception:
+
+                # A single unavailable node is retried on the next collection pass.
+
+                pass
+
+            await asyncio.sleep(60)
+
+
+
+    async def renew_node_certificates(application: web.Application) -> None:
+
+        interval = max(3600, int(os.environ.get("CERT_RENEW_INTERVAL", "21600")))
+
+        while True:
+
+            try:
+
+                await asyncio.to_thread(application["panel"].renew_node_certificates)
+
+            except asyncio.CancelledError:
+
+                raise
+
+            except Exception:
+
+                # Renewal failures leave the previous certificate in place and
+
+                # are retried on the next pass; operators can inspect logs.
+
+                pass
+
+            await asyncio.sleep(interval)
+
+
+
+    async def start_reconciler(application: web.Application) -> None:
+
+        application["user_reconciler"] = asyncio.create_task(reconcile_users(application))
+
+        application["traffic_collector"] = asyncio.create_task(collect_traffic(application))
+
+        application["certificate_renewer"] = asyncio.create_task(renew_node_certificates(application))
+
+
+
+    async def stop_reconciler(application: web.Application) -> None:
+
+        for name in ("user_reconciler", "traffic_collector", "certificate_renewer"):
+
+            task = application.get(name)
+
+            if task:
+
+                task.cancel()
+
+                try:
+
+                    await task
+
+                except asyncio.CancelledError:
+
+                    pass
+
+
+
+    app.on_startup.append(start_reconciler)
+
+    app.on_cleanup.append(stop_reconciler)
+
+    app.router.add_route("*", "/{path_info:.*}", handle)
+
+
+
+    return app
+
+
+
+
+
+if __name__ == "__main__":
+
+    web.run_app(create_app(), host=LISTEN_HOST, port=LISTEN_PORT)
+
