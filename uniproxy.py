@@ -589,6 +589,16 @@ def is_base_proxy_host(request: web.Request) -> bool:
 
 
 
+COBE_STANDALONE_JS = r'''(function() {
+
+var m=["x","y","z"],l=function(t){Object.assign(this,{uniforms:{},geometry:{vertices:[{x:0,y:0,z:0}]},mode:0,modifiers:{},attributes:[],multiplier:1,buffers:[]}),Object.assign(this,t),this.prepareProgram(),this.prepareUniforms(),this.prepareAttributes()};l.prototype.compileShader=function(t,e){var i=this.gl.createShader(t);return this.gl.shaderSource(i,e),this.gl.compileShader(i),i},l.prototype.prepareProgram=function(){var t=this.gl,e=this.vertex,i=this.fragment,s=t.createProgram();t.attachShader(s,this.compileShader(35633,e)),t.attachShader(s,this.compileShader(35632,i)),t.linkProgram(s),t.useProgram(s),this.program=s},l.prototype.prepareUniforms=function(){for(var t=Object.keys(this.uniforms),e=0;e<t.length;e+=1){var i=this.gl.getUniformLocation(this.program,t[e]);this.uniforms[t[e]].location=i}},l.prototype.prepareAttributes=function(){this.geometry.vertices!==void 0&&this.attributes.push({name:"aPosition",size:3}),this.geometry.normal!==void 0&&this.attributes.push({name:"aNormal",size:3}),this.attributeKeys=[];for(var t=0;t<this.attributes.length;t+=1)this.attributeKeys.push(this.attributes[t].name),this.prepareAttribute(this.attributes[t])},l.prototype.prepareAttribute=function(t){for(var e=this.geometry,i=this.multiplier,s=e.vertices,o=e.normal,h=new Float32Array(i*s.length*t.size),u=0;u<i;u+=1)for(var r=t.data&&t.data(u,i),a=u*s.length*t.size,n=0;n<s.length;n+=1)for(var f=0;f<t.size;f+=1){var p=this.modifiers[t.name];h[a]=p!==void 0?p(r,n,f,this):t.name==="aPosition"?s[n][m[f]]:t.name==="aNormal"?o[n][m[f]]:r[f],a+=1}this.attributes[this.attributeKeys.indexOf(t.name)].data=h,this.prepareBuffer(this.attributes[this.attributeKeys.indexOf(t.name)])},l.prototype.prepareBuffer=function(t){var e=t.data,i=t.name,s=t.size,o=this.gl.createBuffer();this.gl.bindBuffer(34962,o),this.gl.bufferData(34962,e,35044);var h=this.gl.getAttribLocation(this.program,i);this.gl.enableVertexAttribArray(h),this.gl.vertexAttribPointer(h,s,5126,!1,0,0),this.buffers[this.attributeKeys.indexOf(t.name)]={buffer:o,location:h,size:s}},l.prototype.render=function(t){var e=this,i=this.uniforms,s=this.multiplier,o=this.gl;o.useProgram(this.program);for(var h=0;h<this.buffers.length;h+=1){var u=this.buffers[h],r=u.location,a=u.buffer,n=u.size;o.enableVertexAttribArray(r),o.bindBuffer(34962,a),o.vertexAttribPointer(r,n,5126,!1,0,0)}Object.keys(t).forEach(function(f){i[f].value=t[f].value}),Object.keys(i).forEach(function(f){var p=i[f];e.uniformMap[p.type](p.location,p.value)}),o.drawArrays(this.mode,0,s*this.geometry.vertices.length),this.onRender&&this.onRender(this)},l.prototype.destroy=function(){for(var t=0;t<this.buffers.length;t+=1)this.gl.deleteBuffer(this.buffers[t].buffer);this.gl.deleteProgram(this.program),this.gl=null};var c=function(t){var e=this,i=t||{},s=i.canvas;s===void 0&&(s=document.querySelector("canvas"));var o=i.context;o===void 0&&(o={});var h=i.contextType;h===void 0&&(h="experimental-webgl");var u=i.settings;u===void 0&&(u={});var r=s.getContext(h,Object.assign({alpha:!1,antialias:!1},o));Object.assign(this,{gl:r,canvas:s,uniforms:{},instances:new Map,shouldRender:!0}),Object.assign(this,{devicePixelRatio:1,clearColor:[1,1,1,1],position:{x:0,y:0,z:2},clip:[.001,100]}),Object.assign(this,u),this.uniformMap={float:function(a,n){return r.uniform1f(a,n)},vec2:function(a,n){return r.uniform2fv(a,n)},vec3:function(a,n){return r.uniform3fv(a,n)},vec4:function(a,n){return r.uniform4fv(a,n)},mat2:function(a,n){return r.uniformMatrix2fv(a,!1,n)},mat3:function(a,n){return r.uniformMatrix3fv(a,!1,n)},mat4:function(a,n){return r.uniformMatrix4fv(a,!1,n)}},r.enable(r.DEPTH_TEST),r.depthFunc(r.LEQUAL),r.getContextAttributes().alpha===!1&&(r.clearColor.apply(r,this.clearColor),r.clearDepth(1)),this.onSetup&&this.onSetup(r),window.addEventListener("resize",function(){return e.resize()}),this.resize(),this.render()};c.prototype.resize=function(){var t=this.gl,e=this.canvas,i=this.devicePixelRatio,s=this.position;e.width=e.clientWidth*i,e.height=e.clientHeight*i;var o=t.drawingBufferWidth,h=t.drawingBufferHeight,u=o/h;t.viewport(0,0,o,h);var r=Math.tan(Math.PI/180*22.5),a=[1,0,0,0,0,1,0,0,0,0,1,0,s.x,s.y,(u<1?1:u)*-s.z,1];this.uniforms.uProjectionMatrix={type:"mat4",value:[.5/r,0,0,0,0,u/r*.5,0,0,0,0,-(this.clip[1]+this.clip[0])/(this.clip[1]-this.clip[0]),-1,0,0,-2*this.clip[1]*(this.clip[0]/(this.clip[1]-this.clip[0])),0]},this.uniforms.uViewMatrix={type:"mat4",value:[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]},this.uniforms.uModelMatrix={type:"mat4",value:a}},c.prototype.toggle=function(t){t!==this.shouldRender&&(this.shouldRender=t!==void 0?t:!this.shouldRender,this.shouldRender&&this.render())},c.prototype.render=function(){var t=this;this.gl.clear(16640),this.instances.forEach(function(e){e.render(t.uniforms)}),this.onRender&&this.onRender(this),this.shouldRender&&requestAnimationFrame(function(){return t.render()})},c.prototype.add=function(t,e){e===void 0&&(e={uniforms:{}}),e.uniforms===void 0&&(e.uniforms={}),Object.assign(e.uniforms,JSON.parse(JSON.stringify(this.uniforms))),Object.assign(e,{gl:this.gl,uniformMap:this.uniformMap});var i=new l(e);return this.instances.set(t,i),i},c.prototype.remove=function(t){var e=this.instances.get(t);e!==void 0&&(e.destroy(),this.instances.delete(t))},c.prototype.destroy=function(){var t=this;this.instances.forEach(function(e,i){e.destroy(),t.instances.delete(i)}),this.toggle(!1)};
+//# sourceMappingURL=/sm/ef4572678ed00a88c9e42ec2510fb0a5d7ad5f5f528add53a1c1e7356866ba3c.map
+
+var U = c;var g="phi",d="theta",m="mapSamples",u="mapBrightness",x="baseColor",p="markerColor",y="glowColor",c="markers",h="diffuse",b="devicePixelRatio",w="dark",C="offset",z="scale",E="opacity",M="mapBaseBrightness",B={[g]:"A",[d]:"B",[m]:"l",[u]:"E",[x]:"R",[p]:"S",[y]:"y",[h]:"F",[w]:"G",[C]:"x",[z]:"C",[E]:"H",[M]:"I"},{PI:s,sin:R,cos:D}=Math,Q=n=>[].concat(...n.map(o=>{let[t,l]=o.location;t=t*s/180,l=l*s/180-s;let r=D(t);return[-r*D(l),R(t),r*R(l),o.size]}),[0,0,0,0]),k=(n,o)=>{let t=(a,e,i)=>({type:a,value:typeof o[e]>"u"?i:o[e]}),l=n.getContext("webgl")?"webgl":"experimental-webgl",r=new U({canvas:n,contextType:l,context:{alpha:!0,stencil:!1,antialias:!0,depth:!1,preserveDrawingBuffer:!1,...o.context},settings:{[b]:o[b]||1,onSetup:a=>{let e=a.RGB,i=a.UNSIGNED_BYTE,f=a.TEXTURE_2D,v=a.createTexture();a.bindTexture(f,v),a.texImage2D(f,0,e,1,1,0,e,i,new Uint8Array([0,0,0,0]));let A=new Image;A.onload=()=>{a.bindTexture(f,v),a.texImage2D(f,0,e,e,i,A),a.generateMipmap(f);let F=a.getParameter(a.CURRENT_PROGRAM),T=a.getUniformLocation(F,"J");a.texParameteri(f,a.TEXTURE_MIN_FILTER,a.NEAREST),a.texParameteri(f,a.TEXTURE_MAG_FILTER,a.NEAREST),a.uniform1i(T,0)},A.src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAACAAQAAAADMzoqnAAAAAXNSR0IArs4c6QAABA5JREFUeNrV179uHEUAx/Hf3JpbF+E2VASBsmVKTBcpKJs3SMEDcDwBiVJAAewYEBUivIHT0uUBIt0YCovKD0CRjUC4QfHYh8hYXu+P25vZ2Zm9c66gMd/GJ/tz82d3bk8GN4SrByYF2366FNTACIAkivVAAazQdnf3MvAlbNUQfOPAdQDvSAimMWhwy4I2g4SU+Kp04ISLpPBAKLxPyic3O/CCi+Y7rUJbiodcpDOFY7CgxCEXmdYD2EYK2s5lApOx5pEDDYCUwM1XdJUwBV11QQMg59kePSCaPAASQMEL2hwo6TJFgxpg+TgC2ymXPbuvc40awr3D1QCFfbH9kcoqAOkZozpQo0aqAGQRKCog/+tjkgbNFEtg2FffBvBGlSxHoAaAa1u6X4PBAwDiR8FFsrQgeUhfJTSALaB9jy5NCybJPn1SVFiWk7ywN+KzhH1aKAuydhGkbEF4lWohLXDXavlyFgHY7LBnLRdlAP6BS5Cc8RfVDXbkwN/oIvmY+6obbNeBP0JwTuMGu9gTzy1Q4RS/cWpfzszeYwd+CAFrtBW/Hur0gLbJGlD+/OjVwe/drfBxkbbg63dndEDfiEBlAd7ac0BPe1D6Jd8dfbLH+RI0OzseFB5s01/M+gMdAeluLOCAuaUA9Lezo/vSgXoCX9rtEiXnp7Q1W/CNyWcd8DXoS6jH/YZ5vAJEWY2dXFQe2TUgaFaNejCzJ98g6HnlVrsE58sDcYqg+9XY75fPqdoh/kRQWiXKg8MWlJQxUFMPjqnyujhFBE7UxIMjyszk0QwQlFsezImsyvUYYYVED2pk6m0Tg8T04Fwjk2kdAwSACqlM6gRRt3vQYAFGX0Ah7Ebx1H+MDRI5ui0QldH4j7FGcm90XdxD2Jg1AOEAVAKhEFXSn4cKUELurIAKwJ3MArypPscQaLhJFICJ0ohjDySAdH8AhDtCiTuMycH8CXzhH9jUACAO5uMhoAwA5i+T6WAKmmAqnLy80wxHqIPFYpqCwxGaYLt4Dyievg5kEoVEUAhs6pqKgFtDQYOuaXypaWKQfIuwwoGSZgfLsu/XAtI8cGN+h7Cc1A5oLOMhwlIPXuhu48AIvsSBkvtV9wsJRKCyYLfq5lTrQMFd1a262oqBck9K1V0YjQg0iEYYgpS1A9GlXQV5cykwm4A7BzVsxQqo7E+zCegO7Ma7yKgsuOcfKbMBwLC8wvVNYDsANYalEpOAa6zpWjTeMKGwEwC1CiQewJc5EKfgy7GmRAZA4vUVGwE2dPM/g0xuAInE/yG5aZ8ISxWGfYigUVbdyBElTHh2uCwGdfCkOLGgQVBh3Ewp+/QK4CDlR5Ws/Zf7yhCf8pH7vinWAvoVCQ6zz0NX5V/6GkAVV+2/5qsJ/gU8bsxpM8IeAQAAAABJRU5ErkJggg=="}}});return r.add("",{vertex:"attribute vec3 aPosition;uniform mat4 uProjectionMatrix;uniform mat4 uModelMatrix;uniform mat4 uViewMatrix;void main(){gl_Position=uProjectionMatrix*uModelMatrix*uViewMatrix*vec4(aPosition,1.);}",fragment:"precision highp float;uniform vec2 t,x;uniform vec3 R,S,y;uniform vec4 z[64];uniform float A,B,l,C,D,E,F,G,H,I;uniform sampler2D J;float K=1./l;mat3 L(float a,float b){float c=cos(a),d=cos(b),e=sin(a),f=sin(b);return mat3(d,f*e,-f*c,0.,c,e,f,d*-e,d*c);}vec3 w(vec3 c,out float v){c=c.xzy;float p=max(2.,floor(log2(2.236068*l*3.141593*(1.-c.z*c.z))*.72021));vec2 g=floor(pow(1.618034,p)/2.236068*vec2(1.,1.618034)+.5),d=fract((g+1.)*.618034)*6.283185-3.883222,e=-2.*g,f=vec2(atan(c.y,c.x),c.z-1.),q=floor(vec2(e.y*f.x-d.y*(f.y*l+1.),-e.x*f.x+d.x*(f.y*l+1.))/(d.x*e.y-e.x*d.y));float n=3.141593;vec3 r;for(float h=0.;h<4.;h+=1.){vec2 s=vec2(mod(h,2.),floor(h*.5));float j=dot(g,q+s);if(j>l)continue;float a=j,b=0.;if(a>=524288.)a-=524288.,b+=.803894;if(a>=262144.)a-=262144.,b+=.901947;if(a>=131072.)a-=131072.,b+=.950973;if(a>=65536.)a-=65536.,b+=.475487;if(a>=32768.)a-=32768.,b+=.737743;if(a>=16384.)a-=16384.,b+=.868872;if(a>=8192.)a-=8192.,b+=.934436;if(a>=4096.)a-=4096.,b+=.467218;if(a>=2048.)a-=2048.,b+=.733609;if(a>=1024.)a-=1024.,b+=.866804;if(a>=512.)a-=512.,b+=.433402;if(a>=256.)a-=256.,b+=.216701;if(a>=128.)a-=128.,b+=.108351;if(a>=64.)a-=64.,b+=.554175;if(a>=32.)a-=32.,b+=.777088;if(a>=16.)a-=16.,b+=.888544;if(a>=8.)a-=8.,b+=.944272;if(a>=4.)a-=4.,b+=.472136;if(a>=2.)a-=2.,b+=.236068;if(a>=1.)a-=1.,b+=.618034;float k=fract(b)*6.283185,i=1.-2.*j*K,m=sqrt(1.-i*i);vec3 o=vec3(cos(k)*m,sin(k)*m,i);float u=length(c-o);if(u<n)n=u,r=o;}v=n;return r.xzy;}void main(){vec2 b=(gl_FragCoord.xy/t*2.-1.)/C-x*vec2(1.,-1.)/t;b.x*=t.x/t.y;float c=dot(b,b);vec4 M=vec4(0.);float m=0.;if(c<=.64){for(int d=0;d<2;d++){vec4 e=vec4(0.);float a;vec3 u=vec3(0.,0.,1.),f=normalize(vec3(b,sqrt(.64-c)));f.z*=d>0?-1.:1.,u.z*=d>0?-1.:1.;vec3 g=f*L(B,A),h=w(g,a);float n=asin(h.y),i=acos(-h.x/cos(n));i=h.z<0.?-i:i;float N=max(texture2D(J,vec2(i*.5/3.141593,-(n/3.141593+.5))).x,I),O=smoothstep(8e-3,0.,a),j=dot(f,u),v=pow(j,F)*E,o=N*O*v,T=mix((1.-o)*pow(j,.4),o,G)+.1;e+=vec4(R*T,1.);int U=int(D);float p=0.;for(int k=0;k<64;k++){if(k>=U)break;vec4 q=z[k];vec3 r=q.xyz,P=r-g;float s=q.w;if(dot(P,P)>s*s*4.)continue;vec3 V=w(r,a);a=length(V-g),a<s?p+=smoothstep(s*.5,0.,a):0.;}p=min(1.,p*v),e.xyz=mix(e.xyz,S,p),e.xyz+=pow(1.-j,4.)*y,M+=e*(1.+(d>0?-H:H))/2.;}m=pow(dot(normalize(vec3(-b,sqrt(1.-c))),vec3(0.,0.,1.)),4.)*smoothstep(0.,1.,.2/(c-.64));}else{float Q=sqrt(.2/(c-.64));m=smoothstep(.5,1.,Q/(Q+1.));}gl_FragColor=M+vec4(m*y,m);}",uniforms:{t:{type:"vec2",value:[o.width,o.height]},A:t("float",g),B:t("float",d),l:t("float",m),E:t("float",u),I:t("float",M),R:t("vec3",x),S:t("vec3",p),F:t("float",h),y:t("vec3",y),G:t("float",w),z:{type:"vec4",value:Q(o[c])},D:{type:"float",value:o[c].length},x:t("vec2",C,[0,0]),C:t("float",z,1),H:t("float",E,1)},mode:4,geometry:{vertices:[{x:-100,y:100,z:0},{x:-100,y:-100,z:0},{x:100,y:100,z:0},{x:100,y:-100,z:0},{x:-100,y:-100,z:0},{x:100,y:100,z:0}]},onRender:({uniforms:a})=>{let e={};if(o.onRender){e=o.onRender(e)||e;for(let i in B)e[i]!==void 0&&(a[B[i]].value=e[i]);e[c]!==void 0&&(a.z.value=Q(e[c]),a.D.value=e[c].length),e.width&&e.height&&(a.t.value=[e.width,e.height])}}}),r};window.createGlobe = k;
+//# sourceMappingURL=/sm/2fe1a5e1e225f96665e6171763a57d514cd4bcff62dd5c8cf0585fbb65207ca0.map
+})();
+'''
+
 async def generator_response(request: web.Request):
     if request.method not in {"GET", "POST"}:
         raise web.HTTPMethodNotAllowed(request.method, ["GET", "POST"])
@@ -1014,13 +1024,13 @@ body {{
   margin-bottom: 22px;
 }}
 
-.komari-globe-card {{
+.cobe-card {{
   position: relative;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  min-height: 230px;
-  padding: 18px 22px;
+  min-height: 240px;
+  padding: 20px 24px;
   border: 1px solid var(--border);
   border-radius: var(--radius-panel);
   background: var(--panel-bg);
@@ -1029,14 +1039,14 @@ body {{
   overflow: hidden;
 }}
 
-.globe-header {{
+.cobe-header {{
   position: relative;
   z-index: 2;
   display: flex;
   align-items: center;
   justify-content: space-between;
 }}
-.globe-title-group h3 {{
+.cobe-title-group h3 {{
   font-size: 15px;
   font-weight: 800;
   letter-spacing: -0.01em;
@@ -1045,12 +1055,12 @@ body {{
   align-items: center;
   gap: 8px;
 }}
-.globe-title-group p {{
+.cobe-title-group p {{
   font-size: 11px;
   color: var(--muted);
   margin-top: 2px;
 }}
-.globe-live-tag {{
+.cobe-live-tag {{
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -1062,7 +1072,7 @@ body {{
   font-size: 11px;
   font-weight: 750;
 }}
-.globe-live-tag .radar-ping {{
+.cobe-live-tag .radar-ping {{
   width: 6px; height: 6px;
   border-radius: 50%;
   background: var(--cyan);
@@ -1070,22 +1080,24 @@ body {{
   animation: pulse-dot 1.5s infinite;
 }}
 
-.globe-stage-wrapper {{
+.cobe-canvas-wrapper {{
   position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
   width: 100%;
-  height: 175px;
-  margin-top: 4px;
+  height: 180px;
+  margin: 4px 0 0;
 }}
-#komari-globe-canvas {{
-  width: 100%;
-  max-width: 480px;
-  height: 175px;
+#cobe-canvas {{
+  width: 280px;
+  height: 280px;
+  max-width: 100%;
+  aspect-ratio: 1;
   cursor: grab;
+  filter: drop-shadow(0 0 28px rgba(34, 211, 238, 0.25));
 }}
-#komari-globe-canvas:active {{
+#cobe-canvas:active {{
   cursor: grabbing;
 }}
 
@@ -1851,13 +1863,13 @@ body {{
 @media (max-width: 640px) {{
   .magic-shell {{ padding: 14px 12px 40px; }}
   .magic-nav {{ padding: 10px 12px; }}
-  .komari-globe-card, .metric-tile, .bento-nodes-box, .route-creation-card, .my-routes-box {{ padding: 16px 14px; }}
+  .cobe-card, .metric-tile, .bento-nodes-box, .route-creation-card, .my-routes-box {{ padding: 16px 14px; }}
   .metrics-grid {{ grid-template-columns: 1fr; }}
   .node-grid {{ grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }}
   .node-card {{ min-height: 110px; padding: 10px; }}
   .nav-badge.status {{ display: none; }}
-  .globe-stage-wrapper {{ height: 160px; }}
-  #komari-globe-canvas {{ height: 160px; }}
+  .cobe-canvas-wrapper {{ height: 200px; }}
+  #cobe-canvas {{ width: 200px; height: 200px; }}
 }}
 </style>
 </head>
@@ -1894,16 +1906,16 @@ body {{
   </header>
 
   <section class="hero-dashboard">
-    <div class="komari-globe-card">
-      <div class="globe-header">
-        <div class="globe-title-group">
-          <h3>🌐 全球中继节点态势 <span class="globe-live-tag"><i class="radar-ping"></i>LIVE 实时连通</span></h3>
-          <p>已点亮当前连通节点，支持鼠标拖拽与惯性自转</p>
+    <div class="cobe-card">
+      <div class="cobe-header">
+        <div class="cobe-title-group">
+          <h3>🌐 全球中继节点态势 <span class="cobe-live-tag"><i class="radar-ping"></i>LIVE 实时连通</span></h3>
+          <p>已点亮当前在线节点，支持鼠标按住拖拽自由探索地球</p>
         </div>
       </div>
       
-      <div class="globe-stage-wrapper">
-        <canvas id="komari-globe-canvas" width="480" height="175"></canvas>
+      <div class="cobe-canvas-wrapper">
+        <canvas id="cobe-canvas" width="600" height="600"></canvas>
       </div>
     </div>
 
@@ -2034,6 +2046,8 @@ body {{
 </main>
 
 <script nonce="{csp_nonce}">
+{COBE_STANDALONE_JS}
+
 const nodes = {nodes_json};
 let selected = {selected_node_id};
 
@@ -2048,8 +2062,6 @@ const REGION_GEO = {{
   'GB': {{ lat: 51.50, lng: -0.12, name: '英国', flag: '🇬🇧' }}
 }};
 
-const CLIENT_HUB = {{ lat: 31.23, lng: 121.47, name: '客户端' }};
-
 function resolveNodeGeo(node) {{
   const code = (node.code || '').toUpperCase();
   const cName = node.country_name || '';
@@ -2058,10 +2070,23 @@ function resolveNodeGeo(node) {{
       return {{ ...v, id: node.id, nodeName: node.name }};
     }}
   }}
-  return {{ lat: 20.0 + (node.id * 7) % 40, lng: 100.0 + (node.id * 15) % 60, name: cName || node.name, flag: '🌐', id: node.id, nodeName: node.name }};
+  return {{ lat: 22.0 + (node.id * 5) % 25, lng: 110.0 + (node.id * 10) % 30, name: cName || node.name, flag: '🌐', id: node.id, nodeName: node.name }};
 }}
 
 const activeNodeGeos = nodes.map(resolveNodeGeo);
+
+function getMarkers(activeId) {{
+  const markers = [
+    {{ location: [31.23, 121.47], size: 0.05 }}
+  ];
+  activeNodeGeos.forEach(g => {{
+    markers.push({{
+      location: [g.lat, g.lng],
+      size: g.id === activeId ? 0.09 : 0.05
+    }});
+  }});
+  return markers;
+}}
 
 const regionOrbStyles = {{
   hk: 'radial-gradient(circle at 35% 30%, #fff 2%, #a855f7 35%, #ec4899 75%, #05060f 100%)',
@@ -2072,7 +2097,10 @@ const regionOrbStyles = {{
   global: 'radial-gradient(circle at 35% 30%, #fff 2%, #22d3ee 35%, #8b5cf6 75%, #05060f 100%)'
 }};
 
-let globeTargetLng = 114.16;
+let currentPhi = 0;
+let currentTheta = 0.2;
+let targetPhi = 0;
+let targetTheta = 0.2;
 
 function pick(id) {{
   selected = id;
@@ -2098,7 +2126,8 @@ function pick(id) {{
 
   const targetGeo = activeNodeGeos.find(g => g.id === id);
   if (targetGeo) {{
-    globeTargetLng = targetGeo.lng;
+    targetPhi = (targetGeo.lng * Math.PI) / 180;
+    targetTheta = (targetGeo.lat * Math.PI) / 180 * 0.5;
   }}
 
   const orbEl = document.getElementById('crystal-orb-element');
@@ -2122,258 +2151,69 @@ document.querySelectorAll('.node-card').forEach(card => {{
   card.addEventListener('click', () => pick(Number(card.dataset.nodeId)));
 }});
 
-// Komari Dot-Matrix 3D Globe Engine
-(function initKomariGlobe() {{
-  const canvas = document.getElementById('komari-globe-canvas');
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  
-  let width = canvas.width;
-  let height = canvas.height;
-  const cx = width / 2;
-  const cy = height / 2 + 2;
-  const R = 72;
-  
-  let rotX = 114.16;
-  let rotY = 18.0;
-  let isDragging = false;
-  let lastMouseX = 0;
-  let lastMouseY = 0;
-  let flightProgress = 0;
+// COBE WebGL Globe Initialization
+let globeInstance = null;
 
-  // Landmass bounding boxes
-  const LAND_BOXES = [
-    [10, 55, 65, 145],   // China, East Asia, Japan
-    [-10, 25, 95, 145],  // SE Asia, Indonesia
-    [35, 70, -10, 50],   // Europe
-    [25, 65, -130, -65], // North America
-    [-55, 15, -80, -35], // South America
-    [-35, 35, -20, 50],  // Africa
-    [-45, -10, 110, 155] // Australia
-  ];
+function initCobeGlobe() {{
+  const canvas = document.getElementById('cobe-canvas');
+  if (!canvas || !window.createGlobe) return;
 
-  function isLand(lat, lng) {{
-    for (const [minLat, maxLat, minLng, maxLng] of LAND_BOXES) {{
-      if (lat >= minLat && lat <= maxLat && lng >= minLng && lng <= maxLng) {{
-        return true;
+  const isDark = document.body.dataset.theme !== 'light';
+  let pointerInteracting = null;
+  let pointerInteractionMovement = 0;
+
+  if (globeInstance) {{
+    try {{ globeInstance.destroy(); }} catch (e) {{}}
+  }}
+
+  globeInstance = window.createGlobe(canvas, {{
+    devicePixelRatio: Math.min(window.devicePixelRatio || 1, 2),
+    width: 600,
+    height: 600,
+    phi: 0,
+    theta: 0.2,
+    dark: isDark ? 1 : 0,
+    diffuse: isDark ? 1.25 : 1.45,
+    mapSamples: 16000,
+    mapBrightness: isDark ? 6.5 : 4.5,
+    baseColor: isDark ? [0.35, 0.42, 0.58] : [0.82, 0.88, 0.96],
+    markerColor: isDark ? [0.13, 0.82, 0.93] : [0.08, 0.65, 0.92],
+    glowColor: isDark ? [0.18, 0.25, 0.45] : [0.88, 0.93, 1.0],
+    markers: getMarkers(selected),
+    onRender: (state) => {{
+      if (!pointerInteracting) {{
+        currentPhi += 0.0035;
+        if (targetPhi !== 0) {{
+          const diff = ((targetPhi - currentPhi) % (Math.PI * 2) + Math.PI * 3) % (Math.PI * 2) - Math.PI;
+          currentPhi += diff * 0.02;
+        }}
       }}
+      state.phi = currentPhi;
+      state.theta = currentTheta;
+      state.markers = getMarkers(selected);
     }}
-    return false;
-  }}
-
-  // Pre-generate Fibonacci Sphere Points
-  const NUM_POINTS = 1600;
-  const globePoints = [];
-  const phi = Math.PI * (3 - Math.sqrt(5));
-
-  for (let i = 0; i < NUM_POINTS; i++) {{
-    const y = 1 - (i / (NUM_POINTS - 1)) * 2;
-    const r = Math.sqrt(1 - y * y);
-    const theta = phi * i;
-    const x = Math.cos(theta) * r;
-    const z = Math.sin(theta) * r;
-    const lat = Math.asin(y) * (180 / Math.PI);
-    const lng = Math.atan2(z, x) * (180 / Math.PI);
-    globePoints.push({{ lat, lng, land: isLand(lat, lng) }});
-  }}
-
-  function project3D(lat, lng, rx, ry) {{
-    const radLat = (lat * Math.PI) / 180;
-    const radLng = ((lng - rx) * Math.PI) / 180;
-    const radY = (ry * Math.PI) / 180;
-
-    let x0 = Math.cos(radLat) * Math.sin(radLng);
-    let y0 = Math.sin(radLat);
-    let z0 = Math.cos(radLat) * Math.cos(radLng);
-
-    // Rotate pitch (ry)
-    let y1 = y0 * Math.cos(radY) - z0 * Math.sin(radY);
-    let z1 = y0 * Math.sin(radY) + z0 * Math.cos(radY);
-    let x1 = x0;
-
-    return {{
-      x: cx + R * x1,
-      y: cy - R * y1,
-      z: z1,
-      visible: z1 > 0
-    }};
-  }}
-
-  function render() {{
-    ctx.clearRect(0, 0, width, height);
-
-    if (!isDragging) {{
-      rotX += 0.35;
-      const diff = ((globeTargetLng - rotX) % 360 + 540) % 360 - 180;
-      rotX += diff * 0.015;
-    }}
-
-    flightProgress = (flightProgress + 0.012) % 1;
-
-    // Atmospheric Outer Glow
-    const atmosGrad = ctx.createRadialGradient(cx, cy, R * 0.9, cx, cy, R * 1.35);
-    atmosGrad.addColorStop(0, 'rgba(34, 211, 238, 0.22)');
-    atmosGrad.addColorStop(0.45, 'rgba(139, 92, 246, 0.12)');
-    atmosGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
-    ctx.fillStyle = atmosGrad;
-    ctx.beginPath();
-    ctx.arc(cx, cy, R * 1.35, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Dark Glass Sphere Core
-    const sphereGrad = ctx.createRadialGradient(cx - R * 0.35, cy - R * 0.35, 5, cx, cy, R);
-    sphereGrad.addColorStop(0, 'rgba(23, 37, 84, 0.7)');
-    sphereGrad.addColorStop(0.65, 'rgba(15, 23, 42, 0.92)');
-    sphereGrad.addColorStop(1, 'rgba(2, 6, 23, 0.98)');
-    ctx.fillStyle = sphereGrad;
-    ctx.beginPath();
-    ctx.arc(cx, cy, R, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(34, 211, 238, 0.32)';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-
-    // Render Dot Matrix (Komari Point Cloud)
-    for (let i = 0; i < NUM_POINTS; i++) {{
-      const pt = globePoints[i];
-      const p = project3D(pt.lat, pt.lng, rotX, rotY);
-      if (!p.visible) continue;
-
-      const alpha = p.z * (pt.land ? 0.85 : 0.15);
-      const dotSize = pt.land ? (p.z > 0.6 ? 1.6 : 1.2) : 0.8;
-
-      ctx.fillStyle = pt.land ? `rgba(34, 211, 238, ${{alpha}})` : `rgba(148, 163, 184, ${{alpha}})`;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, dotSize, 0, Math.PI * 2);
-      ctx.fill();
-    }}
-
-    // Client Hub Origin (China)
-    const clientP = project3D(CLIENT_HUB.lat, CLIENT_HUB.lng, rotX, rotY);
-    if (clientP.visible) {{
-      ctx.fillStyle = '#a855f7';
-      ctx.shadowColor = '#a855f7';
-      ctx.shadowBlur = 10;
-      ctx.beginPath();
-      ctx.arc(clientP.x, clientP.y, 4, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.shadowBlur = 0;
-    }}
-
-    // Active Connected Node Light Beams, Arcs & Ripples
-    activeNodeGeos.forEach((geo) => {{
-      const nodeP = project3D(geo.lat, geo.lng, rotX, rotY);
-      const isChosen = geo.id === selected;
-
-      // Draw 3D Arcs between Client & Node
-      if (clientP.visible || nodeP.visible) {{
-        const midLat = (CLIENT_HUB.lat + geo.lat) / 2 + 18;
-        const midLng = (CLIENT_HUB.lng + geo.lng) / 2;
-        const midP = project3D(midLat, midLng, rotX, rotY);
-
-        ctx.strokeStyle = isChosen ? 'rgba(34, 211, 238, 0.95)' : 'rgba(139, 92, 246, 0.55)';
-        ctx.lineWidth = isChosen ? 2.0 : 1.2;
-        ctx.beginPath();
-        ctx.moveTo(clientP.x, clientP.y);
-        ctx.quadraticCurveTo(midP.x, midP.y, nodeP.x, nodeP.y);
-        ctx.stroke();
-
-        // Flying Photon Particle
-        const t = (flightProgress + (geo.id * 0.22)) % 1;
-        const px = (1 - t) * (1 - t) * clientP.x + 2 * (1 - t) * t * midP.x + t * t * nodeP.x;
-        const py = (1 - t) * (1 - t) * clientP.y + 2 * (1 - t) * t * midP.y + t * t * nodeP.y;
-        
-        ctx.fillStyle = '#fff';
-        ctx.shadowColor = '#22d3ee';
-        ctx.shadowBlur = 10;
-        ctx.beginPath();
-        ctx.arc(px, py, isChosen ? 3.5 : 2.5, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.shadowBlur = 0;
-      }}
-
-      // Vertical 3D Light Beam (Komari Pillar)
-      if (nodeP.visible) {{
-        const beamHeight = isChosen ? 26 : 18;
-        const topY = nodeP.y - beamHeight * nodeP.z;
-        const topX = nodeP.x;
-
-        // Beam gradient
-        const beamGrad = ctx.createLinearGradient(nodeP.x, nodeP.y, topX, topY);
-        beamGrad.addColorStop(0, isChosen ? 'rgba(34, 211, 238, 0.9)' : 'rgba(52, 211, 153, 0.8)');
-        beamGrad.addColorStop(1, 'rgba(255, 255, 255, 0.95)');
-        
-        ctx.strokeStyle = beamGrad;
-        ctx.lineWidth = isChosen ? 2.5 : 1.8;
-        ctx.beginPath();
-        ctx.moveTo(nodeP.x, nodeP.y);
-        ctx.lineTo(topX, topY);
-        ctx.stroke();
-
-        // Beam Top Glowing Head
-        ctx.fillStyle = '#fff';
-        ctx.shadowColor = isChosen ? '#22d3ee' : '#34d399';
-        ctx.shadowBlur = isChosen ? 12 : 6;
-        ctx.beginPath();
-        ctx.arc(topX, topY, isChosen ? 4 : 3, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Pulse Ripple Ring on Sphere Base
-        const rippleR = 4 + (flightProgress * 14);
-        ctx.strokeStyle = `rgba(34, 211, 238, ${{Math.max(0, 1 - flightProgress)}})`;
-        ctx.lineWidth = 1.2;
-        ctx.beginPath();
-        ctx.ellipse(nodeP.x, nodeP.y, rippleR, rippleR * 0.45, 0, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.shadowBlur = 0;
-
-        // Floating Node Flag & Name Label
-        const labelText = `${{geo.flag}} ${{geo.name}}`;
-        ctx.font = isChosen ? 'bold 11px sans-serif' : '10px sans-serif';
-        const txtWidth = ctx.measureText(labelText).width;
-        const lx = topX + 8;
-        const ly = topY - 5;
-
-        // Label Glass Capsule
-        ctx.fillStyle = isChosen ? 'rgba(15, 23, 42, 0.85)' : 'rgba(15, 23, 42, 0.65)';
-        ctx.strokeStyle = isChosen ? 'rgba(34, 211, 238, 0.75)' : 'rgba(148, 163, 184, 0.25)';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.roundRect(lx - 4, ly - 11, txtWidth + 8, 16, 4);
-        ctx.fill();
-        ctx.stroke();
-
-        ctx.fillStyle = isChosen ? '#ffffff' : '#cbd5e1';
-        ctx.fillText(labelText, lx, ly + 1);
-      }}
-    }});
-
-    requestAnimationFrame(render);
-  }}
-
-  // Interactive Drag & Rotation Listeners
-  canvas.addEventListener('mousedown', (e) => {{
-    isDragging = true;
-    lastMouseX = e.clientX;
-    lastMouseY = e.clientY;
   }});
 
-  window.addEventListener('mousemove', (e) => {{
-    if (!isDragging) return;
-    const dx = e.clientX - lastMouseX;
-    const dy = e.clientY - lastMouseY;
-    rotX -= dx * 0.5;
-    rotY = Math.max(-45, Math.min(45, rotY + dy * 0.5));
-    lastMouseX = e.clientX;
-    lastMouseY = e.clientY;
+  canvas.addEventListener('pointerdown', (e) => {{
+    pointerInteracting = e.clientX - pointerInteractionMovement;
+    canvas.style.cursor = 'grabbing';
   }});
 
-  window.addEventListener('mouseup', () => {{
-    isDragging = false;
+  window.addEventListener('pointerup', () => {{
+    pointerInteracting = null;
+    canvas.style.cursor = 'grab';
   }});
 
-  render();
-}})();
+  window.addEventListener('pointermove', (e) => {{
+    if (pointerInteracting !== null) {{
+      const delta = e.clientX - pointerInteracting;
+      pointerInteractionMovement = delta;
+      currentPhi = delta * 0.006;
+    }}
+  }});
+}}
+
+initCobeGlobe();
 
 const latencyRecords = [];
 
@@ -2485,6 +2325,7 @@ function applyUserTheme(theme) {{
     userThemeToggle.title = isDark ? '切换到浅色主题' : '切换到深色主题';
   }}
   try {{ localStorage.setItem(userThemeKey, resolved); }} catch (e) {{}}
+  initCobeGlobe();
 }}
 
 applyUserTheme(savedUserTheme || 'dark');
