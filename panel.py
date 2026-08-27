@@ -1247,7 +1247,8 @@ class ProxyPanel:
                         break
             base = row["domain_suffix"]
             port = int(row["public_https_port"])
-            probe_url = f"https://{base}{'' if port == 443 else ':' + str(port)}/__health"
+            node_host = f"{base}{'' if port == 443 else ':' + str(port)}"
+            probe_url = f"https://{node_host}/__health"
             nodes.append({
                 "id": row["id"],
                 "name": name,
@@ -1259,6 +1260,7 @@ class ProxyPanel:
                 "icon": "🖥️" if row["kind"] == "local" else "🌐",
                 "health": self._health_summary(row),
                 "probe_url": probe_url,
+                "host": node_host,
                 "online": bool(row["last_seen"]),
             })
         return nodes

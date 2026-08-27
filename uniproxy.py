@@ -619,9 +619,15 @@ async def generator_response(request: web.Request):
         selected_node_id = nodes[0]["id"]
     
     selected_node_name = "未选择节点"
+    selected_node_host = "暂无加速地址"
+    selected_node_country = "全球"
+    selected_node_flag = "🌐"
     for n in nodes:
         if n["id"] == selected_node_id:
             selected_node_name = n["name"]
+            selected_node_host = n.get("host") or "已就绪"
+            selected_node_country = n.get("country_name") or n.get("code") or "全球"
+            selected_node_flag = n.get("flag") or "🌐"
             break
 
     result_html = ""
@@ -675,10 +681,14 @@ async def generator_response(request: web.Request):
         meta_label = node["code"].upper() if node["is_local"] else (node["country_name"] or node["health"])
         is_selected = node["id"] == selected_node_id
         kind_label = "VPS 加速" if not node.get("is_local") else "本地节点"
+        node_host = node.get("host") or ""
         node_cards_parts.append(
             f"<button type='button' class='node-card{' selected' if is_selected else ''}' "
             f"data-node-id='{node['id']}' data-node-name='{html.escape(node['name'], quote=True)}' "
-            f"data-country='{html.escape(node.get('country_name') or '')}' aria-pressed={'true' if is_selected else 'false'}>"
+            f"data-country='{html.escape(node.get('country_name') or '')}' "
+            f"data-host='{html.escape(node_host, quote=True)}' "
+            f"data-flag='{html.escape(node.get('flag') or '🌐')}' "
+            f"aria-pressed={'true' if is_selected else 'false'}>"
             f"  <div class='node-card-glow-follower'></div>"
             f"  <div class='node-card-top'>"
             f"    <div class='node-flag'>{node['flag_markup']}</div>"
@@ -687,8 +697,12 @@ async def generator_response(request: web.Request):
             f"      <span class='node-country-tag'>{html.escape(node.get('country_name') or meta_label)}</span>"
             f"    </div>"
             f"  </div>"
+            f"  <div class='node-host-bar' title='加速地址: {html.escape(node_host, quote=True)}'>"
+            f"    <span class='node-host-icon'>🏷️</span>"
+            f"    <code class='node-host-text'>{html.escape(node_host)}</code>"
+            f"  </div>"
             f"  <div class='node-card-sparkline'>"
-            f"    <svg viewBox='0 0 160 32' class='sparkline-svg' preserveAspectRatio='none'>"
+            f"    <svg viewBox='0 0 160 28' class='sparkline-svg' preserveAspectRatio='none'>"
             f"      <defs>"
             f"        <linearGradient id='spark-grad-{node['id']}' x1='0%' y1='0%' x2='100%' y2='0%'>"
             f"          <stop offset='0%' stop-color='rgba(34, 211, 238, 0.85)' />"
@@ -699,8 +713,8 @@ async def generator_response(request: web.Request):
             f"          <stop offset='100%' stop-color='rgba(34, 211, 238, 0.0)' />"
             f"        </linearGradient>"
             f"      </defs>"
-            f"      <path class='sparkline-area' fill='url(#spark-fill-{node['id']})' d='M0 24 Q 25 10, 50 18 T 100 8 T 160 14 L 160 32 L 0 32 Z'></path>"
-            f"      <path class='sparkline-line' stroke='url(#spark-grad-{node['id']})' fill='none' stroke-width='2' d='M0 24 Q 25 10, 50 18 T 100 8 T 160 14'></path>"
+            f"      <path class='sparkline-area' fill='url(#spark-fill-{node['id']})' d='M0 20 Q 25 8, 50 15 T 100 6 T 160 12 L 160 28 L 0 28 Z'></path>"
+            f"      <path class='sparkline-line' stroke='url(#spark-grad-{node['id']})' fill='none' stroke-width='2' d='M0 20 Q 25 8, 50 15 T 100 6 T 160 12'></path>"
             f"    </svg>"
             f"  </div>"
             f"  <div class='node-card-bottom'>"
@@ -1173,7 +1187,7 @@ body {{
 /* Main Workspace: 3/4 Left Bento Nodes + 1/4 Right Clean Form */
 .magic-workspace {{
   display: grid;
-  grid-template-columns: minmax(0, 3fr) minmax(290px, 1fr);
+  grid-template-columns: minmax(0, 3fr) minmax(310px, 1fr);
   gap: 22px;
   margin-bottom: 24px;
 }}
@@ -1233,7 +1247,7 @@ body {{
 
 .node-grid {{
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 14px;
 }}
 
@@ -1242,7 +1256,7 @@ body {{
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  min-height: 128px;
+  min-height: 142px;
   padding: 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
@@ -1333,12 +1347,37 @@ body {{
   color: var(--muted);
 }}
 
+/* Node Acceleration Host Line */
+.node-host-bar {{
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 6px 0 2px;
+  padding: 3px 7px;
+  border-radius: 6px;
+  background: rgba(148, 163, 184, 0.08);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}}
+.node-host-icon {{ font-size: 10px; flex: 0 0 auto; }}
+.node-host-text {{
+  font-family: ui-monospace, monospace;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--cyan);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}}
+
 .node-card-sparkline {{
   position: relative;
   z-index: 1;
   width: 100%;
-  height: 24px;
-  margin: 6px 0 4px;
+  height: 22px;
+  margin: 4px 0 2px;
 }}
 .sparkline-svg {{
   width: 100%;
@@ -1390,7 +1429,7 @@ body {{
   font-size: 13px;
 }}
 
-/* Right 1/4 Clean Route Creation Card (No Weird Orb) */
+/* Right 1/4 Clean Route Creation Card */
 .route-creation-card {{
   display: flex;
   flex-direction: column;
@@ -1415,25 +1454,55 @@ body {{
   align-items: center;
   gap: 8px;
 }}
-.form-selected-node {{
-  margin-top: 6px;
-  font-size: 12px;
-  color: var(--muted);
-}}
-.badge-chosen-node {{
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 6px;
+
+/* Selected Node Details Box (Directly in form) */
+.selected-node-detail-box {{
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
   background: var(--card-bg);
-  border: 1px solid var(--border);
-  color: var(--cyan);
+  border: 1px solid var(--border-hover);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.1);
+}}
+.snd-row {{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.6;
+}}
+.snd-label {{
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  flex: 0 0 auto;
+}}
+.snd-value-strong {{
+  color: var(--ink);
   font-weight: 750;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}}
+.snd-host-code {{
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 750;
+  color: var(--cyan);
+  background: rgba(34, 211, 238, 0.08);
+  padding: 1px 6px;
+  border-radius: 4px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }}
 
 .magic-form {{
   display: flex;
   flex-direction: column;
   gap: 14px;
+  margin-top: 12px;
 }}
 .form-item label {{
   display: block;
@@ -1913,7 +1982,7 @@ body {{
       <div class="box-header">
         <div class="box-header-title">
           <h2>✦ 选择加速节点</h2>
-          <p>点击卡片选择节点，浏览器将实时探测各节点连接延迟与稳定性</p>
+          <p>点击卡片选择节点，右侧将联动更新分配的专属加速地址</p>
         </div>
         <button type="button" class="btn-probe-magic" id="test-nodes">⚡ 全节点测速</button>
       </div>
@@ -1927,8 +1996,16 @@ body {{
       <div>
         <div class="form-header-clean">
           <h3>🚀 创建专属线路</h3>
-          <div class="form-selected-node">
-            已选节点：<span class="badge-chosen-node" id="selected-node-display">{html.escape(selected_node_name)}</span>
+          
+          <div class="selected-node-detail-box">
+            <div class="snd-row">
+              <span class="snd-label">分配节点：</span>
+              <strong class="snd-value-strong" id="snd-name">{html.escape(selected_node_flag)} {html.escape(selected_node_name)} ({html.escape(selected_node_country)})</strong>
+            </div>
+            <div class="snd-row" style="margin-top:4px;">
+              <span class="snd-label">加速地址：</span>
+              <code class="snd-host-code" id="snd-host">{html.escape(selected_node_host)}</code>
+            </div>
           </div>
         </div>
 
@@ -2001,27 +2078,29 @@ const REGION_GEO = {{
   'US': {{ lat: 37.77, lng: -122.41, name: '美国', flag: '🇺🇸' }},
   'KR': {{ lat: 37.56, lng: 126.97, name: '韩国', flag: '🇰🇷' }},
   'DE': {{ lat: 50.11, lng: 8.68, name: '德国', flag: '🇩🇪' }},
-  'GB': {{ lat: 51.50, lng: -0.12, name: '英国', flag: '🇬🇧' }}
+  'GB': {{ lat: 51.50, lng: -0.12, name: '英国', flag: '🇬🇧' }},
+  'CN': {{ lat: 31.23, lng: 121.47, name: '中国', flag: '🇨🇳' }}
 }};
 
 function resolveNodeGeo(node) {{
   const code = (node.code || '').toUpperCase();
   const cName = node.country_name || '';
+  const nName = node.name || '';
   for (const [k, v] of Object.entries(REGION_GEO)) {{
-    if (code.includes(k) || cName.includes(v.name)) {{
-      return {{ ...v, id: node.id, nodeName: node.name }};
+    if (code === k || cName.includes(v.name) || nName.includes(v.name)) {{
+      return {{ ...v, id: node.id, nodeName: node.name, host: node.host || '' }};
     }}
   }}
-  return {{ lat: 22.0 + (node.id * 5) % 25, lng: 110.0 + (node.id * 10) % 30, name: cName || node.name, flag: '🌐', id: node.id, nodeName: node.name }};
+  return {{ lat: 22.0 + (node.id * 5) % 25, lng: 110.0 + (node.id * 10) % 30, name: cName || node.name, flag: node.flag || '🌐', id: node.id, nodeName: node.name, host: node.host || '' }};
 }}
 
 const activeNodeGeos = nodes.map(resolveNodeGeo);
 
-// 3D Matrix Point Cloud World Globe (Ultra-reliable Canvas 2D Engine)
+// 3D Matrix Point Cloud World Globe (Canvas 2D Engine)
 const canvas = document.getElementById('globe-canvas');
 const ctx = canvas ? canvas.getContext('2d') : null;
 
-// High Precision Land Coordinates Test
+// High Precision Land Coordinates Boundary
 function isLandLatLon(lat, lon) {{
   // Asia & East Asia
   if (lat >= 10 && lat <= 70 && lon >= 60 && lon <= 145) {{
@@ -2029,10 +2108,10 @@ function isLandLatLon(lat, lon) {{
     if (lat >= 30 && lat <= 46 && lon >= 128 && lon <= 146) return true; // Japan
     if (lat >= 33 && lat <= 43 && lon >= 124 && lon <= 131) return true; // Korea
     if (lat >= 21 && lat <= 26 && lon >= 119 && lon <= 122) return true; // Taiwan
-    if (lat >= 50 && lat <= 75 && lon >= 60 && lon <= 180) return true; // Russia Siberia
+    if (lat >= 50 && lat <= 75 && lon >= 60 && lon <= 180) return true; // Siberia
     if (lat >= 8 && lat <= 35 && lon >= 68 && lon <= 90) return true; // India
   }}
-  // Southeast Asia
+  // Southeast Asia & Indonesia
   if (lat >= -11 && lat <= 20 && lon >= 95 && lon <= 142) return true;
   // Europe
   if (lat >= 35 && lat <= 71 && lon >= -10 && lon <= 60) return true;
@@ -2054,9 +2133,9 @@ function isLandLatLon(lat, lon) {{
   return false;
 }}
 
-// Generate 1800 Fibonacci Matrix Sphere Points
+// Generate 2000 Fibonacci Matrix Sphere Points
 const spherePoints = [];
-const TOTAL_SAMPLES = 1800;
+const TOTAL_SAMPLES = 2000;
 const PHI = (1 + Math.sqrt(5)) / 2;
 
 for (let i = 0; i < TOTAL_SAMPLES; i++) {{
@@ -2073,10 +2152,11 @@ for (let i = 0; i < TOTAL_SAMPLES; i++) {{
   spherePoints.push({{ x, y, z, lat, lon, isLand: land }});
 }}
 
-let rotationY = -1.8;
-let rotationX = 0.28;
-let targetRotY = -1.8;
-let targetRotX = 0.28;
+// Default rotation: Face directly towards East Asia (Hong Kong/Japan/Singapore)
+let rotationY = -0.45;
+let rotationX = 0.22;
+let targetRotY = -0.45;
+let targetRotX = 0.22;
 let isDragging = false;
 let startMouseX = 0;
 let startMouseY = 0;
@@ -2095,12 +2175,12 @@ function renderGlobe() {{
 
   const isLight = document.body.dataset.theme === 'light';
 
-  // Smooth rotation
+  // Smooth rotation interpolation
   if (!isDragging) {{
-    rotationY += 0.0038;
-    if (targetRotY !== 0) {{
+    rotationY += 0.0032;
+    if (targetRotY !== null) {{
       const diffY = ((targetRotY - rotationY) % (Math.PI * 2) + Math.PI * 3) % (Math.PI * 2) - Math.PI;
-      rotationY += diffY * 0.035;
+      rotationY += diffY * 0.04;
     }}
   }}
 
@@ -2112,12 +2192,12 @@ function renderGlobe() {{
   // Outer Atmosphere Glow
   const atmoGrad = ctx.createRadialGradient(cx, cy, globeR * 0.85, cx, cy, globeR * 1.25);
   if (!isLight) {{
-    atmoGrad.addColorStop(0, 'rgba(34, 211, 238, 0.18)');
-    atmoGrad.addColorStop(0.5, 'rgba(139, 92, 246, 0.10)');
+    atmoGrad.addColorStop(0, 'rgba(34, 211, 238, 0.22)');
+    atmoGrad.addColorStop(0.5, 'rgba(139, 92, 246, 0.12)');
     atmoGrad.addColorStop(1, 'rgba(3, 7, 18, 0)');
   }} else {{
-    atmoGrad.addColorStop(0, 'rgba(14, 165, 233, 0.22)');
-    atmoGrad.addColorStop(0.6, 'rgba(99, 102, 241, 0.08)');
+    atmoGrad.addColorStop(0, 'rgba(14, 165, 233, 0.28)');
+    atmoGrad.addColorStop(0.6, 'rgba(99, 102, 241, 0.10)');
     atmoGrad.addColorStop(1, 'rgba(244, 246, 251, 0)');
   }}
   ctx.fillStyle = atmoGrad;
@@ -2125,39 +2205,37 @@ function renderGlobe() {{
   ctx.arc(cx, cy, globeR * 1.25, 0, Math.PI * 2);
   ctx.fill();
 
-  // Globe Inner Background Sphere
+  // Globe Inner Background Sphere (High contrast in both light & dark mode)
   const sphereGrad = ctx.createRadialGradient(cx - globeR * 0.35, cy - globeR * 0.35, globeR * 0.1, cx, cy, globeR);
   if (!isLight) {{
     sphereGrad.addColorStop(0, 'rgba(17, 26, 52, 0.95)');
     sphereGrad.addColorStop(0.7, 'rgba(7, 12, 27, 0.98)');
     sphereGrad.addColorStop(1, 'rgba(4, 7, 16, 1)');
   }} else {{
-    sphereGrad.addColorStop(0, 'rgba(255, 255, 255, 0.98)');
-    sphereGrad.addColorStop(0.7, 'rgba(230, 240, 255, 0.95)');
-    sphereGrad.addColorStop(1, 'rgba(210, 226, 250, 0.98)');
+    sphereGrad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+    sphereGrad.addColorStop(0.65, 'rgba(232, 242, 255, 0.98)');
+    sphereGrad.addColorStop(1, 'rgba(195, 220, 248, 1)');
   }}
   ctx.fillStyle = sphereGrad;
   ctx.beginPath();
   ctx.arc(cx, cy, globeR, 0, Math.PI * 2);
   ctx.fill();
   ctx.lineWidth = 1.5;
-  ctx.strokeStyle = !isLight ? 'rgba(34, 211, 238, 0.25)' : 'rgba(14, 165, 233, 0.35)';
+  ctx.strokeStyle = !isLight ? 'rgba(34, 211, 238, 0.35)' : 'rgba(14, 165, 233, 0.45)';
   ctx.stroke();
 
   // Draw Matrix Points
   for (let i = 0; i < spherePoints.length; i++) {{
     const pt = spherePoints[i];
-    // Rotate Y
     let x1 = pt.x * cosY + pt.z * sinY;
     let y1 = pt.y;
     let z1 = -pt.x * sinY + pt.z * cosY;
 
-    // Rotate X
     let x2 = x1;
     let y2 = y1 * cosX - z1 * sinX;
     let z2 = y1 * sinX + z1 * cosX;
 
-    if (z2 < 0) continue; // cull backside
+    if (z2 < 0) continue;
 
     const px = cx + x2 * globeR;
     const py = cy - y2 * globeR;
@@ -2165,15 +2243,15 @@ function renderGlobe() {{
 
     ctx.beginPath();
     if (pt.isLand) {{
-      ctx.arc(px, py, 1.85 * (0.6 + z2 * 0.4), 0, Math.PI * 2);
+      ctx.arc(px, py, 2.0 * (0.6 + z2 * 0.4), 0, Math.PI * 2);
       ctx.fillStyle = !isLight 
         ? `rgba(34, 211, 238, ${{dotAlpha.toFixed(2)}})` 
-        : `rgba(14, 165, 233, ${{dotAlpha.toFixed(2)}})`;
+        : `rgba(2, 132, 199, ${{(dotAlpha * 0.95 + 0.05).toFixed(2)}})`;
     }} else {{
       ctx.arc(px, py, 0.9 * (0.5 + z2 * 0.5), 0, Math.PI * 2);
       ctx.fillStyle = !isLight 
         ? `rgba(148, 163, 184, ${{(dotAlpha * 0.25).toFixed(2)}})` 
-        : `rgba(148, 163, 184, ${{(dotAlpha * 0.35).toFixed(2)}})`;
+        : `rgba(148, 163, 184, ${{(dotAlpha * 0.4).toFixed(2)}})`;
     }}
     ctx.fill();
   }}
@@ -2196,49 +2274,63 @@ function renderGlobe() {{
     let y2 = y1 * cosX - z1 * sinX;
     let z2 = y1 * sinX + z1 * cosX;
 
-    if (z2 <= -0.1) return;
+    if (z2 <= -0.15) return;
 
     const bx = cx + x2 * globeR;
     const by = cy - y2 * globeR;
     const isChosen = nodeGeo.id === selected;
 
-    // Pulse ripple at base
+    // Base Pulse Ripple
     const rippleScale = (now % 2) / 2;
     ctx.beginPath();
-    ctx.arc(bx, by, 6 + rippleScale * 14, 0, Math.PI * 2);
-    ctx.strokeStyle = `rgba(34, 211, 238, ${{(1 - rippleScale) * 0.7}})`;
-    ctx.lineWidth = 1.5;
+    ctx.arc(bx, by, 7 + rippleScale * 15, 0, Math.PI * 2);
+    ctx.strokeStyle = isChosen ? `rgba(244, 63, 94, ${{(1 - rippleScale) * 0.8}})` : `rgba(34, 211, 238, ${{(1 - rippleScale) * 0.8}})`;
+    ctx.lineWidth = 1.8;
     ctx.stroke();
 
     // 3D Vertical Light Beam
-    const pillarHeight = isChosen ? 36 : 22;
+    const pillarHeight = isChosen ? 40 : 26;
     const tx = cx + x2 * (globeR + pillarHeight);
     const ty = cy - y2 * (globeR + pillarHeight);
 
     const beamGrad = ctx.createLinearGradient(bx, by, tx, ty);
-    beamGrad.addColorStop(0, 'rgba(34, 211, 238, 0.9)');
-    beamGrad.addColorStop(1, isChosen ? 'rgba(244, 63, 94, 0.95)' : 'rgba(139, 92, 246, 0.95)');
+    beamGrad.addColorStop(0, 'rgba(34, 211, 238, 0.95)');
+    beamGrad.addColorStop(1, isChosen ? 'rgba(244, 63, 94, 1)' : 'rgba(139, 92, 246, 1)');
     ctx.beginPath();
     ctx.moveTo(bx, by);
     ctx.lineTo(tx, ty);
     ctx.strokeStyle = beamGrad;
-    ctx.lineWidth = isChosen ? 3.5 : 2;
+    ctx.lineWidth = isChosen ? 4 : 2.5;
     ctx.stroke();
 
     // Pillar Tip Glowing Orb
     ctx.beginPath();
-    ctx.arc(tx, ty, isChosen ? 5.5 : 3.8, 0, Math.PI * 2);
+    ctx.arc(tx, ty, isChosen ? 6 : 4.2, 0, Math.PI * 2);
     ctx.fillStyle = isChosen ? '#fb7185' : '#22d3ee';
     ctx.shadowColor = isChosen ? '#fb7185' : '#22d3ee';
-    ctx.shadowBlur = 12;
+    ctx.shadowBlur = 14;
     ctx.fill();
     ctx.shadowBlur = 0;
 
-    // Flag Tag
-    if (z2 > 0.25) {{
+    // Flag Tag Pill
+    if (z2 > 0.1) {{
+      const tagText = `${{nodeGeo.flag}} ${{nodeGeo.name}}`;
       ctx.font = 'bold 11px system-ui, sans-serif';
-      ctx.fillStyle = !isLight ? '#fff' : '#0f172a';
-      ctx.fillText(`${{nodeGeo.flag}} ${{nodeGeo.name}}`, tx + 7, ty + 3);
+      const textWidth = ctx.measureText(tagText).width;
+      
+      const tagX = tx + 8;
+      const tagY = ty - 8;
+
+      ctx.fillStyle = !isLight ? 'rgba(11, 17, 34, 0.88)' : 'rgba(255, 255, 255, 0.95)';
+      ctx.strokeStyle = isChosen ? 'rgba(244, 63, 94, 0.7)' : (!isLight ? 'rgba(34, 211, 238, 0.4)' : 'rgba(14, 165, 233, 0.5)');
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect ? ctx.roundRect(tagX - 4, tagY - 11, textWidth + 8, 16, 4) : ctx.rect(tagX - 4, tagY - 11, textWidth + 8, 16);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = !isLight ? '#f8fafc' : '#0f172a';
+      ctx.fillText(tagText, tagX, tagY + 2);
     }}
   }});
 
@@ -2270,6 +2362,7 @@ window.addEventListener('pointermove', (e) => {{
   const dy = e.clientY - startMouseY;
   rotationY = lastRotY + dx * 0.008;
   rotationX = Math.max(-0.6, Math.min(0.6, lastRotX - dy * 0.008));
+  targetRotY = null;
 }});
 
 function pick(id) {{
@@ -2278,24 +2371,38 @@ function pick(id) {{
   if (nodeInput) nodeInput.value = id;
   
   let chosenName = '未选择';
+  let chosenCountry = '全球';
+  let chosenFlag = '🌐';
+  let chosenHost = '暂无地址';
+
   document.querySelectorAll('.node-card').forEach(card => {{
     const active = Number(card.dataset.nodeId) === id;
     card.classList.toggle('selected', active);
     card.setAttribute('aria-pressed', String(active));
     if (active) {{
       chosenName = card.dataset.nodeName || ('节点 #' + id);
+      chosenCountry = card.dataset.country || '';
+      chosenFlag = card.dataset.flag || '🌐';
+      chosenHost = card.dataset.host || '已就绪';
     }}
   }});
   
-  const displayEl = document.getElementById('selected-node-display');
-  if (displayEl) {{
-    displayEl.textContent = chosenName;
+  // Update detail box in right creation card
+  const sndName = document.getElementById('snd-name');
+  if (sndName) {{
+    sndName.textContent = `${{chosenFlag}} ${{chosenName}} (${{chosenCountry}})`;
+  }}
+  const sndHost = document.getElementById('snd-host');
+  if (sndHost) {{
+    sndHost.textContent = chosenHost;
   }}
 
+  // Smoothly rotate globe towards target node
   const targetGeo = activeNodeGeos.find(g => g.id === id);
   if (targetGeo) {{
-    targetRotY = (targetGeo.lng * Math.PI) / 180 + Math.PI * 0.5;
-    targetRotX = (targetGeo.lat * Math.PI) / 180 * 0.4;
+    const targetLonRad = (targetGeo.lng * Math.PI) / 180;
+    targetRotY = (Math.PI / 2) - targetLonRad;
+    targetRotX = (targetGeo.lat * Math.PI) / 180 * 0.35;
   }}
 }}
 
