@@ -1014,13 +1014,13 @@ body {{
   margin-bottom: 22px;
 }}
 
-.radar-card {{
+.komari-globe-card {{
   position: relative;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  min-height: 200px;
-  padding: 20px 22px;
+  min-height: 230px;
+  padding: 18px 22px;
   border: 1px solid var(--border);
   border-radius: var(--radius-panel);
   background: var(--panel-bg);
@@ -1029,14 +1029,14 @@ body {{
   overflow: hidden;
 }}
 
-.radar-header {{
+.globe-header {{
   position: relative;
   z-index: 2;
   display: flex;
   align-items: center;
   justify-content: space-between;
 }}
-.radar-title-group h3 {{
+.globe-title-group h3 {{
   font-size: 15px;
   font-weight: 800;
   letter-spacing: -0.01em;
@@ -1045,12 +1045,12 @@ body {{
   align-items: center;
   gap: 8px;
 }}
-.radar-title-group p {{
+.globe-title-group p {{
   font-size: 11px;
   color: var(--muted);
   margin-top: 2px;
 }}
-.radar-live-tag {{
+.globe-live-tag {{
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -1062,7 +1062,7 @@ body {{
   font-size: 11px;
   font-weight: 750;
 }}
-.radar-live-tag .radar-ping {{
+.globe-live-tag .radar-ping {{
   width: 6px; height: 6px;
   border-radius: 50%;
   background: var(--cyan);
@@ -1070,52 +1070,23 @@ body {{
   animation: pulse-dot 1.5s infinite;
 }}
 
-.globe-canvas-wrapper {{
+.globe-stage-wrapper {{
   position: relative;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  height: 140px;
-  margin-top: 6px;
-}}
-#globe-canvas {{
-  width: 150px;
-  height: 140px;
-  flex: 0 0 150px;
-}}
-.globe-node-chips {{
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
   justify-content: center;
-  gap: 6px;
-  padding-left: 18px;
+  width: 100%;
+  height: 175px;
+  margin-top: 4px;
 }}
-.globe-node-chip-item {{
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 10px;
-  border-radius: 8px;
-  background: var(--card-bg);
-  border: 1px solid var(--border);
-  font-size: 11.5px;
-  color: var(--ink-secondary);
-  font-weight: 600;
-  transition: all 0.18s ease;
+#komari-globe-canvas {{
+  width: 100%;
+  max-width: 480px;
+  height: 175px;
+  cursor: grab;
 }}
-.globe-node-chip-item.active {{
-  border-color: var(--cyan);
-  background: rgba(34, 211, 238, 0.1);
-  color: var(--cyan);
-}}
-.globe-node-chip-item .chip-dot {{
-  width: 6px; height: 6px;
-  border-radius: 50%;
-  background: var(--cyan);
-  box-shadow: 0 0 6px var(--cyan);
+#komari-globe-canvas:active {{
+  cursor: grabbing;
 }}
 
 .metrics-grid {{
@@ -1880,14 +1851,13 @@ body {{
 @media (max-width: 640px) {{
   .magic-shell {{ padding: 14px 12px 40px; }}
   .magic-nav {{ padding: 10px 12px; }}
-  .radar-card, .metric-tile, .bento-nodes-box, .route-creation-card, .my-routes-box {{ padding: 16px 14px; }}
+  .komari-globe-card, .metric-tile, .bento-nodes-box, .route-creation-card, .my-routes-box {{ padding: 16px 14px; }}
   .metrics-grid {{ grid-template-columns: 1fr; }}
   .node-grid {{ grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }}
   .node-card {{ min-height: 110px; padding: 10px; }}
   .nav-badge.status {{ display: none; }}
-  .globe-canvas-wrapper {{ flex-direction: column; height: auto; }}
-  #globe-canvas {{ margin: 0 auto; }}
-  .globe-node-chips {{ padding-left: 0; margin-top: 10px; width: 100%; }}
+  .globe-stage-wrapper {{ height: 160px; }}
+  #komari-globe-canvas {{ height: 160px; }}
 }}
 </style>
 </head>
@@ -1924,17 +1894,16 @@ body {{
   </header>
 
   <section class="hero-dashboard">
-    <div class="radar-card">
-      <div class="radar-header">
-        <div class="radar-title-group">
-          <h3>🌐 3D 节点动态连通态势 <span class="radar-live-tag"><i class="radar-ping"></i>LIVE 实时连通</span></h3>
-          <p>仅显示当前系统已连通的节点地区，支持自转与精准航线调度</p>
+    <div class="komari-globe-card">
+      <div class="globe-header">
+        <div class="globe-title-group">
+          <h3>🌐 全球中继节点态势 <span class="globe-live-tag"><i class="radar-ping"></i>LIVE 实时连通</span></h3>
+          <p>已点亮当前连通节点，支持鼠标拖拽与惯性自转</p>
         </div>
       </div>
       
-      <div class="globe-canvas-wrapper">
-        <canvas id="globe-canvas" width="300" height="280"></canvas>
-        <div class="globe-node-chips" id="globe-node-chips"></div>
+      <div class="globe-stage-wrapper">
+        <canvas id="komari-globe-canvas" width="480" height="175"></canvas>
       </div>
     </div>
 
@@ -2094,16 +2063,6 @@ function resolveNodeGeo(node) {{
 
 const activeNodeGeos = nodes.map(resolveNodeGeo);
 
-const chipsContainer = document.getElementById('globe-node-chips');
-if (chipsContainer) {{
-  chipsContainer.innerHTML = activeNodeGeos.map(g => 
-    `<div class="globe-node-chip-item ${{g.id === selected ? 'active' : ''}}" data-chip-id="${{g.id}}">
-      <i class="chip-dot"></i>
-      <span>${{g.flag}} ${{g.name}} (${{g.nodeName}})</span>
-    </div>`
-  ).join('');
-}}
-
 const regionOrbStyles = {{
   hk: 'radial-gradient(circle at 35% 30%, #fff 2%, #a855f7 35%, #ec4899 75%, #05060f 100%)',
   jp: 'radial-gradient(circle at 35% 30%, #fff 2%, #38bdf8 35%, #ec4899 75%, #05060f 100%)',
@@ -2114,7 +2073,6 @@ const regionOrbStyles = {{
 }};
 
 let globeTargetLng = 114.16;
-let globeCurrentLng = 114.16;
 
 function pick(id) {{
   selected = id;
@@ -2131,10 +2089,6 @@ function pick(id) {{
       chosenName = card.dataset.nodeName || ('节点 #' + id);
       countryName = card.dataset.country || '';
     }}
-  }});
-
-  document.querySelectorAll('.globe-node-chip-item').forEach(chip => {{
-    chip.classList.toggle('active', Number(chip.dataset.chipId) === id);
   }});
   
   const displayEl = document.getElementById('selected-node-display');
@@ -2168,103 +2122,134 @@ document.querySelectorAll('.node-card').forEach(card => {{
   card.addEventListener('click', () => pick(Number(card.dataset.nodeId)));
 }});
 
-document.querySelectorAll('.globe-node-chip-item').forEach(chip => {{
-  chip.addEventListener('click', () => pick(Number(chip.dataset.chipId)));
-}});
-
-// 3D Rotating Globe Engine (Canvas Orthographic)
-(function init3DGlobe() {{
-  const canvas = document.getElementById('globe-canvas');
+// Komari Dot-Matrix 3D Globe Engine
+(function initKomariGlobe() {{
+  const canvas = document.getElementById('komari-globe-canvas');
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
   
-  const width = canvas.width;
-  const height = canvas.height;
+  let width = canvas.width;
+  let height = canvas.height;
   const cx = width / 2;
-  const cy = height / 2;
-  const R = 62;
+  const cy = height / 2 + 2;
+  const R = 72;
   
-  let rotation = 0;
+  let rotX = 114.16;
+  let rotY = 18.0;
+  let isDragging = false;
+  let lastMouseX = 0;
+  let lastMouseY = 0;
   let flightProgress = 0;
-  
-  function project(lat, lng, rot) {{
-    const radLat = (lat * Math.PI) / 180;
-    const radLng = ((lng + rot) * Math.PI) / 180;
-    const x = cx + R * Math.cos(radLat) * Math.sin(radLng);
-    const y = cy - R * Math.sin(radLat);
-    const z = Math.cos(radLat) * Math.cos(radLng);
-    return {{ x, y, z, visible: z > -0.15 }};
+
+  // Landmass bounding boxes
+  const LAND_BOXES = [
+    [10, 55, 65, 145],   // China, East Asia, Japan
+    [-10, 25, 95, 145],  // SE Asia, Indonesia
+    [35, 70, -10, 50],   // Europe
+    [25, 65, -130, -65], // North America
+    [-55, 15, -80, -35], // South America
+    [-35, 35, -20, 50],  // Africa
+    [-45, -10, 110, 155] // Australia
+  ];
+
+  function isLand(lat, lng) {{
+    for (const [minLat, maxLat, minLng, maxLng] of LAND_BOXES) {{
+      if (lat >= minLat && lat <= maxLat && lng >= minLng && lng <= maxLng) {{
+        return true;
+      }}
+    }}
+    return false;
   }}
-  
+
+  // Pre-generate Fibonacci Sphere Points
+  const NUM_POINTS = 1600;
+  const globePoints = [];
+  const phi = Math.PI * (3 - Math.sqrt(5));
+
+  for (let i = 0; i < NUM_POINTS; i++) {{
+    const y = 1 - (i / (NUM_POINTS - 1)) * 2;
+    const r = Math.sqrt(1 - y * y);
+    const theta = phi * i;
+    const x = Math.cos(theta) * r;
+    const z = Math.sin(theta) * r;
+    const lat = Math.asin(y) * (180 / Math.PI);
+    const lng = Math.atan2(z, x) * (180 / Math.PI);
+    globePoints.push({{ lat, lng, land: isLand(lat, lng) }});
+  }}
+
+  function project3D(lat, lng, rx, ry) {{
+    const radLat = (lat * Math.PI) / 180;
+    const radLng = ((lng - rx) * Math.PI) / 180;
+    const radY = (ry * Math.PI) / 180;
+
+    let x0 = Math.cos(radLat) * Math.sin(radLng);
+    let y0 = Math.sin(radLat);
+    let z0 = Math.cos(radLat) * Math.cos(radLng);
+
+    // Rotate pitch (ry)
+    let y1 = y0 * Math.cos(radY) - z0 * Math.sin(radY);
+    let z1 = y0 * Math.sin(radY) + z0 * Math.cos(radY);
+    let x1 = x0;
+
+    return {{
+      x: cx + R * x1,
+      y: cy - R * y1,
+      z: z1,
+      visible: z1 > 0
+    }};
+  }}
+
   function render() {{
     ctx.clearRect(0, 0, width, height);
-    
-    rotation += 0.35;
-    flightProgress = (flightProgress + 0.015) % 1;
-    
-    // Smooth rotate towards selected
-    const diff = ((globeTargetLng - rotation) % 360 + 540) % 360 - 180;
-    rotation += diff * 0.012;
 
-    // Atmosphere Glow
-    const atmosGrad = ctx.createRadialGradient(cx, cy, R * 0.85, cx, cy, R * 1.25);
+    if (!isDragging) {{
+      rotX += 0.35;
+      const diff = ((globeTargetLng - rotX) % 360 + 540) % 360 - 180;
+      rotX += diff * 0.015;
+    }}
+
+    flightProgress = (flightProgress + 0.012) % 1;
+
+    // Atmospheric Outer Glow
+    const atmosGrad = ctx.createRadialGradient(cx, cy, R * 0.9, cx, cy, R * 1.35);
     atmosGrad.addColorStop(0, 'rgba(34, 211, 238, 0.22)');
-    atmosGrad.addColorStop(0.5, 'rgba(139, 92, 246, 0.12)');
+    atmosGrad.addColorStop(0.45, 'rgba(139, 92, 246, 0.12)');
     atmosGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
     ctx.fillStyle = atmosGrad;
     ctx.beginPath();
-    ctx.arc(cx, cy, R * 1.25, 0, Math.PI * 2);
+    ctx.arc(cx, cy, R * 1.35, 0, Math.PI * 2);
     ctx.fill();
 
-    // Globe Sphere Core
-    const coreGrad = ctx.createRadialGradient(cx - R * 0.3, cy - R * 0.3, 5, cx, cy, R);
-    coreGrad.addColorStop(0, '#1e293b');
-    coreGrad.addColorStop(0.6, '#0f172a');
-    coreGrad.addColorStop(1, '#020617');
-    ctx.fillStyle = coreGrad;
+    // Dark Glass Sphere Core
+    const sphereGrad = ctx.createRadialGradient(cx - R * 0.35, cy - R * 0.35, 5, cx, cy, R);
+    sphereGrad.addColorStop(0, 'rgba(23, 37, 84, 0.7)');
+    sphereGrad.addColorStop(0.65, 'rgba(15, 23, 42, 0.92)');
+    sphereGrad.addColorStop(1, 'rgba(2, 6, 23, 0.98)');
+    ctx.fillStyle = sphereGrad;
     ctx.beginPath();
     ctx.arc(cx, cy, R, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = 'rgba(34, 211, 238, 0.4)';
-    ctx.lineWidth = 1.2;
+    ctx.strokeStyle = 'rgba(34, 211, 238, 0.32)';
+    ctx.lineWidth = 1;
     ctx.stroke();
 
-    // Graticule Latitudes
-    ctx.strokeStyle = 'rgba(148, 163, 184, 0.12)';
-    ctx.lineWidth = 0.8;
-    for (let lat = -60; lat <= 60; lat += 30) {{
+    // Render Dot Matrix (Komari Point Cloud)
+    for (let i = 0; i < NUM_POINTS; i++) {{
+      const pt = globePoints[i];
+      const p = project3D(pt.lat, pt.lng, rotX, rotY);
+      if (!p.visible) continue;
+
+      const alpha = p.z * (pt.land ? 0.85 : 0.15);
+      const dotSize = pt.land ? (p.z > 0.6 ? 1.6 : 1.2) : 0.8;
+
+      ctx.fillStyle = pt.land ? `rgba(34, 211, 238, ${{alpha}})` : `rgba(148, 163, 184, ${{alpha}})`;
       ctx.beginPath();
-      let first = true;
-      for (let lon = -180; lon <= 180; lon += 10) {{
-        const p = project(lat, lon, rotation);
-        if (p.visible) {{
-          if (first) {{ ctx.moveTo(p.x, p.y); first = false; }}
-          else {{ ctx.lineTo(p.x, p.y); }}
-        }} else {{
-          first = true;
-        }}
-      }}
-      ctx.stroke();
+      ctx.arc(p.x, p.y, dotSize, 0, Math.PI * 2);
+      ctx.fill();
     }}
 
-    // Graticule Longitudes
-    for (let lon = -180; lon < 180; lon += 30) {{
-      ctx.beginPath();
-      let first = true;
-      for (let lat = -80; lat <= 80; lat += 10) {{
-        const p = project(lat, lon, rotation);
-        if (p.visible) {{
-          if (first) {{ ctx.moveTo(p.x, p.y); first = false; }}
-          else {{ ctx.lineTo(p.x, p.y); }}
-        }} else {{
-          first = true;
-        }}
-      }}
-      ctx.stroke();
-    }}
-
-    // Client Origin Hub
-    const clientP = project(CLIENT_HUB.lat, CLIENT_HUB.lng, rotation);
+    // Client Hub Origin (China)
+    const clientP = project3D(CLIENT_HUB.lat, CLIENT_HUB.lng, rotX, rotY);
     if (clientP.visible) {{
       ctx.fillStyle = '#a855f7';
       ctx.shadowColor = '#a855f7';
@@ -2275,66 +2260,118 @@ document.querySelectorAll('.globe-node-chip-item').forEach(chip => {{
       ctx.shadowBlur = 0;
     }}
 
-    // Active Nodes & Great Circle Arcs
+    // Active Connected Node Light Beams, Arcs & Ripples
     activeNodeGeos.forEach((geo) => {{
-      const nodeP = project(geo.lat, geo.lng, rotation);
+      const nodeP = project3D(geo.lat, geo.lng, rotX, rotY);
       const isChosen = geo.id === selected;
 
-      // Draw Arcs from Client to Node
+      // Draw 3D Arcs between Client & Node
       if (clientP.visible || nodeP.visible) {{
-        const midLat = (CLIENT_HUB.lat + geo.lat) / 2 + 15;
+        const midLat = (CLIENT_HUB.lat + geo.lat) / 2 + 18;
         const midLng = (CLIENT_HUB.lng + geo.lng) / 2;
-        const midP = project(midLat, midLng, rotation);
+        const midP = project3D(midLat, midLng, rotX, rotY);
 
-        ctx.strokeStyle = isChosen ? 'rgba(34, 211, 238, 0.85)' : 'rgba(139, 92, 246, 0.45)';
-        ctx.lineWidth = isChosen ? 1.8 : 1.0;
+        ctx.strokeStyle = isChosen ? 'rgba(34, 211, 238, 0.95)' : 'rgba(139, 92, 246, 0.55)';
+        ctx.lineWidth = isChosen ? 2.0 : 1.2;
         ctx.beginPath();
         ctx.moveTo(clientP.x, clientP.y);
         ctx.quadraticCurveTo(midP.x, midP.y, nodeP.x, nodeP.y);
         ctx.stroke();
 
         // Flying Photon Particle
-        const t = (flightProgress + (geo.id * 0.25)) % 1;
+        const t = (flightProgress + (geo.id * 0.22)) % 1;
         const px = (1 - t) * (1 - t) * clientP.x + 2 * (1 - t) * t * midP.x + t * t * nodeP.x;
         const py = (1 - t) * (1 - t) * clientP.y + 2 * (1 - t) * t * midP.y + t * t * nodeP.y;
         
-        ctx.fillStyle = '#22d3ee';
+        ctx.fillStyle = '#fff';
         ctx.shadowColor = '#22d3ee';
-        ctx.shadowBlur = 8;
+        ctx.shadowBlur = 10;
         ctx.beginPath();
-        ctx.arc(px, py, isChosen ? 3 : 2, 0, Math.PI * 2);
+        ctx.arc(px, py, isChosen ? 3.5 : 2.5, 0, Math.PI * 2);
         ctx.fill();
         ctx.shadowBlur = 0;
       }}
 
-      // Draw Node Pin
+      // Vertical 3D Light Beam (Komari Pillar)
       if (nodeP.visible) {{
-        ctx.fillStyle = isChosen ? '#22d3ee' : '#34d399';
+        const beamHeight = isChosen ? 26 : 18;
+        const topY = nodeP.y - beamHeight * nodeP.z;
+        const topX = nodeP.x;
+
+        // Beam gradient
+        const beamGrad = ctx.createLinearGradient(nodeP.x, nodeP.y, topX, topY);
+        beamGrad.addColorStop(0, isChosen ? 'rgba(34, 211, 238, 0.9)' : 'rgba(52, 211, 153, 0.8)');
+        beamGrad.addColorStop(1, 'rgba(255, 255, 255, 0.95)');
+        
+        ctx.strokeStyle = beamGrad;
+        ctx.lineWidth = isChosen ? 2.5 : 1.8;
+        ctx.beginPath();
+        ctx.moveTo(nodeP.x, nodeP.y);
+        ctx.lineTo(topX, topY);
+        ctx.stroke();
+
+        // Beam Top Glowing Head
+        ctx.fillStyle = '#fff';
         ctx.shadowColor = isChosen ? '#22d3ee' : '#34d399';
         ctx.shadowBlur = isChosen ? 12 : 6;
         ctx.beginPath();
-        ctx.arc(nodeP.x, nodeP.y, isChosen ? 5 : 3.5, 0, Math.PI * 2);
+        ctx.arc(topX, topY, isChosen ? 4 : 3, 0, Math.PI * 2);
         ctx.fill();
 
-        // Pulse Ring
-        const ringR = 5 + (flightProgress * 12);
-        ctx.strokeStyle = `rgba(34, 211, 238, ${{1 - flightProgress}})`;
-        ctx.lineWidth = 1;
+        // Pulse Ripple Ring on Sphere Base
+        const rippleR = 4 + (flightProgress * 14);
+        ctx.strokeStyle = `rgba(34, 211, 238, ${{Math.max(0, 1 - flightProgress)}})`;
+        ctx.lineWidth = 1.2;
         ctx.beginPath();
-        ctx.arc(nodeP.x, nodeP.y, ringR, 0, Math.PI * 2);
+        ctx.ellipse(nodeP.x, nodeP.y, rippleR, rippleR * 0.45, 0, 0, Math.PI * 2);
         ctx.stroke();
         ctx.shadowBlur = 0;
 
-        // Label
-        ctx.fillStyle = isChosen ? '#ffffff' : '#94a3b8';
-        ctx.font = 'bold 9px sans-serif';
-        ctx.fillText(geo.flag + ' ' + geo.name, nodeP.x + 7, nodeP.y + 3);
+        // Floating Node Flag & Name Label
+        const labelText = `${{geo.flag}} ${{geo.name}}`;
+        ctx.font = isChosen ? 'bold 11px sans-serif' : '10px sans-serif';
+        const txtWidth = ctx.measureText(labelText).width;
+        const lx = topX + 8;
+        const ly = topY - 5;
+
+        // Label Glass Capsule
+        ctx.fillStyle = isChosen ? 'rgba(15, 23, 42, 0.85)' : 'rgba(15, 23, 42, 0.65)';
+        ctx.strokeStyle = isChosen ? 'rgba(34, 211, 238, 0.75)' : 'rgba(148, 163, 184, 0.25)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(lx - 4, ly - 11, txtWidth + 8, 16, 4);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = isChosen ? '#ffffff' : '#cbd5e1';
+        ctx.fillText(labelText, lx, ly + 1);
       }}
     }});
 
     requestAnimationFrame(render);
   }}
-  
+
+  // Interactive Drag & Rotation Listeners
+  canvas.addEventListener('mousedown', (e) => {{
+    isDragging = true;
+    lastMouseX = e.clientX;
+    lastMouseY = e.clientY;
+  }});
+
+  window.addEventListener('mousemove', (e) => {{
+    if (!isDragging) return;
+    const dx = e.clientX - lastMouseX;
+    const dy = e.clientY - lastMouseY;
+    rotX -= dx * 0.5;
+    rotY = Math.max(-45, Math.min(45, rotY + dy * 0.5));
+    lastMouseX = e.clientX;
+    lastMouseY = e.clientY;
+  }});
+
+  window.addEventListener('mouseup', () => {{
+    isDragging = false;
+  }});
+
   render();
 }})();
 
