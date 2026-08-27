@@ -153,24 +153,24 @@ body[data-theme='dark'] a{color:#c4b5fd}
 body[data-theme='dark'] a:hover{color:#67e8f9}
 
 .auth-theme-toggle{
-  position:fixed;
-  top:20px;
-  right:20px;
-  z-index:100;
+  position:absolute;
+  top:18px;
+  right:18px;
+  z-index:10;
   display:grid;
   place-items:center;
-  width:38px;
-  height:38px;
+  width:32px;
+  height:32px;
   margin:0;
   padding:0;
   border:1px solid var(--line);
-  border-radius:11px;
+  border-radius:9px;
   background:var(--panel);
-  box-shadow:var(--shadow);
+  box-shadow:0 4px 12px rgba(0,0,0,.04);
   color:var(--muted);
-  font-size:15px;
+  font-size:13px;
   cursor:pointer;
-  backdrop-filter:blur(16px);
+  backdrop-filter:blur(12px);
   transition:all .18s ease;
   animation:none;
 }
@@ -180,7 +180,7 @@ body[data-theme='dark'] a:hover{color:#67e8f9}
   background:rgba(139,92,246,.1);
   color:var(--ink);
   transform:translateY(-1px);
-  box-shadow:0 6px 20px rgba(139,92,246,.12);
+  box-shadow:0 6px 16px rgba(139,92,246,.12);
 }
 
 .auth-shell{
@@ -1666,8 +1666,8 @@ class ProxyPanel:
         body = f"""<!doctype html><html lang='zh-CN'><head><meta charset='utf-8'>
 <meta name='viewport' content='width=device-width,initial-scale=1'><meta name='theme-color' content='#ffffff'>
 <title>Emby Relay · {html.escape(title)}</title><style>{AUTH_UI_CSS}</style></head><body data-theme='light'>
-<button type='button' id='theme-toggle' class='auth-theme-toggle' title='切换主题' aria-label='切换主题'>◐</button>
 <main class='auth-shell'>
+  <button type='button' id='theme-toggle' class='auth-theme-toggle' title='切换主题' aria-label='切换主题'>◐</button>
   <section class='auth-intro' aria-label='Emby Relay'>
     <div class='brand-lockup'><span class='brand-copy'><strong>Emby Relay</strong><small>节点与线路管理</small></span></div>
   </section>
