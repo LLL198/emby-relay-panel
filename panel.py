@@ -1870,13 +1870,6 @@ themeToggle?.addEventListener('click', () => {{
         users_class = " active" if active == "users" else ""
         invites_class = " active" if active == "invites" else ""
         page_title = {"overview": "运行概览", "nodes": "节点面板", "routes": "线路管理", "users": "用户管理", "invites": "邀请码管理"}.get(active, "管理后台")
-        page_subtitle = {
-            "overview": "统一查看节点、线路和流量运行状态。",
-            "nodes": "线路只影响新请求；正在播放的 Emby 连接不会被自动迁移。",
-            "routes": "创建、验证、重新下发或移除反代线路。",
-            "users": "账号、额度、到期状态与登录记录。",
-            "invites": "创建、查看、撤销或删除邀请码及其兑换记录。",
-        }.get(active, "")
         body = f"""<!doctype html><html lang='zh-CN'><head><meta charset='utf-8'>
 <meta name='viewport' content='width=device-width,initial-scale=1'><meta name='theme-color' content='#111927'>
 <title>Emby Relay · {html.escape(page_title)}</title><style>{ADMIN_UI_CSS}</style></head><body>
@@ -1896,7 +1889,7 @@ themeToggle?.addEventListener('click', () => {{
   <p class='side-note'>节点和线路操作只影响新连接。<a href='/'>← 返回用户界面</a></p>
 </aside><main>
   <div class='admin-topbar'><label class='admin-search' for='admin-page-search'><span class='search-icon'>⌕</span><input id='admin-page-search' type='search' placeholder='搜索页面' autocomplete='off' aria-label='搜索后台页面'><kbd>Ctrl K</kbd></label><div class='admin-tools'><a class='tool-button' href='/account' aria-label='账号安全' title='账号安全'>⚙</a><button type='button' class='tool-button' id='fullscreen-toggle' aria-label='全屏' title='全屏'>↗</button><button type='button' class='tool-button' id='theme-toggle' aria-label='切换主题' title='切换主题'>◐</button></div></div>
-  <header class='admin-header'><div><span class='admin-kicker'>Emby Relay</span><h1>{page_title}</h1><p class='muted'>{page_subtitle}</p></div><a class='view-site' href='/'>查看用户界面 ↗</a></header>"""
+  <header class='admin-header'><div><h1>{page_title}</h1></div><a class='view-site' href='/'>查看用户界面 ↗</a></header>"""
         copy_script = """<script nonce='__CSP_NONCE__'>
 async function copyPanelValue(value) { try { if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(value); return true; } const field = document.createElement('textarea'); field.value = value; field.readOnly = true; field.style.cssText = 'position:fixed;opacity:0'; document.body.append(field); field.select(); const copied = document.execCommand('copy'); field.remove(); return copied; } catch (error) { return false; } }
 document.querySelectorAll('[data-copy]').forEach(button => button.addEventListener('click', async () => { const label = button.textContent; button.textContent = (await copyPanelValue(button.dataset.copy)) ? '已复制' : '复制失败'; setTimeout(() => button.textContent = label, 1200); }));
