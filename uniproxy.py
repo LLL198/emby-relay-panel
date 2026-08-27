@@ -619,21 +619,9 @@ async def generator_response(request: web.Request):
         selected_node_id = nodes[0]["id"]
     
     selected_node_name = "未选择节点"
-    selected_node_region = "global"
     for n in nodes:
         if n["id"] == selected_node_id:
             selected_node_name = n["name"]
-            c_code = (n.get("code") or "").upper()
-            if "HK" in c_code or "香港" in n.get("country_name", ""):
-                selected_node_region = "hk"
-            elif "JP" in c_code or "日本" in n.get("country_name", ""):
-                selected_node_region = "jp"
-            elif "SG" in c_code or "新加坡" in n.get("country_name", ""):
-                selected_node_region = "sg"
-            elif "TW" in c_code or "台湾" in n.get("country_name", ""):
-                selected_node_region = "tw"
-            elif "US" in c_code or "美" in n.get("country_name", ""):
-                selected_node_region = "us"
             break
 
     result_html = ""
@@ -667,7 +655,7 @@ async def generator_response(request: web.Request):
                             <span class="copy-text">一键复制</span>
                         </button>
                     </div>
-                    <p class="result-hint">💡 请直接将此地址复制填入 Emby / Jellyfin 客户端作为服务器地址使用。</p>
+                    <p class="result-hint">💡 请直接将此地址复制填入客户端使用。</p>
                 </div>
             </section>
             """
@@ -703,11 +691,11 @@ async def generator_response(request: web.Request):
             f"    <svg viewBox='0 0 160 32' class='sparkline-svg' preserveAspectRatio='none'>"
             f"      <defs>"
             f"        <linearGradient id='spark-grad-{node['id']}' x1='0%' y1='0%' x2='100%' y2='0%'>"
-            f"          <stop offset='0%' stop-color='rgba(34, 211, 238, 0.8)' />"
-            f"          <stop offset='100%' stop-color='rgba(139, 92, 246, 0.9)' />"
+            f"          <stop offset='0%' stop-color='rgba(34, 211, 238, 0.85)' />"
+            f"          <stop offset='100%' stop-color='rgba(139, 92, 246, 0.95)' />"
             f"        </linearGradient>"
             f"        <linearGradient id='spark-fill-{node['id']}' x1='0%' y1='0%' x2='0%' y2='100%'>"
-            f"          <stop offset='0%' stop-color='rgba(34, 211, 238, 0.25)' />"
+            f"          <stop offset='0%' stop-color='rgba(34, 211, 238, 0.22)' />"
             f"          <stop offset='100%' stop-color='rgba(34, 211, 238, 0.0)' />"
             f"        </linearGradient>"
             f"      </defs>"
@@ -845,7 +833,6 @@ body {{
   background: var(--bg);
 }}
 
-/* Aurora Background */
 .aurora-bg {{
   position: fixed;
   inset: -35%;
@@ -903,7 +890,6 @@ body {{
   padding: 20px 24px 60px;
 }}
 
-/* Floating Nav */
 .magic-nav {{
   display: flex;
   align-items: center;
@@ -1021,9 +1007,6 @@ body {{
   color: #fff;
 }}
 
-/* =========================================================
-   TOP HERO: Live Global Network Radar & Metric Tiles
-========================================================= */
 .hero-dashboard {{
   display: grid;
   grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
@@ -1036,7 +1019,7 @@ body {{
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  min-height: 190px;
+  min-height: 200px;
   padding: 20px 22px;
   border: 1px solid var(--border);
   border-radius: var(--radius-panel);
@@ -1087,66 +1070,54 @@ body {{
   animation: pulse-dot 1.5s infinite;
 }}
 
-/* Interactive SVG World Topology Radar Map */
-.radar-svg-stage {{
+.globe-canvas-wrapper {{
   position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   width: 100%;
-  height: 130px;
-  margin-top: 8px;
-  z-index: 1;
+  height: 140px;
+  margin-top: 6px;
 }}
-.radar-svg {{
-  width: 100%;
-  height: 100%;
-  overflow: visible;
+#globe-canvas {{
+  width: 150px;
+  height: 140px;
+  flex: 0 0 150px;
 }}
-
-.radar-flight-path {{
-  stroke: rgba(148, 163, 184, 0.22);
-  stroke-width: 1.5;
-  stroke-dasharray: 4 4;
-  fill: none;
+.globe-node-chips {{
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  padding-left: 18px;
 }}
-.radar-flight-path.active-path {{
-  stroke: url(#radar-beam-grad);
-  stroke-width: 2;
-  stroke-dasharray: 8 6;
-  animation: fly-dash 18s linear infinite;
+.globe-node-chip-item {{
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  font-size: 11.5px;
+  color: var(--ink-secondary);
+  font-weight: 600;
+  transition: all 0.18s ease;
 }}
-
-@keyframes fly-dash {{
-  to {{ stroke-dashoffset: -200; }}
+.globe-node-chip-item.active {{
+  border-color: var(--cyan);
+  background: rgba(34, 211, 238, 0.1);
+  color: var(--cyan);
 }}
-
-.radar-station-dot {{
-  fill: var(--cyan);
-  filter: drop-shadow(0 0 6px var(--cyan));
-}}
-.radar-station-hub {{
-  fill: #8b5cf6;
-  filter: drop-shadow(0 0 8px #8b5cf6);
-}}
-.radar-pulse-ring {{
-  fill: none;
-  stroke: var(--cyan);
-  stroke-width: 1;
-  opacity: 0.8;
-  animation: radar-expand 3s ease-out infinite;
-  transform-origin: center;
+.globe-node-chip-item .chip-dot {{
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: 0 0 6px var(--cyan);
 }}
 
-@keyframes radar-expand {{
-  0% {{ r: 4; opacity: 0.9; }}
-  100% {{ r: 18; opacity: 0; }}
-}}
-
-.radar-station-label {{
-  font-size: 10px;
-  font-weight: 700;
-  fill: var(--muted);
-}}
-
-/* Metric Bento Tiles */
 .metrics-grid {{
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -1211,9 +1182,6 @@ body {{
   gap: 4px;
 }}
 
-/* =========================================================
-   MAIN WORKSPACE: 3/4 Left Bento Nodes + 1/4 Right 3D Form
-========================================================= */
 .magic-workspace {{
   display: grid;
   grid-template-columns: minmax(0, 3fr) minmax(290px, 1fr);
@@ -1280,7 +1248,6 @@ body {{
   gap: 14px;
 }}
 
-/* Bento Node Card & Spotlight Effect */
 .node-card {{
   position: relative;
   display: flex;
@@ -1299,7 +1266,6 @@ body {{
   transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 }}
 
-/* Dynamic Spotlight Follower */
 .node-card-glow-follower {{
   position: absolute;
   inset: 0;
@@ -1378,7 +1344,6 @@ body {{
   color: var(--muted);
 }}
 
-/* Mini Sparkline Chart */
 .node-card-sparkline {{
   position: relative;
   z-index: 1;
@@ -1436,9 +1401,6 @@ body {{
   font-size: 13px;
 }}
 
-/* =========================================================
-   RIGHT: 3D Holographic Crystal & Route Form
-========================================================= */
 .route-creation-card {{
   display: flex;
   flex-direction: column;
@@ -1451,7 +1413,6 @@ body {{
   backdrop-filter: blur(20px);
 }}
 
-/* 3D Holographic Crystal Orb */
 .crystal-orb-stage {{
   display: flex;
   flex-direction: column;
@@ -1536,7 +1497,6 @@ body {{
   color: var(--muted);
 }}
 
-/* Border Beam Input */
 .magic-input-wrap {{
   position: relative;
   border-radius: var(--radius-sm);
@@ -1607,9 +1567,6 @@ body {{
   text-align: center;
 }}
 
-/* =========================================================
-   Result, Error & My Routes Table
-========================================================= */
 .result-box {{
   margin-bottom: 24px;
   padding: 20px 24px;
@@ -1916,7 +1873,6 @@ body {{
   margin-bottom: 6px;
 }}
 
-/* Responsive Breakpoints */
 @media (max-width: 960px) {{
   .hero-dashboard {{ grid-template-columns: 1fr; }}
   .magic-workspace {{ grid-template-columns: 1fr; }}
@@ -1929,6 +1885,9 @@ body {{
   .node-grid {{ grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }}
   .node-card {{ min-height: 110px; padding: 10px; }}
   .nav-badge.status {{ display: none; }}
+  .globe-canvas-wrapper {{ flex-direction: column; height: auto; }}
+  #globe-canvas {{ margin: 0 auto; }}
+  .globe-node-chips {{ padding-left: 0; margin-top: 10px; width: 100%; }}
 }}
 </style>
 </head>
@@ -1942,7 +1901,6 @@ body {{
 <div class="grid-mesh"></div>
 
 <main class="magic-shell">
-  <!-- Floating Glass Nav -->
   <header class="magic-nav">
     <a href="/" class="nav-brand">
       <span class="brand-gem">✦</span>
@@ -1965,61 +1923,21 @@ body {{
     </div>
   </header>
 
-  <!-- TOP HERO: Global Network Radar & Metric Tiles -->
   <section class="hero-dashboard">
-    <!-- Live World Topology Radar -->
     <div class="radar-card">
       <div class="radar-header">
         <div class="radar-title-group">
-          <h3>🌐 全球智能中继拓扑 <span class="radar-live-tag"><i class="radar-ping"></i>LIVE 实时连通</span></h3>
-          <p>智能调度全球优质 BGP 中继路由，实现 4K HDR 极速秒开</p>
+          <h3>🌐 3D 节点动态连通态势 <span class="radar-live-tag"><i class="radar-ping"></i>LIVE 实时连通</span></h3>
+          <p>仅显示当前系统已连通的节点地区，支持自转与精准航线调度</p>
         </div>
       </div>
       
-      <div class="radar-svg-stage">
-        <svg viewBox="0 0 520 130" class="radar-svg">
-          <defs>
-            <linearGradient id="radar-beam-grad" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stop-color="#8b5cf6" />
-              <stop offset="50%" stop-color="#22d3ee" />
-              <stop offset="100%" stop-color="#34d399" />
-            </linearGradient>
-          </defs>
-          
-          <!-- Background Grid Arc -->
-          <path d="M 40 115 Q 260 20 480 115" stroke="rgba(148, 163, 184, 0.08)" stroke-width="1" fill="none" />
-          <path d="M 80 115 Q 260 45 440 115" stroke="rgba(148, 163, 184, 0.08)" stroke-width="1" fill="none" />
-          
-          <!-- Origin Hub: CN (China) -->
-          <circle cx="90" cy="70" r="14" class="radar-pulse-ring" />
-          <circle cx="90" cy="70" r="5" class="radar-station-hub" />
-          <text x="90" y="94" text-anchor="middle" class="radar-station-label">源站 / 客户端</text>
-          
-          <!-- Route Arcs to Edge Nodes -->
-          <!-- To HK -->
-          <path d="M 90 70 Q 180 25 240 50" class="radar-flight-path active-path" />
-          <circle cx="240" cy="50" r="4.5" class="radar-station-dot" />
-          <text x="240" y="70" text-anchor="middle" class="radar-station-label">🇭🇰 香港</text>
-          
-          <!-- To JP -->
-          <path d="M 90 70 Q 230 15 350 40" class="radar-flight-path active-path" />
-          <circle cx="350" cy="40" r="4.5" class="radar-station-dot" />
-          <text x="350" y="60" text-anchor="middle" class="radar-station-label">🇯🇵 东京</text>
-          
-          <!-- To SG -->
-          <path d="M 90 70 Q 170 85 220 105" class="radar-flight-path active-path" />
-          <circle cx="220" cy="105" r="4.5" class="radar-station-dot" />
-          <text x="220" y="122" text-anchor="middle" class="radar-station-label">🇸🇬 新加坡</text>
-          
-          <!-- To US / Europe -->
-          <path d="M 90 70 Q 280 20 450 65" class="radar-flight-path active-path" />
-          <circle cx="450" cy="65" r="4.5" class="radar-station-dot" />
-          <text x="450" y="85" text-anchor="middle" class="radar-station-label">🇺🇸 美西/欧洲</text>
-        </svg>
+      <div class="globe-canvas-wrapper">
+        <canvas id="globe-canvas" width="300" height="280"></canvas>
+        <div class="globe-node-chips" id="globe-node-chips"></div>
       </div>
     </div>
 
-    <!-- 4 Metric Bento Tiles -->
     <div class="metrics-grid">
       <div class="metric-tile">
         <div class="metric-tile-top">
@@ -2059,9 +1977,7 @@ body {{
     </div>
   </section>
 
-  <!-- Main Workspace: 3/4 Bento Nodes + 1/4 3D Form -->
   <section class="magic-workspace">
-    <!-- Left 3/4: Node Matrix -->
     <div class="bento-nodes-box">
       <div class="box-header">
         <div class="box-header-title">
@@ -2076,7 +1992,6 @@ body {{
       </div>
     </div>
 
-    <!-- Right 1/4: 3D Holographic Form Card -->
     <div class="route-creation-card">
       <div>
         <div class="crystal-orb-stage">
@@ -2118,10 +2033,8 @@ body {{
     </div>
   </section>
 
-  <!-- Result Banner if Created -->
   {result_html}
 
-  <!-- My Routes List -->
   <section class="my-routes-box">
     <div class="box-header">
       <div class="box-header-title">
@@ -2155,6 +2068,42 @@ body {{
 const nodes = {nodes_json};
 let selected = {selected_node_id};
 
+const REGION_GEO = {{
+  'HK': {{ lat: 22.31, lng: 114.16, name: '香港', flag: '🇭🇰' }},
+  'JP': {{ lat: 35.67, lng: 139.65, name: '日本', flag: '🇯🇵' }},
+  'SG': {{ lat: 1.35,  lng: 103.81, name: '新加坡', flag: '🇸🇬' }},
+  'TW': {{ lat: 25.03, lng: 121.56, name: '台湾', flag: '🇹🇼' }},
+  'US': {{ lat: 37.77, lng: -122.41, name: '美国', flag: '🇺🇸' }},
+  'KR': {{ lat: 37.56, lng: 126.97, name: '韩国', flag: '🇰🇷' }},
+  'DE': {{ lat: 50.11, lng: 8.68, name: '德国', flag: '🇩🇪' }},
+  'GB': {{ lat: 51.50, lng: -0.12, name: '英国', flag: '🇬🇧' }}
+}};
+
+const CLIENT_HUB = {{ lat: 31.23, lng: 121.47, name: '客户端' }};
+
+function resolveNodeGeo(node) {{
+  const code = (node.code || '').toUpperCase();
+  const cName = node.country_name || '';
+  for (const [k, v] of Object.entries(REGION_GEO)) {{
+    if (code.includes(k) || cName.includes(v.name)) {{
+      return {{ ...v, id: node.id, nodeName: node.name }};
+    }}
+  }}
+  return {{ lat: 20.0 + (node.id * 7) % 40, lng: 100.0 + (node.id * 15) % 60, name: cName || node.name, flag: '🌐', id: node.id, nodeName: node.name }};
+}}
+
+const activeNodeGeos = nodes.map(resolveNodeGeo);
+
+const chipsContainer = document.getElementById('globe-node-chips');
+if (chipsContainer) {{
+  chipsContainer.innerHTML = activeNodeGeos.map(g => 
+    `<div class="globe-node-chip-item ${{g.id === selected ? 'active' : ''}}" data-chip-id="${{g.id}}">
+      <i class="chip-dot"></i>
+      <span>${{g.flag}} ${{g.name}} (${{g.nodeName}})</span>
+    </div>`
+  ).join('');
+}}
+
 const regionOrbStyles = {{
   hk: 'radial-gradient(circle at 35% 30%, #fff 2%, #a855f7 35%, #ec4899 75%, #05060f 100%)',
   jp: 'radial-gradient(circle at 35% 30%, #fff 2%, #38bdf8 35%, #ec4899 75%, #05060f 100%)',
@@ -2163,6 +2112,9 @@ const regionOrbStyles = {{
   us: 'radial-gradient(circle at 35% 30%, #fff 2%, #60a5fa 35%, #8b5cf6 75%, #05060f 100%)',
   global: 'radial-gradient(circle at 35% 30%, #fff 2%, #22d3ee 35%, #8b5cf6 75%, #05060f 100%)'
 }};
+
+let globeTargetLng = 114.16;
+let globeCurrentLng = 114.16;
 
 function pick(id) {{
   selected = id;
@@ -2180,13 +2132,21 @@ function pick(id) {{
       countryName = card.dataset.country || '';
     }}
   }});
+
+  document.querySelectorAll('.globe-node-chip-item').forEach(chip => {{
+    chip.classList.toggle('active', Number(chip.dataset.chipId) === id);
+  }});
   
   const displayEl = document.getElementById('selected-node-display');
   if (displayEl) {{
     displayEl.textContent = chosenName;
   }}
 
-  // Update Crystal Orb Color dynamically
+  const targetGeo = activeNodeGeos.find(g => g.id === id);
+  if (targetGeo) {{
+    globeTargetLng = targetGeo.lng;
+  }}
+
   const orbEl = document.getElementById('crystal-orb-element');
   if (orbEl) {{
     let key = 'global';
@@ -2199,19 +2159,185 @@ function pick(id) {{
   }}
 }}
 
-// Spotlight Card Hover Listener
 document.querySelectorAll('.node-card').forEach(card => {{
   card.addEventListener('mousemove', (e) => {{
     const rect = card.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    card.style.setProperty('--mouse-x', x + 'px');
-    card.style.setProperty('--mouse-y', y + 'px');
+    card.style.setProperty('--mouse-x', (e.clientX - rect.left) + 'px');
+    card.style.setProperty('--mouse-y', (e.clientY - rect.top) + 'px');
   }});
   card.addEventListener('click', () => pick(Number(card.dataset.nodeId)));
 }});
 
-// Latency Probing
+document.querySelectorAll('.globe-node-chip-item').forEach(chip => {{
+  chip.addEventListener('click', () => pick(Number(chip.dataset.chipId)));
+}});
+
+// 3D Rotating Globe Engine (Canvas Orthographic)
+(function init3DGlobe() {{
+  const canvas = document.getElementById('globe-canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  
+  const width = canvas.width;
+  const height = canvas.height;
+  const cx = width / 2;
+  const cy = height / 2;
+  const R = 62;
+  
+  let rotation = 0;
+  let flightProgress = 0;
+  
+  function project(lat, lng, rot) {{
+    const radLat = (lat * Math.PI) / 180;
+    const radLng = ((lng + rot) * Math.PI) / 180;
+    const x = cx + R * Math.cos(radLat) * Math.sin(radLng);
+    const y = cy - R * Math.sin(radLat);
+    const z = Math.cos(radLat) * Math.cos(radLng);
+    return {{ x, y, z, visible: z > -0.15 }};
+  }}
+  
+  function render() {{
+    ctx.clearRect(0, 0, width, height);
+    
+    rotation += 0.35;
+    flightProgress = (flightProgress + 0.015) % 1;
+    
+    // Smooth rotate towards selected
+    const diff = ((globeTargetLng - rotation) % 360 + 540) % 360 - 180;
+    rotation += diff * 0.012;
+
+    // Atmosphere Glow
+    const atmosGrad = ctx.createRadialGradient(cx, cy, R * 0.85, cx, cy, R * 1.25);
+    atmosGrad.addColorStop(0, 'rgba(34, 211, 238, 0.22)');
+    atmosGrad.addColorStop(0.5, 'rgba(139, 92, 246, 0.12)');
+    atmosGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = atmosGrad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, R * 1.25, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Globe Sphere Core
+    const coreGrad = ctx.createRadialGradient(cx - R * 0.3, cy - R * 0.3, 5, cx, cy, R);
+    coreGrad.addColorStop(0, '#1e293b');
+    coreGrad.addColorStop(0.6, '#0f172a');
+    coreGrad.addColorStop(1, '#020617');
+    ctx.fillStyle = coreGrad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(34, 211, 238, 0.4)';
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+
+    // Graticule Latitudes
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.12)';
+    ctx.lineWidth = 0.8;
+    for (let lat = -60; lat <= 60; lat += 30) {{
+      ctx.beginPath();
+      let first = true;
+      for (let lon = -180; lon <= 180; lon += 10) {{
+        const p = project(lat, lon, rotation);
+        if (p.visible) {{
+          if (first) {{ ctx.moveTo(p.x, p.y); first = false; }}
+          else {{ ctx.lineTo(p.x, p.y); }}
+        }} else {{
+          first = true;
+        }}
+      }}
+      ctx.stroke();
+    }}
+
+    // Graticule Longitudes
+    for (let lon = -180; lon < 180; lon += 30) {{
+      ctx.beginPath();
+      let first = true;
+      for (let lat = -80; lat <= 80; lat += 10) {{
+        const p = project(lat, lon, rotation);
+        if (p.visible) {{
+          if (first) {{ ctx.moveTo(p.x, p.y); first = false; }}
+          else {{ ctx.lineTo(p.x, p.y); }}
+        }} else {{
+          first = true;
+        }}
+      }}
+      ctx.stroke();
+    }}
+
+    // Client Origin Hub
+    const clientP = project(CLIENT_HUB.lat, CLIENT_HUB.lng, rotation);
+    if (clientP.visible) {{
+      ctx.fillStyle = '#a855f7';
+      ctx.shadowColor = '#a855f7';
+      ctx.shadowBlur = 10;
+      ctx.beginPath();
+      ctx.arc(clientP.x, clientP.y, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }}
+
+    // Active Nodes & Great Circle Arcs
+    activeNodeGeos.forEach((geo) => {{
+      const nodeP = project(geo.lat, geo.lng, rotation);
+      const isChosen = geo.id === selected;
+
+      // Draw Arcs from Client to Node
+      if (clientP.visible || nodeP.visible) {{
+        const midLat = (CLIENT_HUB.lat + geo.lat) / 2 + 15;
+        const midLng = (CLIENT_HUB.lng + geo.lng) / 2;
+        const midP = project(midLat, midLng, rotation);
+
+        ctx.strokeStyle = isChosen ? 'rgba(34, 211, 238, 0.85)' : 'rgba(139, 92, 246, 0.45)';
+        ctx.lineWidth = isChosen ? 1.8 : 1.0;
+        ctx.beginPath();
+        ctx.moveTo(clientP.x, clientP.y);
+        ctx.quadraticCurveTo(midP.x, midP.y, nodeP.x, nodeP.y);
+        ctx.stroke();
+
+        // Flying Photon Particle
+        const t = (flightProgress + (geo.id * 0.25)) % 1;
+        const px = (1 - t) * (1 - t) * clientP.x + 2 * (1 - t) * t * midP.x + t * t * nodeP.x;
+        const py = (1 - t) * (1 - t) * clientP.y + 2 * (1 - t) * t * midP.y + t * t * nodeP.y;
+        
+        ctx.fillStyle = '#22d3ee';
+        ctx.shadowColor = '#22d3ee';
+        ctx.shadowBlur = 8;
+        ctx.beginPath();
+        ctx.arc(px, py, isChosen ? 3 : 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }}
+
+      // Draw Node Pin
+      if (nodeP.visible) {{
+        ctx.fillStyle = isChosen ? '#22d3ee' : '#34d399';
+        ctx.shadowColor = isChosen ? '#22d3ee' : '#34d399';
+        ctx.shadowBlur = isChosen ? 12 : 6;
+        ctx.beginPath();
+        ctx.arc(nodeP.x, nodeP.y, isChosen ? 5 : 3.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Pulse Ring
+        const ringR = 5 + (flightProgress * 12);
+        ctx.strokeStyle = `rgba(34, 211, 238, ${{1 - flightProgress}})`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(nodeP.x, nodeP.y, ringR, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+
+        // Label
+        ctx.fillStyle = isChosen ? '#ffffff' : '#94a3b8';
+        ctx.font = 'bold 9px sans-serif';
+        ctx.fillText(geo.flag + ' ' + geo.name, nodeP.x + 7, nodeP.y + 3);
+      }}
+    }});
+
+    requestAnimationFrame(render);
+  }}
+  
+  render();
+}})();
+
 const latencyRecords = [];
 
 async function probe(node) {{
