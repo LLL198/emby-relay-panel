@@ -12,6 +12,7 @@ import json
 import os
 import re
 import secrets
+import signal
 import shlex
 import socket
 import sqlite3
@@ -60,12 +61,13 @@ LEGACY_USER_SESSION_COOKIE = "_uniproxy_user_session"
 LEGACY_USER_CSRF_COOKIE = "_uniproxy_user_csrf"
 SESSION_EPHEMERAL_SECONDS = 24 * 60 * 60
 SESSION_REMEMBER_SECONDS = 90 * 24 * 60 * 60
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 ADMIN_ROUTE_PAGE_SIZE = 5
 TRAFFIC_FORMAT_NAME = "uniproxy_traffic"
 TRAFFIC_CONFIG_NAME = "00-uniproxy-traffic.conf"
 TRAFFIC_MAX_CHUNK_BYTES = 4 * 1024 * 1024
 TRAFFIC_TIMEZONE = timezone(timedelta(hours=8))
+NODE_PROVISION_LOG_MAX_CHARS = 128 * 1024
 SSH_READY_ATTEMPTS = 4
 SSH_READY_RETRY_SECONDS = 3
 
@@ -389,6 +391,7 @@ details{margin-top:8px}summary{color:#a78bfa;font-size:12px;font-weight:680;curs
 .overview-intro{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;margin-bottom:22px}.overview-intro p{margin:0;color:var(--muted);font-size:13px}.overview-live{display:inline-flex;align-items:center;gap:8px;padding:8px 11px;border:1px solid var(--line);border-radius:999px;background:var(--surface);color:#aab3c6;font-size:11px;font-weight:700}.overview-live i{width:7px;height:7px;border-radius:50%;background:var(--success);box-shadow:0 0 0 4px rgba(74,222,128,.1),0 0 14px rgba(74,222,128,.5);animation:status-pulse 2.4s ease-in-out infinite}
 .overview-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:13px;margin-bottom:18px}.metric-card{position:relative;min-height:122px;padding:17px;border:1px solid transparent;border-radius:16px;background:linear-gradient(var(--surface-strong),var(--surface-strong)) padding-box,linear-gradient(125deg,rgba(139,92,246,.42),rgba(148,163,184,.08) 48%,rgba(34,211,238,.25)) border-box;box-shadow:0 16px 44px rgba(0,0,0,.2);overflow:hidden}.metric-card header{position:relative;z-index:1;display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;color:var(--muted);font-size:11px}.metric-icon{display:grid;place-items:center;width:28px;height:28px;border:1px solid var(--line);border-radius:9px;background:var(--surface-soft);color:#c4b5fd;font-size:12px}.metric-card strong{position:relative;z-index:1;display:block;color:var(--ink);font-size:25px;line-height:1.1;letter-spacing:-.045em}.metric-card small{position:relative;z-index:1;display:block;margin-top:8px;color:var(--faint);font-size:10px}
 .overview-columns{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(250px,.8fr);gap:18px}.overview-panel{margin-top:0;min-height:0}.panel-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:15px}.panel-heading h2{margin:0}.panel-heading p{margin:4px 0 0;color:var(--faint);font-size:11px}.panel-heading .panel-count{color:#a78bfa;font-size:11px;text-decoration:none}.node-overview-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px}.node-overview{padding:14px;border:1px solid var(--line);border-radius:13px;background:var(--surface-soft);transition:border-color .18s ease,transform .18s ease}.node-overview:hover{border-color:var(--line-strong);transform:translateY(-1px)}.node-overview header{display:flex;align-items:center;justify-content:space-between;gap:10px}.node-overview-title{display:flex;align-items:center;gap:9px;color:var(--ink);font-size:12px;font-weight:750}.node-overview-title .flag{font-size:18px}.node-state{color:var(--success);font-size:10px}.node-state:before{content:"●";margin-right:5px}.node-state.offline{color:var(--faint)}.node-overview-meta{display:flex;justify-content:space-between;gap:10px;margin-top:12px;color:var(--muted);font-size:10px}.node-progress{height:5px;margin-top:11px;overflow:hidden;border-radius:99px;background:rgba(148,163,184,.1)}.node-progress span{display:block;width:var(--progress,36%);height:100%;border-radius:inherit;background:linear-gradient(90deg,#8b5cf6,#22d3ee);box-shadow:0 0 12px rgba(34,211,238,.24)}.overview-list{display:grid}.overview-list-item{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 0;border-bottom:1px solid var(--line)}.overview-list-item:last-child{border-bottom:0}.overview-list-item strong{display:block;color:var(--ink);font-size:12px}.overview-list-item small{display:block;margin-top:3px;color:var(--faint);font-size:10px}.overview-list-item .list-value{color:var(--muted);font-size:11px;font-weight:700;text-align:right}.empty-state{padding:36px 12px;color:var(--faint);text-align:center;font-size:12px}
+.node-deploy-actions{display:flex;align-items:center;flex-wrap:wrap;gap:9px}.node-deploy-actions button{margin:0}.terminal-modal{position:fixed;z-index:50;inset:0;display:grid;place-items:center;padding:22px;background:rgba(0,0,0,.72);backdrop-filter:blur(8px)}.terminal-window{display:flex;flex-direction:column;width:min(920px,100%);height:min(680px,82vh);overflow:hidden;border:1px solid #303745;border-radius:15px;background:#05070a;box-shadow:0 28px 100px rgba(0,0,0,.72)}.terminal-titlebar{display:flex;align-items:center;gap:12px;min-height:49px;padding:0 14px;border-bottom:1px solid #242a34;background:#10141b;color:#d6deeb}.terminal-lights{display:flex;gap:7px}.terminal-lights i{display:block;width:11px;height:11px;border-radius:50%;background:#ff5f57}.terminal-lights i:nth-child(2){background:#febc2e}.terminal-lights i:nth-child(3){background:#28c840}.terminal-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:12px ui-monospace,SFMono-Regular,Consolas,monospace}.terminal-status{margin-left:auto;color:#8b949e;font:11px ui-monospace,SFMono-Regular,Consolas,monospace}.terminal-close{width:32px;min-height:30px;padding:0;border:0;background:transparent;box-shadow:none;color:#8b949e;font-size:18px;animation:none}.terminal-close:hover{background:#202631;box-shadow:none;color:#fff;transform:none}.terminal-output{flex:1;margin:0;padding:18px;overflow:auto;background:#05070a;color:#d1f7c4;font:12px/1.72 ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;white-space:pre-wrap;word-break:break-word;tab-size:4}.terminal-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:52px;padding:9px 14px;border-top:1px solid #242a34;background:#0d1117;color:#8b949e;font-size:11px}.terminal-footer-actions{display:flex;align-items:center;gap:8px;flex:0 0 auto}.terminal-footer button{min-height:34px;margin:0}.terminal-error{color:#ff7b72}.terminal-success{color:#56d364}
 .admin-search input:not([type=file]){height:100%}
 body[data-theme='light']{color-scheme:light;--bg:#f7f7fb;--sidebar:rgba(255,255,255,.9);--surface:rgba(255,255,255,.86);--surface-strong:#fff;--surface-soft:#f7f7fc;--ink:#171722;--muted:#697084;--faint:#9298a8;--line:rgba(67,72,92,.13);--line-strong:rgba(124,58,237,.25);--shadow:0 18px 55px rgba(55,46,92,.08);background:radial-gradient(circle at 78% -12%,rgba(139,92,246,.09),transparent 31%),radial-gradient(circle at 96% 82%,rgba(34,211,238,.07),transparent 27%),var(--bg)}body[data-theme='light']:before{opacity:.35;background-image:linear-gradient(rgba(99,102,241,.09) 1px,transparent 1px),linear-gradient(90deg,rgba(99,102,241,.09) 1px,transparent 1px)}body[data-theme='light'] td{color:#41475a}body[data-theme='light'] code{color:#171722;font-weight:600}body[data-theme='light'] aside nav a{color:#475569!important}body[data-theme='light'] aside nav a:hover{color:#1e1b4b!important;background:rgba(124,58,237,.08)!important}body[data-theme='light'] aside nav a.active{border-color:rgba(124,58,237,.35)!important;background:linear-gradient(90deg,rgba(139,92,246,.15),rgba(34,211,238,.05))!important;box-shadow:inset 3px 0 #7c3aed!important;color:#6d28d9!important;font-weight:750!important}body[data-theme='light'] .active .nav-icon{border-color:rgba(124,58,237,.4)!important;background:rgba(139,92,246,.18)!important;color:#6d28d9!important;font-weight:800!important}body[data-theme='light'] input,body[data-theme='light'] select,body[data-theme='light'] textarea{background:rgba(255,255,255,.9)}body[data-theme='light'] option{background:#fff;color:#171722}body[data-theme='light'] .notice{color:#15803d}body[data-theme='light'] .error{color:#be123c}body[data-theme='light'] button.danger{background:#fff1f2;color:#be123c}
 @keyframes admin-grid{to{transform:translate3d(44px,44px,0)}}@keyframes admin-orb{0%,100%{opacity:.58;transform:scale(.94) translate3d(0,0,0)}50%{opacity:1;transform:scale(1.06) translate3d(-24px,18px,0)}}@keyframes admin-shimmer{0%,100%{background-position:0 50%}50%{background-position:100% 50%}}@keyframes status-pulse{0%,100%{opacity:.7}50%{opacity:1;box-shadow:0 0 0 6px rgba(74,222,128,.08),0 0 18px rgba(74,222,128,.62)}}
@@ -489,6 +492,10 @@ class PanelError(ValueError):
     pass
 
 
+class NodeProvisionCancelled(PanelError):
+    pass
+
+
 def now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
@@ -541,6 +548,11 @@ class ProxyPanel:
         self._route_creation_locks: dict[int, threading.Lock] = {}
         self._route_creation_locks_guard = threading.Lock()
         self._cert_issue_lock = threading.Lock()
+        self._node_provision_lock = threading.Lock()
+        self._node_provision_log_lock = threading.Lock()
+        self._node_provision_cancel_lock = threading.Lock()
+        self._node_provision_cancel_events: dict[str, threading.Event] = {}
+        self._node_provision_tasks: set[asyncio.Task] = set()
         self.protected_proxy_ips = tuple(
             item.strip() for item in os.environ.get("PROTECTED_PROXY_IPS", "").split(",")
             if item.strip()
@@ -650,6 +662,12 @@ class ProxyPanel:
                 "idempotency_key TEXT NOT NULL UNIQUE, attempts INTEGER NOT NULL DEFAULT 0, "
                 "last_error TEXT NOT NULL DEFAULT '', available_at TEXT NOT NULL, started_at TEXT, finished_at TEXT, "
                 "created_at TEXT NOT NULL, updated_at TEXT NOT NULL);"
+                "CREATE TABLE IF NOT EXISTS node_provision_jobs ("
+                "id TEXT PRIMARY KEY, name TEXT NOT NULL, ssh_host TEXT NOT NULL, ssh_port INTEGER NOT NULL, "
+                "state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','running','succeeded','failed')), "
+                "step TEXT NOT NULL DEFAULT '', log_text TEXT NOT NULL DEFAULT '', last_error TEXT NOT NULL DEFAULT '', "
+                "node_id INTEGER REFERENCES nodes(id) ON DELETE SET NULL, "
+                "created_at TEXT NOT NULL, updated_at TEXT NOT NULL, started_at TEXT, finished_at TEXT);"
             )
             schema_row = db.execute(
                 "SELECT value FROM settings WHERE key='schema_version'"
@@ -724,6 +742,14 @@ class ProxyPanel:
             db.execute("CREATE INDEX IF NOT EXISTS invite_redemptions_invite_index ON invite_redemptions(invite_id, id)")
             db.execute("CREATE INDEX IF NOT EXISTS deployment_jobs_state_available_index ON deployment_jobs(state, available_at, id)")
             db.execute("CREATE INDEX IF NOT EXISTS deployment_jobs_node_state_index ON deployment_jobs(node_id, state, id)")
+            db.execute("CREATE INDEX IF NOT EXISTS node_provision_jobs_created_index ON node_provision_jobs(created_at DESC)")
+            interrupted_at = now()
+            db.execute(
+                "UPDATE node_provision_jobs SET state='failed',step='面板服务已重启',"
+                "last_error='面板服务重启导致部署中断，请重新提交',finished_at=?,updated_at=?,"
+                "log_text=log_text || ? WHERE state IN ('pending','running')",
+                (interrupted_at, interrupted_at, f"[{interrupted_at}] ! 面板服务重启，部署任务已中断\n"),
+            )
             for route in db.execute("SELECT id FROM routes WHERE redirect_token = ''"):
                 db.execute(
                     "UPDATE routes SET redirect_token=? WHERE id=?",
@@ -801,6 +827,162 @@ class ProxyPanel:
                         (throttle_secret,),
                     )
         self.auth_throttle = PersistentAuthThrottle(self.db_path, throttle_secret)
+
+    @staticmethod
+    def _clean_node_provision_log(value: object) -> str:
+        text = str(value or "").replace("\r\n", "\n").replace("\r", "\n")
+        text = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", text)
+        return "".join(char for char in text if char in "\n\t" or ord(char) >= 32)
+
+    def _create_node_provision_job(self, name: str, ssh_host: str, ssh_port: int) -> str:
+        job_id = secrets.token_urlsafe(18)
+        timestamp = now()
+        initial_log = f"[{timestamp}] $ 准备部署节点 {name}（{ssh_host}:{ssh_port}）\n"
+        with self._connect() as db:
+            db.execute(
+                "INSERT INTO node_provision_jobs "
+                "(id,name,ssh_host,ssh_port,state,step,log_text,created_at,updated_at) "
+                "VALUES (?,?,?,?,'pending','等待后台任务',?,?,?)",
+                (job_id, name, ssh_host, ssh_port, initial_log, timestamp, timestamp),
+            )
+            db.execute(
+                "DELETE FROM node_provision_jobs WHERE state NOT IN ('pending','running') AND id NOT IN "
+                "(SELECT id FROM node_provision_jobs ORDER BY created_at DESC LIMIT 30)"
+            )
+        return job_id
+
+    def _append_node_provision_log(
+        self,
+        job_id: str,
+        message: object,
+        *,
+        step: str | None = None,
+        raw: bool = False,
+    ) -> None:
+        cleaned = self._clean_node_provision_log(message)
+        if not cleaned:
+            return
+        if raw:
+            entry = cleaned
+            if not entry.endswith("\n"):
+                entry += "\n"
+        else:
+            entry = f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')}] $ {cleaned.rstrip()}\n"
+        with self._node_provision_log_lock:
+            with self._connect() as db:
+                row = db.execute(
+                    "SELECT log_text FROM node_provision_jobs WHERE id=?",
+                    (job_id,),
+                ).fetchone()
+                if not row:
+                    return
+                combined = (str(row["log_text"] or "") + entry)[-NODE_PROVISION_LOG_MAX_CHARS:]
+                if step is None:
+                    db.execute(
+                        "UPDATE node_provision_jobs SET log_text=?,updated_at=? WHERE id=?",
+                        (combined, now(), job_id),
+                    )
+                else:
+                    db.execute(
+                        "UPDATE node_provision_jobs SET log_text=?,step=?,updated_at=? WHERE id=?",
+                        (combined, self._clean_node_provision_log(step)[:160], now(), job_id),
+                    )
+
+    def _set_node_provision_job_state(
+        self,
+        job_id: str,
+        state: str,
+        *,
+        step: str,
+        last_error: str = "",
+        node_id: int | None = None,
+    ) -> None:
+        timestamp = now()
+        started_at = timestamp if state == "running" else None
+        finished_at = timestamp if state in {"succeeded", "failed"} else None
+        with self._connect() as db:
+            db.execute(
+                "UPDATE node_provision_jobs SET state=?,step=?,last_error=?,node_id=COALESCE(?,node_id),"
+                "started_at=COALESCE(started_at,?),finished_at=?,updated_at=? WHERE id=?",
+                (
+                    state,
+                    self._clean_node_provision_log(step)[:160],
+                    self._clean_node_provision_log(last_error)[:2000],
+                    node_id,
+                    started_at,
+                    finished_at,
+                    timestamp,
+                    job_id,
+                ),
+            )
+
+    def _node_provision_job(self, job_id: str):
+        if not re.fullmatch(r"[A-Za-z0-9_-]{16,64}", job_id):
+            return None
+        with self._connect() as db:
+            return db.execute(
+                "SELECT id,name,ssh_host,ssh_port,state,step,log_text,last_error,node_id,"
+                "created_at,updated_at,started_at,finished_at FROM node_provision_jobs WHERE id=?",
+                (job_id,),
+            ).fetchone()
+
+    def _latest_node_provision_job(self):
+        with self._connect() as db:
+            return db.execute(
+                "SELECT id,name,state,step,created_at FROM node_provision_jobs ORDER BY created_at DESC LIMIT 1"
+            ).fetchone()
+
+    def _register_node_provision_cancel_event(self, job_id: str) -> threading.Event:
+        cancel_event = threading.Event()
+        with self._node_provision_cancel_lock:
+            self._node_provision_cancel_events[job_id] = cancel_event
+        return cancel_event
+
+    def _unregister_node_provision_cancel_event(
+        self,
+        job_id: str,
+        cancel_event: threading.Event,
+    ) -> None:
+        with self._node_provision_cancel_lock:
+            if self._node_provision_cancel_events.get(job_id) is cancel_event:
+                self._node_provision_cancel_events.pop(job_id, None)
+
+    def _request_node_provision_cancel(self, job_id: str) -> str:
+        job = self._node_provision_job(job_id)
+        if not job:
+            raise PanelError("部署任务不存在或已清理")
+        if job["state"] in {"succeeded", "failed"}:
+            raise PanelError("部署任务已经结束，不能再中断")
+        with self._node_provision_cancel_lock:
+            cancel_event = self._node_provision_cancel_events.get(job_id)
+            if cancel_event is None:
+                raise PanelError("部署任务已失去运行上下文，请刷新后重试")
+            already_requested = cancel_event.is_set()
+            cancel_event.set()
+        if not already_requested:
+            self._append_node_provision_log(
+                job_id,
+                "管理员请求中断部署，正在停止当前进程",
+                step="正在中断",
+            )
+        return "中断请求已发送" if not already_requested else "正在中断部署"
+
+    @staticmethod
+    def _raise_if_node_provision_cancelled(cancel_event: threading.Event | None) -> None:
+        if cancel_event is not None and cancel_event.is_set():
+            raise NodeProvisionCancelled("管理员已中断部署")
+
+    @classmethod
+    def _wait_node_provision_delay(
+        cls,
+        cancel_event: threading.Event | None,
+        seconds: float,
+    ) -> None:
+        if cancel_event is None:
+            time.sleep(seconds)
+            return
+        if cancel_event.wait(seconds):
+            cls._raise_if_node_provision_cancelled(cancel_event)
 
     def _sync_admin_account(self) -> None:
         """Create or explicitly reset the single administrator account.
@@ -1918,7 +2100,7 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
         response.headers.update({
             "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY",
             "Referrer-Policy": "no-referrer",
-            "Content-Security-Policy": f"default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-{nonce}'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+            "Content-Security-Policy": f"default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-{nonce}'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
         })
         return response
 
@@ -1987,10 +2169,18 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             route_page = 1
         with self._connect() as db:
             nodes = db.execute("SELECT * FROM nodes ORDER BY id").fetchall()
+            route_counts = {
+                int(row["node_id"]): int(row["route_count"])
+                for row in db.execute(
+                    "SELECT node_id,COUNT(*) AS route_count FROM routes "
+                    "GROUP BY node_id"
+                )
+            }
         node_usage = self._traffic_summaries("node_traffic_daily", "node_id")
         node_rows_list = []
         for node in nodes:
             node_id = int(node["id"])
+            route_count = route_counts.get(node_id, 0)
             check_token = csrf_token
             delete_token = csrf_token
             kind = "本机" if node["kind"] == "local" else "SSH"
@@ -2001,14 +2191,176 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             traffic = self._format_traffic_usage(node_usage.get(node_id))
             location = " ".join(filter(None, (node["country_flag"], node["country_name"], node["country_code"]))) or "未识别"
             check_form = f"<form class='inline' method='post' action='{ADMIN_PREFIX}/nodes/{node_id}/check'><input type='hidden' name='csrf' value='{check_token}'><button type='submit' class='action-check'>检查</button></form>"
-            delete_form = f" <form class='inline' method='post' action='{ADMIN_PREFIX}/nodes/{node_id}/delete'><input type='hidden' name='csrf' value='{delete_token}'><button type='submit' class='danger'>删除节点</button></form>"
+            delete_form = f" <form class='inline' method='post' action='{ADMIN_PREFIX}/nodes/{node_id}/delete' data-confirm='确认删除节点？该节点下的 {route_count} 条线路也会一并删除；SSH 不可达时仅删除面板记录。'><input type='hidden' name='csrf' value='{delete_token}'><button type='submit' class='danger'>删除节点</button></form>"
             node_rows_list.append(
                 f"<tr><td>{html.escape(node['name'])}</td><td>{kind}</td><td>{html.escape(location)}</td><td><code>{html.escape(node['domain_suffix'])}</code></td><td>{html.escape(health)}<br><span class='muted'>状态：{html.escape(node['state'] or 'active')} · 采集：{html.escape(node['last_seen'] or '暂无')}</span><br>{traffic}</td><td>{check_form}{delete_form}</td></tr>"
             )
         node_rows = "".join(node_rows_list) or "<tr><td colspan='6' class='muted'>还没有节点</td></tr>"
+        latest_job = self._latest_node_provision_job()
+        if latest_job:
+            latest_job_id = html.escape(str(latest_job["id"]), quote=True)
+            latest_job_name = html.escape(str(latest_job["name"]))
+            latest_log_button = (
+                f"<button type='button' class='secondary' id='node-deploy-log-button' "
+                f"data-job-id='{latest_job_id}'>查看部署日志 · {latest_job_name}</button>"
+            )
+        else:
+            latest_log_button = (
+                "<button type='button' class='secondary' id='node-deploy-log-button' "
+                "data-job-id='' disabled>暂无部署日志</button>"
+            )
         content = f"""
 <section><h2>节点</h2><table><thead><tr><th>名称</th><th>类型</th><th>地区</th><th>域名后缀</th><th>状态 / 代理用量</th><th>操作</th></tr></thead><tbody>{node_rows}</tbody></table></section>
-<section><h2>新增节点</h2><form method='post' enctype='multipart/form-data' action='{ADMIN_PREFIX}/nodes'><div class='grid'><label>节点名称<input required name='name' placeholder='海创'></label><label>网络类型<select required name='network_mode' id='network-mode'><option value='vps'>普通 VPS（独立公网 IP）</option><option value='nat'>NAT 机（端口映射）</option></select></label><label>服务器公网 IP<input required name='ssh_host' inputmode='decimal' placeholder='162.141.136.85'></label><label>SSH 端口<input required name='ssh_port' value='22' inputmode='numeric'></label><label>公网 HTTPS 端口<input required id='public-port' name='public_https_port' value='443' inputmode='numeric'><span class='muted'>NAT 默认可填服务商分配的端口，例如 30004</span></label><label>内部 HTTPS 端口<input required name='internal_https_port' value='443' inputmode='numeric'><span class='muted'>Nginx 监听端口；远端已有 Nginx 时自动识别</span></label><label>SSH 密码（与私钥二选一）<input type='password' name='ssh_password' autocomplete='new-password'></label><label>SSH 私钥文件（与密码二选一）<input type='file' name='ssh_private_key' accept='.pem,.key,text/plain,application/x-pem-file'></label></div><p><input type='hidden' name='csrf' value='{html.escape(csrf_token, quote=True)}'><button>自动部署并添加</button></p></form><script nonce='__CSP_NONCE__'>(()=>{{const mode=document.getElementById('network-mode'),publicPort=document.getElementById('public-port');const sync=()=>{{if(mode.value==='nat'&&publicPort.value==='443')publicPort.value='30004';if(mode.value==='vps'&&publicPort.value==='30004')publicPort.value='443';}};mode.addEventListener('change',sync);}})();</script></section>"""
+<section><h2>新增节点</h2>
+<form id='node-add-form' method='post' enctype='multipart/form-data' action='{ADMIN_PREFIX}/nodes'>
+  <div class='grid'>
+    <label>节点名称<input required name='name' placeholder='海创'></label>
+    <label>网络类型<select required name='network_mode' id='network-mode'><option value='vps'>普通 VPS（独立公网 IP）</option><option value='nat'>NAT 机（端口映射）</option></select></label>
+    <label>服务器公网 IP<input required name='ssh_host' inputmode='decimal' placeholder='162.141.136.85'></label>
+    <label>SSH 端口<input required name='ssh_port' value='22' inputmode='numeric'></label>
+    <label>公网 HTTPS 端口<input required id='public-port' name='public_https_port' value='443' inputmode='numeric'><span class='muted'>NAT 默认可填服务商分配的端口，例如 30004</span></label>
+    <label>内部 HTTPS 端口<input required name='internal_https_port' value='443' inputmode='numeric'><span class='muted'>Nginx 监听端口；远端已有 Nginx 时自动识别</span></label>
+    <label>SSH 密码（与私钥二选一）<input type='password' name='ssh_password' autocomplete='new-password'></label>
+    <label>SSH 私钥文件（与密码二选一）<input type='file' name='ssh_private_key' accept='.pem,.key,text/plain,application/x-pem-file'></label>
+  </div>
+  <p class='node-deploy-actions'><input type='hidden' name='csrf' value='{html.escape(csrf_token, quote=True)}'><button id='node-deploy-submit' type='submit'>自动部署并添加</button>{latest_log_button}</p>
+</form>
+</section>
+<div class='terminal-modal' id='node-deploy-terminal' role='dialog' aria-modal='true' aria-labelledby='node-terminal-title' hidden>
+  <div class='terminal-window'>
+    <div class='terminal-titlebar'><span class='terminal-lights' aria-hidden='true'><i></i><i></i><i></i></span><strong class='terminal-title' id='node-terminal-title'>SSH 节点部署日志</strong><span class='terminal-status' id='node-terminal-status'>等待</span><button type='button' class='terminal-close' id='node-terminal-close' aria-label='关闭'>×</button></div>
+    <pre class='terminal-output' id='node-terminal-output'>等待部署任务…</pre>
+    <div class='terminal-footer'><span id='node-terminal-summary'>日志最多保留 128 KiB，不记录密码和私钥。</span><div class='terminal-footer-actions'><button type='button' class='danger' id='node-terminal-cancel' data-csrf='{html.escape(csrf_token, quote=True)}' hidden>中断部署</button><button type='button' class='secondary' id='node-terminal-refresh' hidden>刷新节点列表</button></div></div>
+  </div>
+</div>"""
+        terminal_script = r"""<script nonce='__CSP_NONCE__'>
+(() => {
+  const form = document.getElementById('node-add-form');
+  const submitButton = document.getElementById('node-deploy-submit');
+  const logButton = document.getElementById('node-deploy-log-button');
+  const modal = document.getElementById('node-deploy-terminal');
+  const closeButton = document.getElementById('node-terminal-close');
+  const output = document.getElementById('node-terminal-output');
+  const status = document.getElementById('node-terminal-status');
+  const title = document.getElementById('node-terminal-title');
+  const summary = document.getElementById('node-terminal-summary');
+  const cancelButton = document.getElementById('node-terminal-cancel');
+  const refreshButton = document.getElementById('node-terminal-refresh');
+  const mode = document.getElementById('network-mode');
+  const publicPort = document.getElementById('public-port');
+  let activeJobId = '';
+  let pollTimer = 0;
+  const stateLabels = {pending: '等待', running: '部署中', succeeded: '成功', failed: '失败'};
+  const syncPort = () => {
+    if (mode.value === 'nat' && publicPort.value === '443') publicPort.value = '30004';
+    if (mode.value === 'vps' && publicPort.value === '30004') publicPort.value = '443';
+  };
+  mode?.addEventListener('change', syncPort);
+  const closeTerminal = () => {
+    modal.hidden = true;
+    document.body.style.overflow = '';
+    window.clearTimeout(pollTimer);
+  };
+  const schedulePoll = () => {
+    window.clearTimeout(pollTimer);
+    pollTimer = window.setTimeout(() => loadJob(activeJobId), 900);
+  };
+  const loadJob = async jobId => {
+    if (!jobId || modal.hidden) return;
+    try {
+      const response = await fetch(`__ADMIN_PREFIX__/node-provision-jobs/${encodeURIComponent(jobId)}`, {headers: {'Accept': 'application/json'}, credentials: 'same-origin'});
+      const job = await response.json();
+      if (!response.ok) throw new Error(job.error || '日志读取失败');
+      title.textContent = `SSH 节点部署 · ${job.name}`;
+      const cancelled = job.step === '已中断';
+      status.textContent = `${cancelled ? '已中断' : stateLabels[job.state] || job.state} · ${job.step || ''}`;
+      status.className = `terminal-status ${job.state === 'failed' ? 'terminal-error' : job.state === 'succeeded' ? 'terminal-success' : ''}`;
+      const nearBottom = output.scrollHeight - output.scrollTop - output.clientHeight < 80;
+      output.textContent = job.log || '等待日志…';
+      if (nearBottom) output.scrollTop = output.scrollHeight;
+      const finished = job.state === 'succeeded' || job.state === 'failed';
+      submitButton.disabled = !finished;
+      cancelButton.hidden = finished;
+      cancelButton.disabled = job.step === '正在中断';
+      cancelButton.textContent = job.step === '正在中断' ? '正在中断…' : '中断部署';
+      refreshButton.hidden = job.state !== 'succeeded';
+      summary.textContent = cancelled ? '部署已中断；远端已经完成的部分操作可能需要清理。' : job.last_error ? `错误：${job.last_error}` : finished ? '部署任务已结束。' : '任务在后台运行，关闭窗口不会中断。';
+      if (!finished) schedulePoll();
+    } catch (error) {
+      status.textContent = '读取失败';
+      status.className = 'terminal-status terminal-error';
+      summary.textContent = error.message || '日志读取失败';
+    }
+  };
+  const openTerminal = jobId => {
+    if (!jobId) return;
+    activeJobId = jobId;
+    modal.hidden = false;
+    document.body.style.overflow = 'hidden';
+    output.textContent = '正在读取部署日志…';
+    status.textContent = '连接中';
+    cancelButton.hidden = true;
+    refreshButton.hidden = true;
+    loadJob(jobId);
+  };
+  form?.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (!form.reportValidity()) return;
+    submitButton.disabled = true;
+    modal.hidden = false;
+    document.body.style.overflow = 'hidden';
+    output.textContent = '正在创建部署任务…';
+    status.textContent = '提交中';
+    summary.textContent = '凭据只用于本次部署。';
+    try {
+      const response = await fetch(`${form.action}?async=1`, {method: 'POST', body: new FormData(form), headers: {'Accept': 'application/json'}, credentials: 'same-origin'});
+      const payload = await response.json().catch(() => ({error: '服务器返回了无法解析的响应'}));
+      if (!response.ok) throw new Error(payload.error || '任务创建失败');
+      logButton.disabled = false;
+      logButton.dataset.jobId = payload.job_id;
+      logButton.textContent = `查看部署日志 · ${payload.name}`;
+      form.querySelector('[name=ssh_password]').value = '';
+      form.querySelector('[name=ssh_private_key]').value = '';
+      openTerminal(payload.job_id);
+    } catch (error) {
+      submitButton.disabled = false;
+      status.textContent = '提交失败';
+      status.className = 'terminal-status terminal-error';
+      output.textContent = `$ ${error.message || '任务创建失败'}\n`;
+      summary.textContent = '请检查输入后重试。';
+    }
+  });
+  logButton?.addEventListener('click', () => openTerminal(logButton.dataset.jobId || ''));
+  closeButton?.addEventListener('click', closeTerminal);
+  modal?.addEventListener('click', event => { if (event.target === modal) closeTerminal(); });
+  document.addEventListener('keydown', event => { if (event.key === 'Escape' && !modal.hidden) closeTerminal(); });
+  refreshButton?.addEventListener('click', () => window.location.reload());
+  cancelButton?.addEventListener('click', async () => {
+    if (!activeJobId || !window.confirm('确认中断当前部署？远端已经完成的部分操作可能需要清理。')) return;
+    cancelButton.disabled = true;
+    cancelButton.textContent = '正在中断…';
+    status.textContent = '正在中断';
+    summary.textContent = '正在停止当前 SSH 或安装进程，请稍候。';
+    try {
+      const response = await fetch(`__ADMIN_PREFIX__/node-provision-jobs/${encodeURIComponent(activeJobId)}/cancel`, {
+        method: 'POST',
+        headers: {'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded'},
+        body: new URLSearchParams({csrf: cancelButton.dataset.csrf || ''}),
+        credentials: 'same-origin',
+      });
+      const payload = await response.json().catch(() => ({error: '服务器返回了无法解析的响应'}));
+      if (!response.ok) throw new Error(payload.error || '中断失败');
+      schedulePoll();
+    } catch (error) {
+      cancelButton.disabled = false;
+      cancelButton.textContent = '中断部署';
+      summary.textContent = error.message || '中断失败';
+      loadJob(activeJobId);
+    }
+  });
+})();
+</script>"""
+        content += terminal_script.replace("__ADMIN_PREFIX__", ADMIN_PREFIX)
         content = content.replace("自动读取它的 HTTPS 监听端口", "自动读取它的监听端口")
         content = content.replace("Nginx 监听端口，不能使用 80；远端已有 Nginx 时自动识别", "Nginx 监听端口；远端已有 Nginx 时自动识别")
         content = content.replace("placeholder='海创'", "")
@@ -2518,7 +2870,11 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
         if failures:
             raise PanelError("DNS 记录删除失败：" + "; ".join(failures[:3]))
 
-    def _issue_central_certificate(self, node) -> tuple[str, str]:
+    def _issue_central_certificate(
+        self,
+        node,
+        cancel_event: threading.Event | None = None,
+    ) -> tuple[str, str]:
         """Issue a node certificate on the control plane and return local paths."""
         domain = str(node["domain_suffix"] or "").lower().strip(".")
         if not SAFE_HOST.fullmatch(domain):
@@ -2536,7 +2892,10 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
         source_dir = acme_home / (domain + "_ecc")
         fullchain_source = source_dir / "fullchain.cer"
         key_source = source_dir / (domain + ".key")
-        with self._cert_issue_lock:
+        while not self._cert_issue_lock.acquire(timeout=0.2):
+            self._raise_if_node_provision_cancelled(cancel_event)
+        try:
+            self._raise_if_node_provision_cancelled(cancel_event)
             env = os.environ.copy()
             env["CF_Token"] = token
             args = [
@@ -2549,19 +2908,20 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             if account_conf.is_file() and not account_conf.is_symlink():
                 args.extend(["--accountconf", str(account_conf)])
             try:
-                result = subprocess.run(
-                    args, env=env, text=True, capture_output=True,
+                returncode, output = self._run(
+                    args,
+                    env=env,
                     timeout=max(120, min(900, int(os.environ.get("ACME_ISSUE_TIMEOUT", "600")))),
+                    cancel_event=cancel_event,
                     check=False,
                 )
             except (OSError, subprocess.TimeoutExpired) as exc:
                 raise PanelError("中央证书申请超时或无法启动 acme.sh") from exc
             finally:
                 env.pop("CF_Token", None)
-            output = (result.stdout or "") + "\n" + (result.stderr or "")
             has_existing_cert = fullchain_source.is_file() and key_source.is_file()
             skipped_unchanged = "domains not changed" in output.lower() and "skipping" in output.lower()
-            if result.returncode != 0 and not (skipped_unchanged and has_existing_cert):
+            if returncode != 0 and not (skipped_unchanged and has_existing_cert):
                 detail = output.strip().replace("\x00", "")
                 detail = detail.replace(token, "[redacted]")
                 raise PanelError("中央证书申请失败：" + detail[-600:])
@@ -2582,6 +2942,8 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
                 os.replace(key_tmp, cert_dir / "key.pem")
             except (OSError, ValueError) as exc:
                 raise PanelError("中央证书文件安装失败") from exc
+        finally:
+            self._cert_issue_lock.release()
         return str(cert_dir / "fullchain.pem"), str(cert_dir / "key.pem")
 
     @staticmethod
@@ -2628,16 +2990,9 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
     @staticmethod
     def _remote_cleanup_unreachable(error: BaseException) -> bool:
         """Allow detaching a node when its SSH endpoint is clearly offline."""
-        text = str(error).lower()
-        return any(
-            marker in text
-            for marker in (
-                "connection refused",
-                "connection timed out",
-                "no route to host",
-                "network is unreachable",
-            )
-        )
+        if isinstance(error, subprocess.TimeoutExpired):
+            return True
+        return ProxyPanel._is_transient_ssh_failure(str(error))
 
     def _remove_node_identity(self, node) -> None:
         identity = str(node["ssh_identity"] or "")
@@ -2672,19 +3027,29 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             file.write(raw)
         return str(path)
 
-    def _detect_public_https_port(self, node) -> int:
+    def _detect_public_https_port(
+        self,
+        node,
+        cancel_event: threading.Event | None = None,
+    ) -> int:
         port = int(node["public_https_port"])
         authority = node["domain_suffix"] if port == 443 else f"{node['domain_suffix']}:{port}"
         url = f"https://{authority}/__health"
         for delay in (0, 3, 5, 8, 12, 15):
             if delay:
-                time.sleep(delay)
-            result = subprocess.run([
-                "/usr/bin/curl", "--fail", "--silent", "--show-error",
-                "--connect-timeout", "5", "--max-time", "10",
-                "--resolve", f"{node['domain_suffix']}:{port}:{node['ssh_host']}", url,
-            ], text=True, capture_output=True, timeout=15)
-            if result.returncode == 0 and result.stdout.strip() == "ok":
+                self._wait_node_provision_delay(cancel_event, delay)
+            self._raise_if_node_provision_cancelled(cancel_event)
+            returncode, output = self._run(
+                [
+                    "/usr/bin/curl", "--fail", "--silent", "--show-error",
+                    "--connect-timeout", "5", "--max-time", "10",
+                    "--resolve", f"{node['domain_suffix']}:{port}:{node['ssh_host']}", url,
+                ],
+                timeout=15,
+                cancel_event=cancel_event,
+                check=False,
+            )
+            if returncode == 0 and output.strip() == "ok":
                 return port
         if node["network_mode"] == "nat":
             raise PanelError(
@@ -2737,7 +3102,11 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             return min(candidates, key=lambda port: (port != 443, port))
         return None
 
-    def _detect_existing_nginx_port(self, node) -> int | None:
+    def _detect_existing_nginx_port(
+        self,
+        node,
+        cancel_event: threading.Event | None = None,
+    ) -> int | None:
         """Read an installed Nginx config before the project takes it over."""
         probe = (
             "if command -v nginx >/dev/null 2>&1; then "
@@ -2745,16 +3114,35 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             "fi"
         )
         try:
-            output = self._run(self._ssh_args(node) + [probe], env=self._ssh_env(node), timeout=30)
+            output = self._run(
+                self._ssh_args(node) + [probe],
+                env=self._ssh_env(node),
+                timeout=30,
+                cancel_event=cancel_event,
+            )
+        except NodeProvisionCancelled:
+            raise
         except (PanelError, subprocess.TimeoutExpired):
             return None
         return self._select_existing_nginx_port(output)
 
-    def _provision_auto_node(self, node) -> tuple[int, list[str]]:
-        self._wait_for_root_ssh(node)
+    def _provision_auto_node(
+        self,
+        node,
+        progress=None,
+        output_callback=None,
+        cancel_event: threading.Event | None = None,
+    ) -> tuple[int, list[str]]:
+        progress = progress or (lambda _message: None)
+        progress("检查 root SSH 登录")
+        self._wait_for_root_ssh(node, progress=progress, cancel_event=cancel_event)
+        self._raise_if_node_provision_cancelled(cancel_event)
+        progress("创建节点 DNS 记录")
         dns_records = self._create_node_dns(node["domain_suffix"], node["ssh_host"])
         try:
-            cert_path, key_path = self._issue_central_certificate(node)
+            self._raise_if_node_provision_cancelled(cancel_event)
+            progress("申请并准备 TLS 证书")
+            cert_path, key_path = self._issue_central_certificate(node, cancel_event=cancel_event)
         except Exception:
             try:
                 self._delete_node_dns(dns_records)
@@ -2765,17 +3153,19 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
         remote_cert = remote_stage + "/fullchain.pem"
         remote_key = remote_stage + "/key.pem"
         try:
+            progress("创建远端临时目录")
             self._run(
                 self._ssh_args(node) + [f"umask 077; install -d -m 700 {shlex.quote(remote_stage)}"],
-                env=self._ssh_env(node), timeout=30,
+                env=self._ssh_env(node), timeout=30, cancel_event=cancel_event,
             )
+            progress("上传 TLS 证书")
             self._run(
                 self._scp_args(node, cert_path, remote_cert),
-                env=self._ssh_env(node), timeout=60,
+                env=self._ssh_env(node), timeout=60, cancel_event=cancel_event,
             )
             self._run(
                 self._scp_args(node, key_path, remote_key),
-                env=self._ssh_env(node), timeout=60,
+                env=self._ssh_env(node), timeout=60, cancel_event=cancel_event,
             )
             root_dir = "/etc/uniproxy-nginx"
             controller_path = "/usr/local/sbin/uniproxy-nginx"
@@ -2900,18 +3290,30 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
                 "test \"$(id -gn uniproxy-nginx 2>/dev/null)\" = uniproxy-nginx",
             ])
             script = "\n".join([
-                "set -eu", "export DEBIAN_FRONTEND=noninteractive",
-                f"cleanup() {{ rm -rf {shlex.quote(remote_stage)}; }}", "trap cleanup EXIT",
-                "apt_with_lock_retry() { attempts=0; while ! apt-get -o DPkg::Lock::Timeout=5 \"$@\"; do attempts=$((attempts + 1)); if [ \"$attempts\" -ge 12 ]; then echo 'APT package manager remained busy for about 2 minutes; retry node deployment shortly.' >&2; return 1; fi; echo 'Waiting for the system package manager to finish...' >&2; sleep 5; done; }",
+                "set -eu", "export DEBIAN_FRONTEND=noninteractive MALLOC_ARENA_MAX=1",
+                f"policy_rc_path=/usr/sbin/policy-rc.d; policy_rc_backup={shlex.quote(remote_stage + '/policy-rc.d')}; policy_rc_saved=0; policy_rc_active=0",
+                "restore_policy_rc() { if [ \"$policy_rc_active\" -eq 0 ]; then return 0; fi; rm -f \"$policy_rc_path\"; if [ \"$policy_rc_saved\" -eq 1 ]; then mv \"$policy_rc_backup\" \"$policy_rc_path\"; fi; policy_rc_saved=0; policy_rc_active=0; }",
+                f"cleanup() {{ restore_policy_rc; rm -rf {shlex.quote(remote_stage)}; }}", "trap cleanup EXIT",
+                "apt_oom_count() { value=$(sed -n 's/^oom_kill //p' /sys/fs/cgroup/memory.events 2>/dev/null || true); printf '%s\\n' \"${value:-0}\"; }",
+                "memory_limit=$(cat /sys/fs/cgroup/memory.max 2>/dev/null || true); memory_limit_mb=0; case \"$memory_limit\" in ''|max|*[!0-9]*) ;; *) memory_limit_mb=$((memory_limit / 1048576)) ;; esac",
+                "swap_limit=$(cat /sys/fs/cgroup/memory.swap.max 2>/dev/null || true); swap_limit_mb=0; case \"$swap_limit\" in ''|max|*[!0-9]*) ;; *) swap_limit_mb=$((swap_limit / 1048576)) ;; esac",
+                "if [ \"$memory_limit_mb\" -gt 0 ] && [ \"$memory_limit_mb\" -le 128 ]; then echo \"[remote] 低内存模式：RAM ${memory_limit_mb} MiB，cgroup swap 上限 ${swap_limit_mb} MiB\"; fi",
+                f"apt_options='-o Dpkg::Use-Pty=0 -o APT::Install-Recommends=false -o APT::Install-Suggests=false -o Acquire::Languages=none -o Binary::apt-get::APT::Keep-Downloaded-Packages=false'; apt_source_parts={shlex.quote(remote_stage + '/apt-parts')}; apt_download_dir={shlex.quote(remote_stage + '/apt-cache')}; apt_low_memory=0; if [ \"$memory_limit_mb\" -gt 0 ] && [ \"$memory_limit_mb\" -le 128 ]; then apt_low_memory=1; fi; if [ \"$apt_low_memory\" -eq 1 ] && grep -Eq '^[[:space:]]*deb[[:space:]]' /etc/apt/sources.list 2>/dev/null; then mkdir -p \"$apt_source_parts\"; apt_options=\"$apt_options -o Dir::Etc::sourcelist=/etc/apt/sources.list -o Dir::Etc::sourceparts=$apt_source_parts\"; echo '[remote] 低内存模式禁用重复 APT source parts 和 deb-src 索引'; fi",
+                "apt_oom_message() { echo \"[remote] APT/dpkg 被 OOM 终止：节点内存不足（RAM ${memory_limit_mb:-未知} MiB，swap 上限 ${swap_limit_mb:-未知} MiB）。已停止重试，避免反复杀进程。\" >&2; }",
+                "apt_with_lock_retry() { attempts=0; while :; do oom_before=$(apt_oom_count); set +e; apt-get $apt_options -o DPkg::Lock::Timeout=5 \"$@\"; status=$?; set -e; oom_after=$(apt_oom_count); if [ \"$status\" -eq 0 ]; then return 0; fi; if [ \"$status\" -eq 137 ] || [ \"${oom_after:-0}\" -gt \"${oom_before:-0}\" ]; then apt_oom_message; return 70; fi; if ! pgrep -x apt-get >/dev/null 2>&1 && ! pgrep -x apt >/dev/null 2>&1 && ! pgrep -x dpkg >/dev/null 2>&1; then echo \"[remote] APT 执行失败（退出码 $status），不是包管理器锁冲突。\" >&2; return \"$status\"; fi; attempts=$((attempts + 1)); if [ \"$attempts\" -ge 12 ]; then echo '[remote] APT/dpkg 锁持续约 2 分钟，请稍后重试。' >&2; return 1; fi; echo '[remote] 其他包管理进程仍在运行，等待后重试...' >&2; sleep 5; done; }",
+                "apt_install_low_memory() { download_dir=\"$1\"; shift; rm -f \"$download_dir\"/*.deb; mkdir -p \"$download_dir/partial\"; echo \"[remote] 低内存模式下载并分步安装：$1\"; apt_with_lock_retry -o Dir::Cache::archives=\"$download_dir\" --download-only install -y -qq --no-install-recommends \"$@\"; set -- \"$download_dir\"/*.deb; if [ ! -f \"$1\" ]; then echo '[remote] APT 未下载到软件包' >&2; return 1; fi; if [ -e \"$policy_rc_path\" ] || [ -L \"$policy_rc_path\" ]; then cp -a \"$policy_rc_path\" \"$policy_rc_backup\"; policy_rc_saved=1; fi; printf '%s\\n' '#!/bin/sh' 'exit 101' > \"$policy_rc_path\"; chmod 755 \"$policy_rc_path\"; policy_rc_active=1; oom_before=$(apt_oom_count); set +e; dpkg --unpack \"$@\"; status=$?; set -e; oom_after=$(apt_oom_count); if [ \"$status\" -eq 137 ] || [ \"${oom_after:-0}\" -gt \"${oom_before:-0}\" ]; then restore_policy_rc; apt_oom_message; return 70; fi; if [ \"$status\" -ne 0 ]; then restore_policy_rc; echo \"[remote] dpkg 解包失败（退出码 $status）\" >&2; return \"$status\"; fi; oom_before=$(apt_oom_count); set +e; dpkg --configure -a; status=$?; set -e; oom_after=$(apt_oom_count); restore_policy_rc; if [ \"$status\" -eq 137 ] || [ \"${oom_after:-0}\" -gt \"${oom_before:-0}\" ]; then apt_oom_message; return 70; fi; return \"$status\"; }",
+                "echo '[remote] 检测系统并安装 Nginx 依赖'",
                 "if command -v apk >/dev/null 2>&1; then apk add --no-cache nginx ca-certificates curl dcron coreutils openssl nftables logrotate shadow;",
-                "elif command -v apt-get >/dev/null 2>&1; then apt_with_lock_retry update -qq; apt_with_lock_retry install -y -qq nginx ca-certificates curl cron coreutils openssl nftables logrotate;",
+                "elif command -v apt-get >/dev/null 2>&1; then apt_packages='nginx ca-certificates curl coreutils openssl nftables logrotate'; if [ ! -d /run/systemd/system ]; then apt_packages=\"$apt_packages cron\"; fi; apt_missing_packages=''; for apt_package in $apt_packages; do dpkg-query -W -f='${db:Status-Abbrev}' \"$apt_package\" 2>/dev/null | grep -q '^ii ' || apt_missing_packages=\"$apt_missing_packages $apt_package\"; done; if [ -n \"$apt_missing_packages\" ]; then echo \"[remote] 待安装软件包：$apt_missing_packages\"; if [ \"$apt_low_memory\" -eq 1 ] && find /var/lib/apt/lists -maxdepth 1 -type f -name '*_Packages*' -size +0c -print -quit 2>/dev/null | grep -q .; then echo '[remote] 复用现有 APT 索引以降低内存峰值'; for apt_package in $apt_missing_packages; do apt_install_low_memory \"$apt_download_dir\" \"$apt_package\"; done; else apt_with_lock_retry update -qq; apt_with_lock_retry install -y -qq --no-install-recommends $apt_missing_packages; fi; fi;",
                 "elif command -v dnf >/dev/null 2>&1; then dnf install -y nginx ca-certificates curl cronie coreutils openssl nftables logrotate shadow-utils;",
                 "elif command -v yum >/dev/null 2>&1; then yum install -y nginx ca-certificates curl cronie coreutils openssl nftables logrotate shadow-utils;",
                 "else echo '不支持的系统，无法自动安装 Nginx' >&2; exit 1; fi",
+                "echo '[remote] 停止系统默认 Nginx'",
                 "if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then systemctl disable --now nginx >/dev/null 2>&1 || true;",
                 "elif command -v rc-service >/dev/null 2>&1; then rc-service nginx stop >/dev/null 2>&1 || true; rc-update del nginx default >/dev/null 2>&1 || true;",
                 "elif command -v service >/dev/null 2>&1; then service nginx stop >/dev/null 2>&1 || true; fi",
                 "if [ -s /run/nginx.pid ]; then old_pid=$(cat /run/nginx.pid 2>/dev/null || true); if [ -n \"$old_pid\" ] && kill -0 \"$old_pid\" 2>/dev/null; then kill -QUIT \"$old_pid\" 2>/dev/null || true; sleep 1; fi; fi",
+                "echo '[remote] 写入隔离 Nginx 配置'",
                 f"mkdir -p {shlex.quote(root_dir)} {shlex.quote(node['generated_dir'])} {shlex.quote(root_dir + '/certs')} /usr/local/sbin",
                 ensure_nginx_user,
                 self._ca_bundle_prepare_script("/etc/uniproxy-nginx/ca-bundle.pem"),
@@ -2926,6 +3328,7 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
                 f"printf '%s\\n' central-cert-mode > {shlex.quote(root_dir + '/.uniproxy-cert-mode')}; chmod 600 {shlex.quote(root_dir + '/.uniproxy-cert-mode')}",
                 egress_command,
                 f"printf %s {shlex.quote(encoded_logrotate)} | base64 -d > /etc/logrotate.d/uniproxy",
+                "echo '[remote] 检查并启动 Nginx'",
                 f"{shlex.quote(controller_path)} reload",
                 "if command -v crontab >/dev/null 2>&1; then (crontab -l 2>/dev/null | grep -v 'uniproxy-nginx' || true; echo '@reboot /usr/local/sbin/uniproxy-nginx start >/dev/null 2>&1') | crontab -; fi",
                 f"if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then printf %s {shlex.quote(encoded_unit)} | base64 -d > /etc/systemd/system/uniproxy-nginx.service; systemctl daemon-reload; systemctl enable uniproxy-nginx >/dev/null; fi",
@@ -2933,9 +3336,20 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
                 "elif command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then systemctl enable --now cron >/dev/null 2>&1 || systemctl enable --now crond >/dev/null 2>&1 || true;",
                 "elif command -v service >/dev/null 2>&1; then service cron start >/dev/null 2>&1 || service crond start >/dev/null 2>&1 || true;",
                 "elif command -v crond >/dev/null 2>&1; then pgrep crond >/dev/null 2>&1 || crond; fi",
+                "echo '[remote] 节点初始化完成'",
             ])
-            self._run(self._ssh_args(node) + [script], env=self._ssh_env(node), timeout=480)
-            return self._detect_public_https_port(node), dns_records
+            progress("安装软件包并配置远端 Nginx")
+            self._run(
+                self._ssh_args(node) + [script],
+                env=self._ssh_env(node),
+                timeout=480,
+                output_callback=output_callback,
+                cancel_event=cancel_event,
+            )
+            progress("探测公网 HTTPS 端口")
+            public_port = self._detect_public_https_port(node, cancel_event=cancel_event)
+            progress("远端节点部署完成")
+            return public_port, dns_records
         except Exception:
             self._delete_node_dns(dns_records)
             raise
@@ -3036,25 +3450,63 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
                 ),
             )
         return content
-    def _run(self, command: list[str], env: dict | None = None, timeout: int = 40) -> str:
+    def _run(
+        self,
+        command: list[str],
+        env: dict | None = None,
+        timeout: int = 40,
+        output_callback=None,
+        cancel_event: threading.Event | None = None,
+        check: bool = True,
+    ) -> str | tuple[int, str]:
+        self._raise_if_node_provision_cancelled(cancel_event)
+        popen_options = {
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.PIPE,
+            "env": env,
+        }
+        if os.name == "posix":
+            popen_options["start_new_session"] = True
         process = subprocess.Popen(
-            command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env
+            command,
+            **popen_options,
         )
         stdout = bytearray()
         stderr = bytearray()
         overflow = threading.Event()
 
+        def stop_process(force: bool = False) -> None:
+            if process.poll() is not None:
+                return
+            try:
+                if os.name == "posix":
+                    os.killpg(process.pid, signal.SIGKILL if force else signal.SIGTERM)
+                elif force:
+                    process.kill()
+                else:
+                    process.terminate()
+            except (OSError, ProcessLookupError):
+                pass
+
         def drain(stream, target: bytearray, limit: int) -> None:
             try:
                 while True:
-                    chunk = stream.read(65536)
+                    if output_callback is not None and hasattr(stream, "read1"):
+                        chunk = stream.read1(4096)
+                    else:
+                        chunk = stream.read(65536)
                     if not chunk:
                         return
+                    if output_callback is not None:
+                        try:
+                            output_callback(chunk.decode("utf-8", errors="replace"))
+                        except Exception:
+                            pass
                     if len(target) + len(chunk) > limit:
                         remaining = max(0, limit - len(target))
                         target.extend(chunk[:remaining])
                         overflow.set()
-                        process.kill()
+                        stop_process(force=True)
                         return
                     target.extend(chunk)
             finally:
@@ -3066,22 +3518,38 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
         ]
         for thread in threads:
             thread.start()
-        try:
-            returncode = process.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait()
-            for thread in threads:
-                thread.join(timeout=1)
-            raise
+        deadline = time.monotonic() + timeout
+        cancelled = False
+        timed_out = False
+        while process.poll() is None:
+            if cancel_event is not None and cancel_event.is_set():
+                cancelled = True
+                stop_process()
+                try:
+                    process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    stop_process(force=True)
+                break
+            if time.monotonic() >= deadline:
+                timed_out = True
+                stop_process(force=True)
+                break
+            time.sleep(0.1)
+        returncode = process.wait()
         for thread in threads:
             thread.join(timeout=1)
+        if cancel_event is not None and cancel_event.is_set():
+            cancelled = True
+        if cancelled:
+            raise NodeProvisionCancelled("管理员已中断部署")
+        if timed_out:
+            raise subprocess.TimeoutExpired(command, timeout)
         if overflow.is_set():
             raise PanelError("远程命令输出超过安全上限")
         output = (stdout + stderr).decode("utf-8", errors="replace").strip()
-        if returncode != 0:
+        if returncode != 0 and check:
             raise PanelError(output[-700:] or "命令执行失败")
-        return output
+        return output if check else (returncode, output)
 
     @staticmethod
     def _is_transient_ssh_failure(message: str) -> bool:
@@ -3092,14 +3560,27 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             "banner exchange", "ssh_exchange_identification",
         ))
 
-    def _wait_for_root_ssh(self, node) -> None:
+    def _wait_for_root_ssh(
+        self,
+        node,
+        progress=None,
+        cancel_event: threading.Event | None = None,
+    ) -> None:
         """Wait briefly for just-created VPS instances to finish bringing SSH online."""
         last_error = ""
         for attempt in range(SSH_READY_ATTEMPTS):
+            self._raise_if_node_provision_cancelled(cancel_event)
+            if progress is not None:
+                progress(f"SSH 登录检查 {attempt + 1}/{SSH_READY_ATTEMPTS}")
             try:
                 user_id = self._run(
-                    self._ssh_args(node) + ["id -u"], env=self._ssh_env(node), timeout=15,
+                    self._ssh_args(node) + ["id -u"],
+                    env=self._ssh_env(node),
+                    timeout=15,
+                    cancel_event=cancel_event,
                 )
+            except NodeProvisionCancelled:
+                raise
             except subprocess.TimeoutExpired:
                 last_error = "SSH 连接超时"
             except PanelError as exc:
@@ -3108,10 +3589,12 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
                     raise
             else:
                 if any(line.strip() == "0" for line in user_id.splitlines()):
+                    if progress is not None:
+                        progress("SSH root 登录成功")
                     return
                 raise PanelError("自动部署需要 root SSH 登录")
             if attempt + 1 < SSH_READY_ATTEMPTS:
-                time.sleep(SSH_READY_RETRY_SECONDS)
+                self._wait_node_provision_delay(cancel_event, SSH_READY_RETRY_SECONDS)
         detail = last_error.replace("\n", " ")[-240:]
         raise PanelError(
             f"节点 SSH 自动重试 {SSH_READY_ATTEMPTS} 次后仍未就绪，请确认 SSH 端口、账号和防火墙后重试"
@@ -3446,11 +3929,143 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             raise PanelError(message) from exc
         return status
 
+    async def _run_node_provision_job(
+        self,
+        job_id: str,
+        candidate: dict,
+        identity: str | None,
+        cancel_event: threading.Event,
+    ) -> dict[str, str]:
+        dns_records: list[str] = []
+        provision_lock_acquired = False
+
+        def progress(message: str) -> None:
+            self._append_node_provision_log(job_id, message, step=message)
+
+        def command_output(message: str) -> None:
+            self._append_node_provision_log(job_id, message, raw=True)
+
+        try:
+            provision_lock_acquired = self._node_provision_lock.acquire(blocking=False)
+            if not provision_lock_acquired:
+                raise PanelError("已有远程节点正在自动部署，请等待完成后再试")
+            self._set_node_provision_job_state(job_id, "running", step="开始部署")
+            progress("部署任务已启动")
+            self._raise_if_node_provision_cancelled(cancel_event)
+            progress("探测远端现有 Nginx 监听端口")
+            detected_internal_port = await asyncio.to_thread(
+                self._detect_existing_nginx_port,
+                candidate,
+                cancel_event,
+            )
+            if detected_internal_port is not None:
+                candidate["internal_https_port"] = detected_internal_port
+                progress(f"检测到远端 Nginx 监听端口 {detected_internal_port}")
+            else:
+                progress(f"使用表单填写的内部 HTTPS 端口 {candidate['internal_https_port']}")
+            progress("识别节点所在地区")
+            country_name, country_code, country_flag = await self._lookup_node_location(candidate["ssh_host"])
+            self._raise_if_node_provision_cancelled(cancel_event)
+            public_port, dns_records = await asyncio.to_thread(
+                self._provision_auto_node,
+                candidate,
+                progress,
+                command_output,
+                cancel_event,
+            )
+            candidate["public_https_port"] = public_port
+            effective_internal_port = int(candidate["internal_https_port"])
+            self._raise_if_node_provision_cancelled(cancel_event)
+            progress("写入面板节点记录")
+            with self._connect() as db:
+                if db.execute("SELECT 1 FROM nodes WHERE name=?", (candidate["name"],)).fetchone():
+                    raise PanelError("节点名称已存在")
+                cursor = db.execute(
+                    "INSERT INTO nodes (name,kind,ssh_host,ssh_port,ssh_user,ssh_identity,ssh_password,ssh_password_ciphertext,domain_suffix,tls_cert_file,tls_key_file,caddy_config,generated_dir,public_https_port,internal_https_port,country_name,country_code,country_flag,network_mode,auto_managed,ssh_host_key,ssh_host_fingerprint,host_key_verified_at,dns_record_ids_json,cert_mode,state,security_policy_version,created_at,updated_at) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?,1,?,?,?,?,'central','active',2,?,?)",
+                    (
+                        candidate["name"], candidate["kind"], candidate["ssh_host"], candidate["ssh_port"],
+                        candidate["ssh_user"], candidate["ssh_identity"], "",
+                        self.node_credential_cipher.encrypt(candidate["ssh_password"].encode()).decode()
+                        if candidate["ssh_password"] and self.node_credential_cipher else candidate["ssh_password"],
+                        candidate["domain_suffix"], candidate["tls_cert_file"], candidate["tls_key_file"],
+                        candidate["caddy_config"], candidate["generated_dir"], candidate["public_https_port"],
+                        candidate["internal_https_port"], country_name, country_code, country_flag,
+                        candidate["network_mode"], candidate["ssh_host_key"], candidate["ssh_host_fingerprint"],
+                        candidate["host_key_verified_at"], json.dumps(dns_records, separators=(",", ":")), now(), now(),
+                    ),
+                )
+                node_id = int(cursor.lastrowid)
+            security_notice = (
+                "警告：本次节点部署按管理员设置跳过了 Nginx 出站保护；该节点不应代理不受信任的源站。"
+                if self.allow_unprotected_egress else ""
+            )
+            if detected_internal_port is not None:
+                port_notice = (
+                    f"最终采用端口：公网 HTTPS {int(public_port)} → 节点内部 {effective_internal_port}；"
+                    f"已检测到远端 Nginx 端口并忽略表单中的内部端口。请确认服务商映射到内部 {effective_internal_port}。"
+                )
+            else:
+                port_notice = (
+                    f"最终采用端口：公网 HTTPS {int(public_port)} → 节点内部 {effective_internal_port}；"
+                    "使用表单填写的内部端口，请确认服务商映射正确。"
+                )
+            location = f"已识别为 {country_flag} {country_name}（{country_code}）；" if country_code else "未能识别地区，可稍后在节点名称中标注地区；"
+            probe_url = self._public_url(candidate, candidate["domain_suffix"]).rstrip("/") + "/__health"
+            notice = security_notice + port_notice + location + f"节点已自动部署并添加；公网探测地址：{probe_url}"
+            progress("节点记录已写入，任务完成")
+            self._set_node_provision_job_state(
+                job_id,
+                "succeeded",
+                step="部署完成",
+                node_id=node_id,
+            )
+            return {"notice": notice, "error": ""}
+        except Exception as exc:
+            if dns_records:
+                try:
+                    await asyncio.to_thread(self._delete_node_dns, dns_records)
+                except Exception as cleanup_exc:
+                    self._append_node_provision_log(job_id, f"DNS 回滚失败：{cleanup_exc}", step="回滚失败")
+            if identity:
+                Path(identity).unlink(missing_ok=True)
+            if isinstance(exc, NodeProvisionCancelled):
+                error = "管理员已中断部署"
+                self._append_node_provision_log(job_id, "部署已由管理员中断", step="已中断")
+                self._set_node_provision_job_state(job_id, "failed", step="已中断", last_error=error)
+                return {"notice": "", "error": error}
+            if isinstance(exc, subprocess.TimeoutExpired):
+                error = "操作超时；没有确认配置已生效。"
+            else:
+                error = str(exc) or exc.__class__.__name__
+            self._append_node_provision_log(job_id, f"部署失败：{error}", step="部署失败")
+            self._set_node_provision_job_state(job_id, "failed", step="部署失败", last_error=error)
+            return {"notice": "", "error": error}
+        finally:
+            candidate["ssh_password"] = ""
+            if provision_lock_acquired:
+                self._node_provision_lock.release()
+            self._unregister_node_provision_cancel_event(job_id, cancel_event)
+
+    def _start_node_provision_job(
+        self,
+        job_id: str,
+        candidate: dict,
+        identity: str | None,
+        cancel_event: threading.Event,
+    ) -> None:
+        task = asyncio.create_task(
+            self._run_node_provision_job(job_id, candidate, identity, cancel_event)
+        )
+        self._node_provision_tasks.add(task)
+        task.add_done_callback(self._node_provision_tasks.discard)
+
     async def handle(self, request: web.Request) -> web.StreamResponse:
         if not self.enabled:
             raise web.HTTPNotFound()
         admin = self.require_admin(request)
         csrf_token = str(admin["csrf_secret"])
+        wants_json = request.path == ADMIN_PREFIX + "/nodes" and request.query.get("async") == "1"
 
         def admin_overview(**kwargs):
             return self.overview_dashboard(csrf_token=csrf_token, **kwargs)
@@ -3472,6 +4087,36 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
         except ValueError:
             route_page = 1
         if request.method == "GET":
+            job_match = re.fullmatch(
+                re.escape(ADMIN_PREFIX) + r"/node-provision-jobs/([A-Za-z0-9_-]{16,64})",
+                request.path,
+            )
+            if job_match:
+                job = await asyncio.to_thread(self._node_provision_job, job_match.group(1))
+                if not job:
+                    return web.json_response(
+                        {"error": "部署任务不存在或已清理"},
+                        status=404,
+                        headers={"Cache-Control": "no-store"},
+                    )
+                return web.json_response(
+                    {
+                        "id": job["id"],
+                        "name": job["name"],
+                        "ssh_host": job["ssh_host"],
+                        "ssh_port": int(job["ssh_port"]),
+                        "state": job["state"],
+                        "step": job["step"],
+                        "log": job["log_text"],
+                        "last_error": job["last_error"],
+                        "node_id": job["node_id"],
+                        "created_at": job["created_at"],
+                        "updated_at": job["updated_at"],
+                        "started_at": job["started_at"],
+                        "finished_at": job["finished_at"],
+                    },
+                    headers={"Cache-Control": "no-store"},
+                )
             if request.path in {ADMIN_PREFIX, ADMIN_PREFIX + "/"}:
                 raise web.HTTPFound(ADMIN_PREFIX + "/overview")
             if request.path == ADMIN_PREFIX + "/overview":
@@ -3537,6 +4182,28 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
                     return admin_users(notice="临时密码（仅显示一次，用户登录后必须修改）：" + temporary)
                 await asyncio.to_thread(self._delete_user_and_routes, user_id)
                 return admin_users(notice="用户及其全部线路已删除。")
+            cancel_match = re.fullmatch(
+                re.escape(ADMIN_PREFIX) + r"/node-provision-jobs/([A-Za-z0-9_-]{16,64})/cancel",
+                request.path,
+            )
+            if cancel_match:
+                self._check_user_csrf(admin, data)
+                try:
+                    message = await asyncio.to_thread(
+                        self._request_node_provision_cancel,
+                        cancel_match.group(1),
+                    )
+                except PanelError as exc:
+                    return web.json_response(
+                        {"error": str(exc)},
+                        status=409,
+                        headers={"Cache-Control": "no-store"},
+                    )
+                return web.json_response(
+                    {"ok": True, "message": message},
+                    status=202,
+                    headers={"Cache-Control": "no-store"},
+                )
             if request.path == ADMIN_PREFIX + "/nodes":
                 self._check_user_csrf(admin, data)
                 name = str(data.get("name", "")).strip()
@@ -3594,50 +4261,39 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
                     # host-key pinning was intentionally removed from the form.
                     "ssh_host_key": "", "ssh_host_fingerprint": "", "host_key_verified_at": "",
                 }
-                detected_internal_port = await asyncio.to_thread(self._detect_existing_nginx_port, candidate)
-                if detected_internal_port is not None:
-                    candidate["internal_https_port"] = detected_internal_port
-                country_name, country_code, country_flag = await self._lookup_node_location(address)
-                dns_records = []
                 try:
-                    public_port, dns_records = await asyncio.to_thread(self._provision_auto_node, candidate)
-                    candidate["public_https_port"] = public_port
-                    effective_internal_port = int(candidate["internal_https_port"])
-                    security_notice = (
-                        "警告：本次节点部署按管理员设置跳过了 Nginx 出站保护；该节点不应代理不受信任的源站。"
-                        if self.allow_unprotected_egress else ""
+                    job_id = await asyncio.to_thread(
+                        self._create_node_provision_job,
+                        name,
+                        address,
+                        ssh_port,
                     )
-                    if detected_internal_port is not None:
-                        port_notice = (
-                            f"最终采用端口：公网 HTTPS {int(public_port)} → 节点内部 {effective_internal_port}；"
-                            f"已检测到远端 Nginx 端口并忽略表单中的内部端口。请确认服务商映射到内部 {effective_internal_port}。"
-                        )
-                    else:
-                        port_notice = (
-                            f"最终采用端口：公网 HTTPS {int(public_port)} → 节点内部 {effective_internal_port}；"
-                            f"使用表单填写的内部端口，请确认服务商映射正确。"
-                        )
-                    with self._connect() as db:
-                        db.execute(
-                            "INSERT INTO nodes (name,kind,ssh_host,ssh_port,ssh_user,ssh_identity,ssh_password,ssh_password_ciphertext,domain_suffix,tls_cert_file,tls_key_file,caddy_config,generated_dir,public_https_port,internal_https_port,country_name,country_code,country_flag,network_mode,auto_managed,ssh_host_key,ssh_host_fingerprint,host_key_verified_at,dns_record_ids_json,cert_mode,state,security_policy_version,created_at,updated_at) "
-                            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?,1,?,?,?,?,'central','active',2,?,?)",
-                            (candidate["name"], candidate["kind"], candidate["ssh_host"], candidate["ssh_port"],
-                             candidate["ssh_user"], candidate["ssh_identity"], "",
-                             self.node_credential_cipher.encrypt(candidate["ssh_password"].encode()).decode() if candidate["ssh_password"] and self.node_credential_cipher else candidate["ssh_password"],
-                             candidate["domain_suffix"], candidate["tls_cert_file"], candidate["tls_key_file"],
-                             candidate["caddy_config"], candidate["generated_dir"], candidate["public_https_port"], candidate["internal_https_port"],
-                             country_name, country_code, country_flag, candidate["network_mode"],
-                             candidate["ssh_host_key"], candidate["ssh_host_fingerprint"], candidate["host_key_verified_at"],
-                             json.dumps(dns_records, separators=(",", ":")), now(), now()),
-                        )
                 except Exception:
-                    await asyncio.to_thread(self._delete_node_dns, dns_records)
                     if identity:
                         Path(identity).unlink(missing_ok=True)
                     raise
-                location = f"已识别为 {country_flag} {country_name}（{country_code}）；" if country_code else "未能识别地区，可稍后在节点名称中标注地区；"
-                probe_url = self._public_url(candidate, domain_suffix).rstrip("/") + "/__health"
-                return admin_dashboard(notice=security_notice + port_notice + location + f"节点已自动部署并添加；公网探测地址：{probe_url}")
+                cancel_event = self._register_node_provision_cancel_event(job_id)
+                if request.query.get("async") == "1":
+                    self._start_node_provision_job(job_id, candidate, identity, cancel_event)
+                    return web.json_response(
+                        {
+                            "job_id": job_id,
+                            "name": name,
+                            "state": "pending",
+                            "status_url": f"{ADMIN_PREFIX}/node-provision-jobs/{job_id}",
+                        },
+                        status=202,
+                        headers={"Cache-Control": "no-store"},
+                    )
+                result = await self._run_node_provision_job(
+                    job_id,
+                    candidate,
+                    identity,
+                    cancel_event,
+                )
+                if result["error"]:
+                    raise PanelError(result["error"])
+                return admin_dashboard(notice=result["notice"])
             node_delete_match = re.fullmatch(re.escape(ADMIN_PREFIX) + r"/nodes/(\d+)/delete", request.path)
             if node_delete_match:
                 node_id = int(node_delete_match.group(1))
@@ -3646,9 +4302,10 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
                     node = db.execute("SELECT * FROM nodes WHERE id = ?", (node_id,)).fetchone()
                     if not node:
                         raise PanelError("节点不存在")
-                    route_count = db.execute("SELECT COUNT(*) FROM routes WHERE node_id = ?", (node_id,)).fetchone()[0]
-                    if route_count:
-                        raise PanelError(f"节点仍关联 {route_count} 条线路，请先删除线路")
+                    routes = db.execute(
+                        "SELECT * FROM routes WHERE node_id = ? ORDER BY id",
+                        (node_id,),
+                    ).fetchall()
                     if node["kind"] == "local":
                         db.execute(
                             "INSERT INTO settings (key,value) VALUES ('local_node_disabled','1') "
@@ -3660,28 +4317,58 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
                     )
                 try:
                     await asyncio.to_thread(self._cleanup_managed_node, node)
+                    # Auto-managed remote nodes remove the whole generated tree
+                    # in _cleanup_managed_node; other nodes need route cleanup.
+                    if node["kind"] == "local" or not node["auto_managed"]:
+                        for route in routes:
+                            await asyncio.to_thread(
+                                self._delete_route_file, node, route
+                            )
                 except Exception as exc:
-                    if self._remote_cleanup_unreachable(exc):
-                        # DNS cleanup has already completed before the remote
-                        # SSH step. Detach the local record so an offline node
-                        # cannot block the panel forever; remote files remain
-                        # for manual cleanup when the machine returns.
+                    if (
+                        node["kind"] != "local"
+                        and self._remote_cleanup_unreachable(exc)
+                    ):
                         self._remove_node_identity(node)
                         with self._connect() as db:
+                            db.execute(
+                                "DELETE FROM deployment_jobs WHERE node_id = ?",
+                                (node_id,),
+                            )
+                            db.execute(
+                                "DELETE FROM routes WHERE node_id = ?",
+                                (node_id,),
+                            )
                             db.execute("DELETE FROM nodes WHERE id = ?", (node_id,))
                         return admin_dashboard(
-                            notice="后台节点记录已删除；远端 SSH 当前不可达，远端项目文件未清理。"
+                            notice=(
+                                f"节点及其 {len(routes)} 条线路已从面板删除；"
+                                "SSH 当前不可达，远端配置未清理。"
+                            )
                         )
                     with self._connect() as db:
                         db.execute(
                             "UPDATE nodes SET state='decommission_failed',last_error=?,updated_at=? WHERE id=?",
                             (str(exc)[-700:], now(), node_id),
                         )
-                    raise PanelError("节点清理未完成，已保留记录并标记为待重试：" + str(exc)[-240:]) from exc
+                    raise PanelError(
+                        "节点清理未完成，已保留记录并标记为待重试："
+                        + str(exc)[-240:]
+                    ) from exc
                 with self._connect() as db:
-                    db.execute("UPDATE nodes SET state='decommissioned',state_step='complete',updated_at=? WHERE id=?", (now(), node_id))
+                    db.execute(
+                        "DELETE FROM deployment_jobs WHERE node_id = ?",
+                        (node_id,),
+                    )
+                    db.execute("DELETE FROM routes WHERE node_id = ?", (node_id,))
+                    db.execute(
+                        "UPDATE nodes SET state='decommissioned',state_step='complete',updated_at=? WHERE id=?",
+                        (now(), node_id),
+                    )
                     db.execute("DELETE FROM nodes WHERE id = ?", (node_id,))
-                return admin_dashboard(notice="节点已删除。")
+                return admin_dashboard(
+                    notice=f"节点及其 {len(routes)} 条线路已删除。"
+                )
             node_match = re.fullmatch(re.escape(ADMIN_PREFIX) + r"/nodes/(\d+)/check", request.path)
             if node_match:
                 node_id = int(node_match.group(1))
@@ -3745,18 +4432,36 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
         except web.HTTPException:
             raise
         except (PanelError, ValueError, sqlite3.Error) as exc:
+            if wants_json:
+                return web.json_response(
+                    {"error": str(exc)},
+                    status=400,
+                    headers={"Cache-Control": "no-store"},
+                )
             if view == "invites":
                 return admin_invites(error=str(exc))
             if view == "routes":
                 return admin_routes(error=str(exc), route_page=route_page)
             return admin_users(error=str(exc)) if view == "users" else admin_dashboard(error=str(exc))
         except subprocess.TimeoutExpired:
+            if wants_json:
+                return web.json_response(
+                    {"error": "操作超时；没有确认配置已生效。"},
+                    status=504,
+                    headers={"Cache-Control": "no-store"},
+                )
             if view == "invites":
                 return admin_invites(error="操作超时；没有确认配置已生效。")
             if view == "routes":
                 return admin_routes(error="操作超时；没有确认配置已生效。", route_page=route_page)
             return admin_users(error="操作超时；没有确认配置已生效。") if view == "users" else admin_dashboard(error="操作超时；没有确认配置已生效。")
         except Exception as exc:
+            if wants_json:
+                return web.json_response(
+                    {"error": f"操作失败：{exc}"},
+                    status=500,
+                    headers={"Cache-Control": "no-store"},
+                )
             if view == "invites":
                 return admin_invites(error=f"操作失败：{exc}")
             if view == "routes":
