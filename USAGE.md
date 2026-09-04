@@ -68,9 +68,10 @@ Token 对应的 Zone 必须与安装时填写的节点根域名一致。
 - VPS 或 NAT
 - 服务器公网 IP
 - SSH 端口
+- SSH 用户名（留空时使用 `root`；非 root 用户需具备免密 `sudo` 权限）
 - 公网 HTTPS 端口
 - 内部 HTTPS 端口
-- root 密码或私钥
+- SSH 密码或私钥
 
 普通 VPS 通常填写：
 

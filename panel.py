@@ -1492,7 +1492,7 @@ class ProxyPanel:
             "if [ \"$count\" -gt 0 ]; then tail -c \"+$((start + 1))\" \"$file\" | head -c \"$count\"; fi",
         ])
         result = subprocess.run(
-            self._ssh_args(node) + [script], capture_output=True, timeout=40, env=self._ssh_env(node),
+            self._ssh_command(node, script), capture_output=True, timeout=40, env=self._ssh_env(node),
         )
         if result.returncode != 0:
             error = result.stderr.decode("utf-8", "replace").strip()
@@ -2220,6 +2220,7 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
     <label>SSH 端口<input required name='ssh_port' value='22' inputmode='numeric'></label>
     <label>公网 HTTPS 端口<input required id='public-port' name='public_https_port' value='443' inputmode='numeric'><span class='muted'>NAT 默认可填服务商分配的端口，例如 30004</span></label>
     <label>内部 HTTPS 端口<input required name='internal_https_port' value='443' inputmode='numeric'><span class='muted'>Nginx 监听端口；远端已有 Nginx 时自动识别</span></label>
+    <label>SSH 用户名（留空默认为 root）<input name='ssh_user' autocomplete='username' maxlength='32' placeholder='root'></label>
     <label>SSH 密码（与私钥二选一）<input type='password' name='ssh_password' autocomplete='new-password'></label>
     <label>SSH 私钥文件（与密码二选一）<input type='file' name='ssh_private_key' accept='.pem,.key,text/plain,application/x-pem-file'></label>
   </div>
@@ -2684,6 +2685,13 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             raise PanelError(f"{field} 必须是安全的绝对路径")
         return value
 
+    @staticmethod
+    def _normalize_ssh_user(value: object) -> str:
+        user = str(value or "").strip() or "root"
+        if not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", user):
+            raise PanelError("SSH 用户名必须为 1–32 位小写字母、数字、下划线或连字符，且不能以数字或连字符开头")
+        return user
+
     def _parse_node(self, data) -> tuple:
         name = str(data.get("name", "")).strip()
         kind = str(data.get("kind", "")).strip()
@@ -2699,11 +2707,11 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
         if not (1 <= ssh_port <= 65535 and 1 <= public_port <= 65535 and 1 <= internal_port <= 65535):
             raise PanelError("端口超出范围")
         host = str(data.get("ssh_host", "")).strip().lower()
-        user = str(data.get("ssh_user", "")).strip()
+        user = self._normalize_ssh_user(data.get("ssh_user", "")) if kind == "ssh" else ""
         identity = str(data.get("ssh_identity", "")).strip()
         ssh_password = str(data.get("ssh_password", ""))
         if kind == "ssh":
-            if not SAFE_HOST.fullmatch(host) or not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", user):
+            if not SAFE_HOST.fullmatch(host):
                 raise PanelError("SSH 主机或用户不合法")
             if identity:
                 identity = self._valid_path(identity, "SSH 私钥路径")
@@ -2976,7 +2984,7 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
                 "  rm -f /root/.acme.sh/account.conf",
                 "fi",
             ])
-            self._run(self._ssh_args(node) + [cleanup], env=self._ssh_env(node), timeout=90)
+            self._run(self._ssh_command(node, cleanup), env=self._ssh_env(node), timeout=90)
         identity = str(node["ssh_identity"] or "")
         if identity:
             try:
@@ -3115,7 +3123,7 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
         )
         try:
             output = self._run(
-                self._ssh_args(node) + [probe],
+                self._ssh_command(node, probe),
                 env=self._ssh_env(node),
                 timeout=30,
                 cancel_event=cancel_event,
@@ -3134,7 +3142,7 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
         cancel_event: threading.Event | None = None,
     ) -> tuple[int, list[str]]:
         progress = progress or (lambda _message: None)
-        progress("检查 root SSH 登录")
+        progress(f"检查 {self._ssh_user(node)} SSH 登录及远端权限")
         self._wait_for_root_ssh(node, progress=progress, cancel_event=cancel_event)
         self._raise_if_node_provision_cancelled(cancel_event)
         progress("创建节点 DNS 记录")
@@ -3155,7 +3163,7 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
         try:
             progress("创建远端临时目录")
             self._run(
-                self._ssh_args(node) + [f"umask 077; install -d -m 700 {shlex.quote(remote_stage)}"],
+                self._ssh_command(node, f"umask 077; install -d -m 700 {shlex.quote(remote_stage)}", privileged=False),
                 env=self._ssh_env(node), timeout=30, cancel_event=cancel_event,
             )
             progress("上传 TLS 证书")
@@ -3340,7 +3348,7 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             ])
             progress("安装软件包并配置远端 Nginx")
             self._run(
-                self._ssh_args(node) + [script],
+                self._ssh_command(node, script),
                 env=self._ssh_env(node),
                 timeout=480,
                 output_callback=output_callback,
@@ -3366,7 +3374,7 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             try:
                 cert_path, key_path = self._issue_central_certificate(node)
                 self._run(
-                    self._ssh_args(node) + [f"umask 077; install -d -m 700 {shlex.quote(stage)}"],
+                    self._ssh_command(node, f"umask 077; install -d -m 700 {shlex.quote(stage)}", privileged=False),
                     env=self._ssh_env(node), timeout=30,
                 )
                 self._run(self._scp_args(node, cert_path, stage + "/fullchain.pem"), env=self._ssh_env(node), timeout=60)
@@ -3380,11 +3388,11 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
                     f"/usr/local/sbin/uniproxy-nginx reload",
                     f"rm -rf {shlex.quote(stage)}",
                 ])
-                self._run(self._ssh_args(node) + [command], env=self._ssh_env(node), timeout=90)
+                self._run(self._ssh_command(node, command), env=self._ssh_env(node), timeout=90)
             except Exception as exc:
                 errors.append(f"{node['name']}：{str(exc)[-240:]}")
                 try:
-                    self._run(self._ssh_args(node) + [f"rm -rf {shlex.quote(stage)}"], env=self._ssh_env(node), timeout=30)
+                    self._run(self._ssh_command(node, f"rm -rf {shlex.quote(stage)}"), env=self._ssh_env(node), timeout=30)
                 except Exception:
                     pass
         return errors
@@ -3574,7 +3582,7 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
                 progress(f"SSH 登录检查 {attempt + 1}/{SSH_READY_ATTEMPTS}")
             try:
                 user_id = self._run(
-                    self._ssh_args(node) + ["id -u"],
+                    self._ssh_command(node, "id -u"),
                     env=self._ssh_env(node),
                     timeout=15,
                     cancel_event=cancel_event,
@@ -3590,9 +3598,9 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             else:
                 if any(line.strip() == "0" for line in user_id.splitlines()):
                     if progress is not None:
-                        progress("SSH root 登录成功")
+                        progress("SSH 登录及远端权限检查成功")
                     return
-                raise PanelError("自动部署需要 root SSH 登录")
+                raise PanelError("自动部署需要 root SSH 登录，或需要具备免密 sudo 权限的 SSH 用户")
             if attempt + 1 < SSH_READY_ATTEMPTS:
                 self._wait_node_provision_delay(cancel_event, SSH_READY_RETRY_SECONDS)
         detail = last_error.replace("\n", " ")[-240:]
@@ -3600,6 +3608,15 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             f"节点 SSH 自动重试 {SSH_READY_ATTEMPTS} 次后仍未就绪，请确认 SSH 端口、账号和防火墙后重试"
             + (f"：{detail}" if detail else "")
         )
+
+    @staticmethod
+    def _ssh_user(node) -> str:
+        return str(node["ssh_user"] or "").strip() or "root"
+
+    def _ssh_command(self, node, command: str, *, privileged: bool = True) -> list[str]:
+        if privileged and self._ssh_user(node) != "root":
+            command = f"sudo -n sh -c {shlex.quote(command)}"
+        return self._ssh_args(node) + [command]
 
     def _ssh_args(self, node) -> list[str]:
         known_hosts = self.db_path.parent / "known_hosts"
@@ -3621,7 +3638,7 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             args.extend(["-o", "BatchMode=yes"])
         if node["ssh_identity"]:
             args.extend(["-i", node["ssh_identity"]])
-        return args + [f"{node['ssh_user']}@{node['ssh_host']}"]
+        return args + [f"{self._ssh_user(node)}@{node['ssh_host']}"]
 
     def _scp_args(self, node, source: str, target: str, preserve_mode: bool = False) -> list[str]:
         known_hosts = self.db_path.parent / "known_hosts"
@@ -3645,7 +3662,7 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             args.extend(["-i", node["ssh_identity"]])
         if preserve_mode:
             args.append("-p")
-        args.extend([source, f"{node['ssh_user']}@{node['ssh_host']}:{target}"])
+        args.extend([source, f"{self._ssh_user(node)}@{node['ssh_host']}:{target}"])
         return args
 
     def _ssh_env(self, node) -> dict | None:
@@ -3750,7 +3767,7 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             f"if ! {reload_command}; then", "  restore;",
             f"  {reload_command} || true; exit 1", "fi", 'rm -f "$backup" "$temporary" "$traffic_backup" "$traffic_temporary"',
         ])
-        self._run(self._ssh_args(node) + [script], env=self._ssh_env(node))
+        self._run(self._ssh_command(node, script), env=self._ssh_env(node))
 
     def _delete_route_file(self, node, route) -> None:
         target = f"{node['generated_dir']}/{route['public_host']}.conf"
@@ -3781,7 +3798,7 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             f"if ! {reload_command}; then", '  if [ "$had_old" = 1 ]; then mv "$backup" "$target"; fi',
             f"  {reload_command} || true; exit 1", "fi", 'rm -f "$backup"',
         ])
-        self._run(self._ssh_args(node) + [script], env=self._ssh_env(node))
+        self._run(self._ssh_command(node, script), env=self._ssh_env(node))
 
     def _delete_route_file_best_effort(self, node, route) -> str:
         """Remove a route, tolerating cleanup failures for failed deployments.
@@ -3862,7 +3879,7 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             f"{{ echo {shlex.quote('远端 Nginx 已运行，但内部 HTTPS 健康检查失败：' + internal_url)} >&2; exit 1; }}",
         ])
         command = "\n".join(commands)
-        self._run(self._ssh_args(node) + [command], env=self._ssh_env(node))
+        self._run(self._ssh_command(node, command), env=self._ssh_env(node))
         public_url = self._public_url(node, node["domain_suffix"]).rstrip("/") + "/__health"
         try:
             self._check_public_probe(node)
@@ -4233,6 +4250,7 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
                     raise PanelError("公网 HTTPS 端口超出范围")
                 if not 1 <= internal_port <= 65535:
                     raise PanelError("内部 HTTPS 端口超出范围")
+                ssh_user = self._normalize_ssh_user(data.get("ssh_user", ""))
                 password = str(data.get("ssh_password", ""))
                 if len(password) > 512:
                     raise PanelError("SSH 密码过长")
@@ -4250,7 +4268,7 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
                 cert_dir = "/etc/uniproxy-nginx/certs"
                 candidate = {
                     "name": name, "kind": "ssh", "ssh_host": address, "ssh_port": ssh_port,
-                    "ssh_user": "root", "ssh_identity": identity, "ssh_password": password,
+                    "ssh_user": ssh_user, "ssh_identity": identity, "ssh_password": password,
                     "domain_suffix": domain_suffix, "tls_cert_file": cert_dir + "/fullchain.pem",
                     "tls_key_file": cert_dir + "/key.pem",
                     "caddy_config": "/etc/uniproxy-nginx/nginx.conf",
