@@ -22,6 +22,7 @@ import tempfile
 import threading
 import time
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -55,13 +56,14 @@ SAFE_SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{1,31}$")
 SAFE_PATH = re.compile(r"^/[A-Za-z0-9._/@+:-]+(?:/[A-Za-z0-9._/@+:-]+)*$")
 SAFE_AGENT_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{1,63}$")
 SAFE_USERNAME = re.compile(r"^[A-Za-z0-9._-]+$")
+SAFE_FRONT_NGINX_CONFIG = re.compile(r"^/etc/nginx/(?:conf\.d|http\.d|sites-enabled)/uniproxy-node-[a-f0-9]{16}\.conf$")
 USER_SESSION_COOKIE = "__Host-uniproxy-session"
 USER_CSRF_COOKIE = "__Host-uniproxy-csrf"
 LEGACY_USER_SESSION_COOKIE = "_uniproxy_user_session"
 LEGACY_USER_CSRF_COOKIE = "_uniproxy_user_csrf"
 SESSION_EPHEMERAL_SECONDS = 24 * 60 * 60
 SESSION_REMEMBER_SECONDS = 90 * 24 * 60 * 60
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 ADMIN_ROUTE_PAGE_SIZE = 5
 TRAFFIC_FORMAT_NAME = "uniproxy_traffic"
 TRAFFIC_CONFIG_NAME = "00-uniproxy-traffic.conf"
@@ -70,6 +72,15 @@ TRAFFIC_TIMEZONE = timezone(timedelta(hours=8))
 NODE_PROVISION_LOG_MAX_CHARS = 128 * 1024
 SSH_READY_ATTEMPTS = 4
 SSH_READY_RETRY_SECONDS = 3
+HIGH_PORT_MIN = 49152
+HIGH_PORT_MAX = 65000
+
+
+@dataclass(frozen=True)
+class ExistingNginxInfo:
+    port: int
+    include_dir: str
+    ssl: bool = True
 
 AUTH_UI_CSS = r"""
 :root{
@@ -613,7 +624,9 @@ class ProxyPanel:
                 "ssh_host TEXT, ssh_port INTEGER NOT NULL DEFAULT 22, ssh_user TEXT, ssh_identity TEXT, ssh_password TEXT, "
                 "domain_suffix TEXT NOT NULL, tls_cert_file TEXT NOT NULL, tls_key_file TEXT NOT NULL, "
                 "caddy_config TEXT NOT NULL, generated_dir TEXT NOT NULL, "
-                "public_https_port INTEGER NOT NULL DEFAULT 443, internal_https_port INTEGER NOT NULL DEFAULT 443, agent_id TEXT UNIQUE, last_seen TEXT, "
+                "public_https_port INTEGER NOT NULL DEFAULT 443, internal_https_port INTEGER NOT NULL DEFAULT 443, "
+                "nginx_mode TEXT NOT NULL DEFAULT 'isolated', front_nginx_config TEXT NOT NULL DEFAULT '', "
+                "front_nginx_port INTEGER NOT NULL DEFAULT 0, agent_id TEXT UNIQUE, last_seen TEXT, "
                 "health_json TEXT NOT NULL DEFAULT '', traffic_rx INTEGER NOT NULL DEFAULT 0, "
                 "traffic_tx INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL);"
                 "CREATE TABLE IF NOT EXISTS routes ("
@@ -703,6 +716,9 @@ class ProxyPanel:
                 "updated_at": "TEXT NOT NULL DEFAULT ''",
                 "ca_bundle_path": "TEXT NOT NULL DEFAULT '/etc/uniproxy-nginx/ca-bundle.pem'",
                 "internal_https_port": "INTEGER NOT NULL DEFAULT 443",
+                "nginx_mode": "TEXT NOT NULL DEFAULT 'isolated'",
+                "front_nginx_config": "TEXT NOT NULL DEFAULT ''",
+                "front_nginx_port": "INTEGER NOT NULL DEFAULT 0",
             }
             for name, definition in migrations.items():
                 if name not in columns:
@@ -2167,6 +2183,8 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             route_page = max(1, int(route_page))
         except (TypeError, ValueError):
             route_page = 1
+        default_vps_port = self._random_high_port()
+        default_nat_port = self._random_high_port()
         with self._connect() as db:
             nodes = db.execute("SELECT * FROM nodes ORDER BY id").fetchall()
             route_counts = {
@@ -2186,7 +2204,14 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             kind = "本机" if node["kind"] == "local" else "SSH"
             if node["kind"] == "ssh":
                 mode = "普通 VPS" if node["network_mode"] == "vps" else "NAT"
-                kind += f"<br><span class='muted'>{mode} · 公网 HTTPS {int(node['public_https_port'])} → 内部 {int(node['internal_https_port'])}</span>"
+                shared_front = str(node["nginx_mode"] or "isolated") == "shared-front"
+                deploy_mode = "Nginx 共存" if shared_front else "独立 Nginx"
+                port_chain = (
+                    f"公网 HTTPS {int(node['public_https_port'])} → 前置 {int(node['front_nginx_port'])} → 项目内部 {int(node['internal_https_port'])}"
+                    if shared_front else
+                    f"公网 HTTPS {int(node['public_https_port'])} → 内部 {int(node['internal_https_port'])}"
+                )
+                kind += f"<br><span class='muted'>{mode} · {deploy_mode} · {port_chain}</span>"
             health = self._health_summary(node)
             traffic = self._format_traffic_usage(node_usage.get(node_id))
             location = " ".join(filter(None, (node["country_flag"], node["country_name"], node["country_code"]))) or "未识别"
@@ -2212,14 +2237,14 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
         content = f"""
 <section><h2>节点</h2><table><thead><tr><th>名称</th><th>类型</th><th>地区</th><th>域名后缀</th><th>状态 / 代理用量</th><th>操作</th></tr></thead><tbody>{node_rows}</tbody></table></section>
 <section><h2>新增节点</h2>
-<form id='node-add-form' method='post' enctype='multipart/form-data' action='{ADMIN_PREFIX}/nodes'>
+<form id='node-add-form' method='post' enctype='multipart/form-data' action='{ADMIN_PREFIX}/nodes' data-default-vps-port='{default_vps_port}' data-default-nat-port='{default_nat_port}'>
   <div class='grid'>
     <label>节点名称<input required name='name' placeholder='海创'></label>
     <label>网络类型<select required name='network_mode' id='network-mode'><option value='vps'>普通 VPS（独立公网 IP）</option><option value='nat'>NAT 机（端口映射）</option></select></label>
     <label>服务器公网 IP<input required name='ssh_host' inputmode='decimal' placeholder='162.141.136.85'></label>
     <label>SSH 端口<input required name='ssh_port' value='22' inputmode='numeric'></label>
-    <label>公网 HTTPS 端口<input required id='public-port' name='public_https_port' value='443' inputmode='numeric'><span class='muted'>NAT 默认可填服务商分配的端口，例如 30004</span></label>
-    <label>内部 HTTPS 端口<input required name='internal_https_port' value='443' inputmode='numeric'><span class='muted'>远端已有 Nginx 时自动识别监听端口</span></label>
+    <label>公网 HTTPS 端口<input id='public-port' name='public_https_port' value='{default_vps_port}' inputmode='numeric' placeholder='留空自动随机'><span class='muted'>默认随机高位端口；NAT 请填服务商映射的公网端口</span></label>
+    <label>内部 HTTPS 端口<input name='internal_https_port' value='{default_vps_port}' inputmode='numeric' placeholder='留空自动随机'><span class='muted'>默认随机高位端口，可手动修改；已有 Nginx 时作为项目内部端口</span></label>
     <label>SSH 用户名（留空默认为 root）<input name='ssh_user' autocomplete='username' maxlength='32' placeholder='root'></label>
     <label>SSH 密码（与私钥二选一）<input type='password' name='ssh_password' autocomplete='new-password'></label>
     <label>SSH 私钥文件（与密码二选一）<input type='file' name='ssh_private_key' accept='.pem,.key,text/plain,application/x-pem-file'></label>
@@ -2252,9 +2277,11 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
   let activeJobId = '';
   let pollTimer = 0;
   const stateLabels = {pending: '等待', running: '部署中', succeeded: '成功', failed: '失败'};
+  const defaultVpsPort = form?.dataset.defaultVpsPort || '49152';
+  const defaultNatPort = form?.dataset.defaultNatPort || defaultVpsPort;
   const syncPort = () => {
-    if (mode.value === 'nat' && publicPort.value === '443') publicPort.value = '30004';
-    if (mode.value === 'vps' && publicPort.value === '30004') publicPort.value = '443';
+    if (mode.value === 'nat' && publicPort.value === defaultVpsPort) publicPort.value = defaultNatPort;
+    if (mode.value === 'vps' && publicPort.value === defaultNatPort) publicPort.value = defaultVpsPort;
   };
   mode?.addEventListener('change', syncPort);
   const closeTerminal = () => {
@@ -2686,6 +2713,10 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
         return value
 
     @staticmethod
+    def _random_high_port() -> int:
+        return secrets.randbelow(HIGH_PORT_MAX - HIGH_PORT_MIN + 1) + HIGH_PORT_MIN
+
+    @staticmethod
     def _normalize_ssh_user(value: object) -> str:
         user = str(value or "").strip() or "root"
         if not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", user):
@@ -2700,8 +2731,10 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             raise PanelError("节点名称、类型或域名后缀不合法")
         try:
             ssh_port = int(str(data.get("ssh_port", "22")))
-            public_port = int(str(data.get("public_https_port", "443")))
-            internal_port = int(str(data.get("internal_https_port", "443")))
+            public_value = str(data.get("public_https_port", "")).strip()
+            internal_value = str(data.get("internal_https_port", "")).strip()
+            public_port = int(public_value or str(self._random_high_port()))
+            internal_port = int(internal_value or str(public_port if data.get("network_mode", "vps") == "vps" else self._random_high_port()))
         except ValueError as exc:
             raise PanelError("端口必须是数字") from exc
         if not (1 <= ssh_port <= 65535 and 1 <= public_port <= 65535 and 1 <= internal_port <= 65535):
@@ -2973,10 +3006,27 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             # Remove only files and jobs created by this project.  The marker
             # prevents an old/shared acme installation from being destroyed.
             marker = "/etc/uniproxy-nginx/.uniproxy-acme-managed"
+            shared_front = str(node["nginx_mode"] or "isolated") == "shared-front"
+            front_config = str(node["front_nginx_config"] or "").strip()
+            if shared_front and not SAFE_FRONT_NGINX_CONFIG.fullmatch(front_config):
+                raise PanelError("已有 Nginx 接入配置路径不安全，未清理远端配置")
+            front_cleanup = []
+            if shared_front:
+                front_marker = "# emby-relay-panel managed front config"
+                front_cleanup = [
+                    self._existing_nginx_runtime_script(),
+                    f"front_config={shlex.quote(front_config)}; front_backup={shlex.quote(front_config + '.panel-backup')}; front_marker={shlex.quote(front_marker)}; front_had_old=0; front_removed=0",
+                    'if [ -L "$front_config" ]; then echo "已有 Nginx 接入文件是符号链接，拒绝清理" >&2; exit 1; fi',
+                    'if [ -e "$front_config" ] && ! grep -Fq "$front_marker" "$front_config"; then echo "已有 Nginx 接入文件不是本项目文件，拒绝清理" >&2; exit 1; fi',
+                    'if [ -f "$front_config" ]; then cp -p "$front_config" "$front_backup"; front_had_old=1; rm -f "$front_config"; front_removed=1; fi',
+                    'restore_front() { if [ "$front_had_old" -eq 1 ]; then mv "$front_backup" "$front_config"; fi; }',
+                    'if [ "$front_removed" -eq 1 ]; then if ! /usr/sbin/nginx -t; then restore_front; echo "删除前置 Nginx 配置后检查失败，原配置已恢复" >&2; exit 1; fi; if nginx_front_running && ! reload_nginx_front; then restore_front; if /usr/sbin/nginx -t; then reload_nginx_front || true; fi; echo "前置 Nginx 平滑 reload 失败，原配置已恢复" >&2; exit 1; fi; rm -f "$front_backup"; fi',
+                ]
             cleanup = "\n".join([
                 "set -eu",
                 f"if [ -f {shlex.quote(marker)} ]; then",
                 "  if command -v crontab >/dev/null 2>&1; then crontab -l 2>/dev/null | grep -v 'uniproxy-nginx' | grep -v 'acme.sh.*--cron' | crontab - || true; fi",
+                *[f"  {line}" for item in front_cleanup for line in item.splitlines()],
                 "  if command -v systemctl >/dev/null 2>&1; then systemctl disable --now uniproxy-nginx.service >/dev/null 2>&1 || true; systemctl daemon-reload || true; fi",
                 "  rm -f /etc/systemd/system/uniproxy-nginx.service /usr/local/sbin/uniproxy-nginx",
                 f"  rm -rf {shlex.quote(str(node['generated_dir']))} {shlex.quote(str(node['caddy_config']))} /etc/uniproxy-nginx",
@@ -3060,13 +3110,15 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             if returncode == 0 and output.strip() == "ok":
                 return port
         if node["network_mode"] == "nat":
+            target_port = int(node["front_nginx_port"]) if str(node["nginx_mode"] or "isolated") == "shared-front" else int(node["internal_https_port"])
             raise PanelError(
                 f"节点内部配置已完成，但连续探测后公网 TCP {port} 仍无法访问；"
-                f"请确认服务商已将公网 TCP {port} 映射到机器内部 TCP {int(node['internal_https_port'])}"
+                f"请确认服务商已将公网 TCP {port} 映射到机器内部 TCP {target_port}"
             )
+        target_port = int(node["front_nginx_port"]) if str(node["nginx_mode"] or "isolated") == "shared-front" else int(node["internal_https_port"])
         raise PanelError(
             f"节点内部配置已完成，但连续探测后公网 TCP {port} 仍无法访问；"
-            f"请检查云平台安全组，并确认服务监听内部 TCP {int(node['internal_https_port'])}"
+            f"请检查云平台安全组，并确认服务监听内部 TCP {target_port}"
         )
 
     @staticmethod
@@ -3075,8 +3127,8 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
 
         The remote probe is deliberately limited to ``listen`` directives;
         it never trusts an arbitrary process port. Prefer an explicit SSL
-        listener, then prefer 443. Port 80 is valid when the NAT mapping
-        points the public HTTPS port to the node's port 80.
+        listener, then prefer 443. Port 80 remains a valid diagnostic result;
+        provisioning rejects it because the shared front must terminate HTTPS.
         """
         ssl_ports: set[int] = set()
         other_ports: set[int] = set()
@@ -3110,15 +3162,56 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             return min(candidates, key=lambda port: (port != 443, port))
         return None
 
-    def _detect_existing_nginx_port(
+    @staticmethod
+    def _select_existing_nginx_include_dir(output: str) -> str | None:
+        """Choose a known Nginx include directory suitable for one server file."""
+        matches: set[str] = set()
+        for raw_line in str(output or "").splitlines():
+            match = re.match(
+                r"^\s*include\s+(/etc/nginx/(?:conf\.d|http\.d|sites-enabled))(?:/)(?:\*\.conf|\*);",
+                raw_line,
+                re.IGNORECASE,
+            )
+            if match:
+                matches.add(match.group(1))
+        for preferred in ("/etc/nginx/conf.d", "/etc/nginx/http.d", "/etc/nginx/sites-enabled"):
+            if preferred in matches:
+                return preferred
+        return None
+
+    @staticmethod
+    def _select_existing_nginx_ssl_ports(output: str) -> set[int]:
+        ports: set[int] = set()
+        for raw_line in str(output or "").splitlines():
+            match = re.match(r"^\s*listen\s+([^;]+);", raw_line, re.IGNORECASE)
+            if not match:
+                continue
+            tokens = match.group(1).split()
+            if not tokens or not any(token.lower() == "ssl" for token in tokens[1:]):
+                continue
+            endpoint = tokens[0].strip()
+            port_text = endpoint
+            if endpoint.startswith("[") and "]" in endpoint:
+                port_text = endpoint.rsplit(":", 1)[-1]
+            elif ":" in endpoint and endpoint.count(":") == 1:
+                port_text = endpoint.rsplit(":", 1)[-1]
+            if port_text.isdigit() and 1 <= int(port_text) <= 65535:
+                ports.add(int(port_text))
+        return ports
+
+    def _detect_existing_nginx_info(
         self,
         node,
         cancel_event: threading.Event | None = None,
-    ) -> int | None:
-        """Read an installed Nginx config before the project takes it over."""
+    ) -> ExistingNginxInfo | None:
+        """Read an installed Nginx config without changing its service state."""
         probe = (
-            "if command -v nginx >/dev/null 2>&1; then "
-            "nginx -T 2>/dev/null | grep -E '^\\s*listen\\s+[^;]+;' | head -n 200 || true; "
+            "if ! command -v nginx >/dev/null 2>&1; then "
+            "  echo '__UNIPROXY_NGINX_NOT_INSTALLED__'; "
+            "elif ! nginx_dump=$(nginx -T 2>/dev/null); then "
+            "  echo '__UNIPROXY_NGINX_PROBE_FAILED__'; "
+            "else "
+            "  printf '%s\\n' \"$nginx_dump\" | grep -E '^[[:space:]]*(include|listen)[[:space:]]+[^;]+;' | head -n 400 || true; "
             "fi"
         )
         try:
@@ -3132,7 +3225,27 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             raise
         except (PanelError, subprocess.TimeoutExpired):
             return None
-        return self._select_existing_nginx_port(output)
+        if "__UNIPROXY_NGINX_PROBE_FAILED__" in output:
+            raise PanelError("检测远端已有 Nginx 配置失败，未修改远端配置")
+        if "__UNIPROXY_NGINX_NOT_INSTALLED__" in output:
+            return None
+        port = self._select_existing_nginx_port(output)
+        if port is None:
+            return None
+        return ExistingNginxInfo(
+            port=port,
+            include_dir=self._select_existing_nginx_include_dir(output) or "",
+            ssl=port in self._select_existing_nginx_ssl_ports(output),
+        )
+
+    def _detect_existing_nginx_port(
+        self,
+        node,
+        cancel_event: threading.Event | None = None,
+    ) -> int | None:
+        """Backward-compatible port-only probe for callers and diagnostics."""
+        info = self._detect_existing_nginx_info(node, cancel_event=cancel_event)
+        return info.port if info is not None else None
 
     def _provision_auto_node(
         self,
@@ -3142,6 +3255,16 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
         cancel_event: threading.Event | None = None,
     ) -> tuple[int, list[str]]:
         progress = progress or (lambda _message: None)
+        shared_front = str(node.get("nginx_mode", "isolated") or "isolated") == "shared-front"
+        front_config_path = str(node.get("front_nginx_config", "") or "").strip()
+        if shared_front:
+            front_config_dir = front_config_path.rsplit("/", 1)[0] if "/" in front_config_path else ""
+            if not SAFE_FRONT_NGINX_CONFIG.fullmatch(front_config_path):
+                raise PanelError("已有 Nginx 的接入配置目录无法确认，未修改远端配置")
+            front_config_content = self._render_front_nginx_config(node)
+        else:
+            front_config_dir = ""
+            front_config_content = ""
         progress(f"检查 {self._ssh_user(node)} SSH 登录及远端权限")
         self._wait_for_root_ssh(node, progress=progress, cancel_event=cancel_event)
         self._raise_if_node_provision_cancelled(cancel_event)
@@ -3223,7 +3346,7 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             base_config = "\n".join([
                 "# generated by uniproxy automatic node provisioning",
                 "server {",
-                f"    listen {int(node['internal_https_port'])} ssl;",
+                f"    listen {'127.0.0.1:' if shared_front else ''}{int(node['internal_https_port'])} ssl;",
                 f"    server_name {node['domain_suffix']};",
                 f"    ssl_certificate {node['tls_cert_file']};",
                 f"    ssl_certificate_key {node['tls_key_file']};",
@@ -3234,7 +3357,7 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             ])
             systemd_unit = "\n".join([
                 "[Unit]", "Description=Uniproxy isolated Nginx", "After=network-online.target",
-                "Wants=network-online.target", "Conflicts=nginx.service", "",
+                "Wants=network-online.target", "",
                 "[Service]", "Type=forking", f"PIDFile={pid_path}",
                 f"ExecStart={controller_path} start", f"ExecReload={controller_path} reload",
                 f"ExecStop={controller_path} stop", "Restart=on-failure", "", "[Install]",
@@ -3244,6 +3367,7 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             encoded_nginx = base64.b64encode(nginx_config.encode()).decode()
             encoded_config = base64.b64encode(base_config.encode()).decode()
             encoded_unit = base64.b64encode(systemd_unit.encode()).decode()
+            encoded_front = base64.b64encode(front_config_content.encode()).decode() if shared_front else ""
             egress_path = Path(__file__).resolve().parent / "deploy" / "uniproxy-egress.nft"
             logrotate_path = Path(__file__).resolve().parent / "deploy" / "uniproxy.logrotate"
             if not egress_path.is_file() or not logrotate_path.is_file():
@@ -3297,6 +3421,44 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
                 "getent group uniproxy-nginx >/dev/null 2>&1",
                 "test \"$(id -gn uniproxy-nginx 2>/dev/null)\" = uniproxy-nginx",
             ])
+            port_preflight = [
+                f"sidecar_port={int(node['internal_https_port'])}",
+                'if command -v ss >/dev/null 2>&1; then if ss -H -ltn 2>/dev/null | awk -v port=":$sidecar_port" \'$4 ~ (port "$") { found=1 } END { exit(found ? 0 : 1) }\'; then echo "项目内部端口已被占用，未修改远端服务" >&2; exit 1; fi; elif command -v netstat >/dev/null 2>&1; then if netstat -lnt 2>/dev/null | awk -v port=":$sidecar_port" \'$4 ~ (port "$") { found=1 } END { exit(found ? 0 : 1) }\'; then echo "项目内部端口已被占用，未修改远端服务" >&2; exit 1; fi; fi',
+            ]
+            if shared_front:
+                apk_packages = "ca-certificates curl coreutils openssl nftables logrotate shadow"
+                apt_packages = "ca-certificates curl coreutils openssl nftables logrotate"
+                dnf_packages = "ca-certificates curl cronie coreutils openssl nftables logrotate shadow-utils"
+            else:
+                apk_packages = "nginx ca-certificates curl dcron coreutils openssl nftables logrotate shadow"
+                apt_packages = "nginx ca-certificates curl coreutils openssl nftables logrotate"
+                dnf_packages = "nginx ca-certificates curl cronie coreutils openssl nftables logrotate shadow-utils"
+            front_preflight = []
+            front_apply = []
+            if shared_front:
+                front_marker = "# emby-relay-panel managed front config"
+                front_preflight = [
+                    self._existing_nginx_runtime_script(),
+                    f"front_config={shlex.quote(front_config_path)}; front_config_dir={shlex.quote(front_config_dir)}; front_marker={shlex.quote(front_marker)}",
+                    'test -d "$front_config_dir" || { echo "已有 Nginx 配置目录不存在，未修改原服务" >&2; exit 1; }',
+                    'if [ -L "$front_config" ]; then echo "已有 Nginx 接入文件不能是符号链接，未修改原服务" >&2; exit 1; fi',
+                    'if [ -e "$front_config" ] && ! grep -Fq "$front_marker" "$front_config"; then echo "接入文件已存在且不是本项目文件，未修改原服务" >&2; exit 1; fi',
+                    'if /usr/sbin/nginx -T 2>/dev/null | awk -v host=' + shlex.quote(str(node['domain_suffix'])) + ' -v wildcard=' + shlex.quote('*.' + str(node['domain_suffix'])) + ' \'$1 == "server_name" { for (i=2; i<=NF; i++) { sub(/;$/, "", $i); if ($i == host || $i == wildcard) found=1 } } END { exit(found ? 0 : 1) }\'; then',
+                    '  if [ ! -e "$front_config" ] || ! grep -Fq "$front_marker" "$front_config"; then echo "已有 Nginx 已配置相同域名，拒绝覆盖原业务" >&2; exit 1; fi',
+                    'fi',
+                    'if ! /usr/sbin/nginx -t; then echo "已有 Nginx 当前配置检测失败，未修改原服务" >&2; exit 1; fi',
+                    f"front_config_new={shlex.quote(front_config_path + '.panel-new')}; front_config_backup={shlex.quote(front_config_path + '.panel-backup')}; front_had_old=0",
+                    'restore_front() { if [ "$front_had_old" -eq 1 ]; then mv "$front_config_backup" "$front_config"; else rm -f "$front_config"; fi; rm -f "$front_config_new" "$front_config_backup"; }',
+                ]
+                front_apply = [
+                    "echo '[remote] 保留现有 Nginx，写入项目域名代理'",
+                    'if [ -f "$front_config" ]; then cp -p "$front_config" "$front_config_backup"; front_had_old=1; fi',
+                    f"printf %s {shlex.quote(encoded_front)} | base64 -d > \"$front_config_new\"",
+                    'install -m 0644 "$front_config_new" "$front_config"',
+                    'if ! /usr/sbin/nginx -t; then restore_front; echo "项目代理配置未通过 Nginx 检查，原配置已恢复" >&2; exit 1; fi',
+                    'if ! reload_nginx_front; then restore_front; if /usr/sbin/nginx -t; then reload_nginx_front || true; fi; echo "已有 Nginx 平滑 reload 失败，原配置已恢复" >&2; exit 1; fi',
+                    'rm -f "$front_config_backup" "$front_config_new"',
+                ]
             script = "\n".join([
                 "set -eu", "export DEBIAN_FRONTEND=noninteractive MALLOC_ARENA_MAX=1",
                 f"policy_rc_path=/usr/sbin/policy-rc.d; policy_rc_backup={shlex.quote(remote_stage + '/policy-rc.d')}; policy_rc_saved=0; policy_rc_active=0",
@@ -3311,16 +3473,13 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
                 "apt_with_lock_retry() { attempts=0; while :; do oom_before=$(apt_oom_count); set +e; apt-get $apt_options -o DPkg::Lock::Timeout=5 \"$@\"; status=$?; set -e; oom_after=$(apt_oom_count); if [ \"$status\" -eq 0 ]; then return 0; fi; if [ \"$status\" -eq 137 ] || [ \"${oom_after:-0}\" -gt \"${oom_before:-0}\" ]; then apt_oom_message; return 70; fi; if ! pgrep -x apt-get >/dev/null 2>&1 && ! pgrep -x apt >/dev/null 2>&1 && ! pgrep -x dpkg >/dev/null 2>&1; then echo \"[remote] APT 执行失败（退出码 $status），不是包管理器锁冲突。\" >&2; return \"$status\"; fi; attempts=$((attempts + 1)); if [ \"$attempts\" -ge 12 ]; then echo '[remote] APT/dpkg 锁持续约 2 分钟，请稍后重试。' >&2; return 1; fi; echo '[remote] 其他包管理进程仍在运行，等待后重试...' >&2; sleep 5; done; }",
                 "apt_install_low_memory() { download_dir=\"$1\"; shift; rm -f \"$download_dir\"/*.deb; mkdir -p \"$download_dir/partial\"; echo \"[remote] 低内存模式下载并分步安装：$1\"; apt_with_lock_retry -o Dir::Cache::archives=\"$download_dir\" --download-only install -y -qq --no-install-recommends \"$@\"; set -- \"$download_dir\"/*.deb; if [ ! -f \"$1\" ]; then echo '[remote] APT 未下载到软件包' >&2; return 1; fi; if [ -e \"$policy_rc_path\" ] || [ -L \"$policy_rc_path\" ]; then cp -a \"$policy_rc_path\" \"$policy_rc_backup\"; policy_rc_saved=1; fi; printf '%s\\n' '#!/bin/sh' 'exit 101' > \"$policy_rc_path\"; chmod 755 \"$policy_rc_path\"; policy_rc_active=1; oom_before=$(apt_oom_count); set +e; dpkg --unpack \"$@\"; status=$?; set -e; oom_after=$(apt_oom_count); if [ \"$status\" -eq 137 ] || [ \"${oom_after:-0}\" -gt \"${oom_before:-0}\" ]; then restore_policy_rc; apt_oom_message; return 70; fi; if [ \"$status\" -ne 0 ]; then restore_policy_rc; echo \"[remote] dpkg 解包失败（退出码 $status）\" >&2; return \"$status\"; fi; oom_before=$(apt_oom_count); set +e; dpkg --configure -a; status=$?; set -e; oom_after=$(apt_oom_count); restore_policy_rc; if [ \"$status\" -eq 137 ] || [ \"${oom_after:-0}\" -gt \"${oom_before:-0}\" ]; then apt_oom_message; return 70; fi; return \"$status\"; }",
                 "echo '[remote] 检测系统并安装 Nginx 依赖'",
-                "if command -v apk >/dev/null 2>&1; then apk add --no-cache nginx ca-certificates curl dcron coreutils openssl nftables logrotate shadow;",
-                "elif command -v apt-get >/dev/null 2>&1; then apt_packages='nginx ca-certificates curl coreutils openssl nftables logrotate'; if [ ! -d /run/systemd/system ]; then apt_packages=\"$apt_packages cron\"; fi; apt_missing_packages=''; for apt_package in $apt_packages; do dpkg-query -W -f='${db:Status-Abbrev}' \"$apt_package\" 2>/dev/null | grep -q '^ii ' || apt_missing_packages=\"$apt_missing_packages $apt_package\"; done; if [ -n \"$apt_missing_packages\" ]; then echo \"[remote] 待安装软件包：$apt_missing_packages\"; if [ \"$apt_low_memory\" -eq 1 ] && find /var/lib/apt/lists -maxdepth 1 -type f -name '*_Packages*' -size +0c -print -quit 2>/dev/null | grep -q .; then echo '[remote] 复用现有 APT 索引以降低内存峰值'; for apt_package in $apt_missing_packages; do apt_install_low_memory \"$apt_download_dir\" \"$apt_package\"; done; else apt_with_lock_retry update -qq; apt_with_lock_retry install -y -qq --no-install-recommends $apt_missing_packages; fi; fi;",
-                "elif command -v dnf >/dev/null 2>&1; then dnf install -y nginx ca-certificates curl cronie coreutils openssl nftables logrotate shadow-utils;",
-                "elif command -v yum >/dev/null 2>&1; then yum install -y nginx ca-certificates curl cronie coreutils openssl nftables logrotate shadow-utils;",
+                f"if command -v apk >/dev/null 2>&1; then apk add --no-cache {apk_packages};",
+                f"elif command -v apt-get >/dev/null 2>&1; then apt_packages='{apt_packages}'; if [ ! -d /run/systemd/system ]; then apt_packages=\"$apt_packages cron\"; fi; apt_missing_packages=''; for apt_package in $apt_packages; do dpkg-query -W -f='${{db:Status-Abbrev}}' \"$apt_package\" 2>/dev/null | grep -q '^ii ' || apt_missing_packages=\"$apt_missing_packages $apt_package\"; done; if [ -n \"$apt_missing_packages\" ]; then echo \"[remote] 待安装软件包：$apt_missing_packages\"; if [ \"$apt_low_memory\" -eq 1 ] && find /var/lib/apt/lists -maxdepth 1 -type f -name '*_Packages*' -size +0c -print -quit 2>/dev/null | grep -q .; then echo '[remote] 复用现有 APT 索引以降低内存峰值'; for apt_package in $apt_missing_packages; do apt_install_low_memory \"$apt_download_dir\" \"$apt_package\"; done; else apt_with_lock_retry update -qq; apt_with_lock_retry install -y -qq --no-install-recommends $apt_missing_packages; fi; fi;",
+                f"elif command -v dnf >/dev/null 2>&1; then dnf install -y {dnf_packages};",
+                f"elif command -v yum >/dev/null 2>&1; then yum install -y {dnf_packages};",
                 "else echo '不支持的系统，无法自动安装 Nginx' >&2; exit 1; fi",
-                "echo '[remote] 停止系统默认 Nginx'",
-                "if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then systemctl disable --now nginx >/dev/null 2>&1 || true;",
-                "elif command -v rc-service >/dev/null 2>&1; then rc-service nginx stop >/dev/null 2>&1 || true; rc-update del nginx default >/dev/null 2>&1 || true;",
-                "elif command -v service >/dev/null 2>&1; then service nginx stop >/dev/null 2>&1 || true; fi",
-                "if [ -s /run/nginx.pid ]; then old_pid=$(cat /run/nginx.pid 2>/dev/null || true); if [ -n \"$old_pid\" ] && kill -0 \"$old_pid\" 2>/dev/null; then kill -QUIT \"$old_pid\" 2>/dev/null || true; sleep 1; fi; fi",
+                *port_preflight,
+                *front_preflight,
                 "echo '[remote] 写入隔离 Nginx 配置'",
                 f"mkdir -p {shlex.quote(root_dir)} {shlex.quote(node['generated_dir'])} {shlex.quote(root_dir + '/certs')} /usr/local/sbin",
                 ensure_nginx_user,
@@ -3329,7 +3488,6 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
                 f"chmod 755 {shlex.quote(controller_path)}",
                 f"printf %s {shlex.quote(encoded_nginx)} | base64 -d > {shlex.quote(node['caddy_config'])}",
                 f"printf %s {shlex.quote(encoded_config)} | base64 -d > {shlex.quote(node['generated_dir'] + '/00-uniproxy-base.conf')}",
-                "rm -f /etc/nginx/conf.d/00-uniproxy-base.conf",
                 f"install -m 0600 {shlex.quote(remote_key)} {shlex.quote(node['tls_key_file'])}",
                 f"install -m 0644 {shlex.quote(remote_cert)} {shlex.quote(node['tls_cert_file'])}",
                 f"printf '%s\\n' managed > {shlex.quote(root_dir + '/.uniproxy-acme-managed')}; chmod 600 {shlex.quote(root_dir + '/.uniproxy-acme-managed')}",
@@ -3344,6 +3502,7 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
                 "elif command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then systemctl enable --now cron >/dev/null 2>&1 || systemctl enable --now crond >/dev/null 2>&1 || true;",
                 "elif command -v service >/dev/null 2>&1; then service cron start >/dev/null 2>&1 || service crond start >/dev/null 2>&1 || true;",
                 "elif command -v crond >/dev/null 2>&1; then pgrep crond >/dev/null 2>&1 || crond; fi",
+                *front_apply,
                 "echo '[remote] 节点初始化完成'",
             ])
             progress("安装软件包并配置远端 Nginx")
@@ -3386,6 +3545,12 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
                     f"install -m 0644 {shlex.quote(stage + '/fullchain.pem')} {shlex.quote(str(node['tls_cert_file']))}",
                     "rm -f /root/.acme.sh/account.conf; if command -v crontab >/dev/null 2>&1; then crontab -l 2>/dev/null | grep -v 'acme.sh.*--cron' | crontab - || true; fi",
                     f"/usr/local/sbin/uniproxy-nginx reload",
+                    *([
+                        self._existing_nginx_runtime_script(),
+                        f"test -r {shlex.quote(str(node['front_nginx_config']))} || {{ echo '前置 Nginx 接入配置不存在' >&2; exit 1; }}",
+                        "if ! /usr/sbin/nginx -t; then echo '前置 Nginx 配置检查失败，未 reload' >&2; exit 1; fi",
+                        "reload_nginx_front",
+                    ] if str(node["nginx_mode"] or "isolated") == "shared-front" else []),
                     f"rm -rf {shlex.quote(stage)}",
                 ])
                 self._run(self._ssh_command(node, command), env=self._ssh_env(node), timeout=90)
@@ -3399,6 +3564,7 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
 
     def _render_mapping(self, route, node) -> str:
         allow_insecure_http = bool(route["allow_insecure_http"])
+        shared_front = str(node["nginx_mode"] or "isolated") == "shared-front"
         resolution = self._resolve_route_origin(
             str(route["origin"]),
             allow_insecure_http=allow_insecure_http,
@@ -3440,6 +3606,8 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
                 traffic_log_format=TRAFFIC_FORMAT_NAME,
                 error_log_path="/var/log/uniproxy-route-error.log",
                 redirect=redirect,
+                listen_address="127.0.0.1" if shared_front else None,
+                include_http_redirect=not shared_front,
             ))
         except RendererError as exc:
             raise PanelError(f"无法生成安全的 Nginx 配置：{exc}") from exc
@@ -3702,6 +3870,106 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             'test -r "$ca_bundle" || { echo "CA bundle 不可读：$ca_bundle" >&2; exit 1; }',
         ])
 
+    @staticmethod
+    def _render_front_nginx_config(node) -> str:
+        """Render the marked server block added to an existing Nginx."""
+        domain = str(node["domain_suffix"] or "").strip().lower()
+        if not SAFE_HOST.fullmatch(domain):
+            raise PanelError("前置 Nginx 域名不合法")
+        try:
+            front_port = int(node["front_nginx_port"])
+            internal_port = int(node["internal_https_port"])
+            public_port = int(node["public_https_port"])
+        except (TypeError, ValueError) as exc:
+            raise PanelError("前置 Nginx、公网或内部 HTTPS 端口不合法") from exc
+        if not (1 <= front_port <= 65535 and 1 <= public_port <= 65535 and 1 <= internal_port <= 65535):
+            raise PanelError("前置 Nginx、公网或内部 HTTPS 端口超出范围")
+        if front_port == 80:
+            raise PanelError("已有 Nginx 仅监听 HTTP 80，无法安全接入 HTTPS")
+        if internal_port == 80:
+            raise PanelError("项目内部 HTTPS 端口不能使用 80")
+        if front_port == internal_port:
+            raise PanelError("项目内部端口不能占用已有 Nginx 的监听端口")
+        paths = {
+            "TLS 证书": str(node["tls_cert_file"] or ""),
+            "TLS 私钥": str(node["tls_key_file"] or ""),
+            "CA bundle": str(node["ca_bundle_path"] or ""),
+        }
+        for field, path in paths.items():
+            if not SAFE_PATH.fullmatch(path):
+                raise PanelError(f"{field}路径不合法")
+        public_origin = f"https://{domain}" if public_port == 443 else f"https://{domain}:{public_port}"
+        suffix = hashlib.sha256(domain.encode("ascii")).hexdigest()[:12]
+        connection_variable = f"$uniproxy_front_connection_{suffix}"
+        return "\n".join([
+            "# emby-relay-panel managed front config",
+            f"# emby-relay-panel-domain: {domain}",
+            f"map $http_upgrade {connection_variable} {{",
+            "    default close;",
+            "    websocket upgrade;",
+            "}",
+            "",
+            "server {",
+            "    listen 80;",
+            f"    server_name {domain} *.{domain};",
+            "    access_log off;",
+            f"    return 308 {public_origin}$request_uri;",
+            "}",
+            "",
+            "server {",
+            f"    listen {front_port} ssl;",
+            f"    server_name {domain} *.{domain};",
+            f"    ssl_certificate {paths['TLS 证书']};",
+            f"    ssl_certificate_key {paths['TLS 私钥']};",
+            "    ssl_protocols TLSv1.2 TLSv1.3;",
+            "    access_log off;",
+            "    location / {",
+            f"        proxy_pass https://127.0.0.1:{internal_port};",
+            "        proxy_ssl_server_name on;",
+            f"        proxy_ssl_name {domain};",
+            "        proxy_ssl_verify on;",
+            "        proxy_ssl_verify_depth 3;",
+            f"        proxy_ssl_trusted_certificate {paths['CA bundle']};",
+            "        proxy_ssl_protocols TLSv1.2 TLSv1.3;",
+            "        proxy_ssl_session_reuse on;",
+            "        proxy_http_version 1.1;",
+            "        proxy_set_header Host $host;",
+            "        proxy_set_header X-Real-IP $remote_addr;",
+            "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;",
+            "        proxy_set_header X-Forwarded-Proto https;",
+            "        proxy_set_header Upgrade $http_upgrade;",
+            f"        proxy_set_header Connection {connection_variable};",
+            "        proxy_buffering off;",
+            "        proxy_request_buffering off;",
+            "        proxy_connect_timeout 10s;",
+            "        proxy_read_timeout 3600s;",
+            "        proxy_send_timeout 3600s;",
+            "    }",
+            "}",
+            "",
+        ])
+
+    @staticmethod
+    def _existing_nginx_runtime_script() -> str:
+        """Return shell helpers for detecting and gracefully reloading front Nginx."""
+        return "\n".join([
+            "nginx_front_running() {",
+            "  if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then",
+            "    systemctl is-active --quiet nginx; return $?",
+            "  fi",
+            "  if command -v pgrep >/dev/null 2>&1; then pgrep -x nginx >/dev/null 2>&1; return $?; fi",
+            "  if [ -s /run/nginx.pid ]; then kill -0 \"$(cat /run/nginx.pid 2>/dev/null)\" 2>/dev/null; return $?; fi",
+            "  return 1",
+            "}",
+            "reload_nginx_front() {",
+            "  nginx_front_running || { echo '已有 Nginx 未运行，未执行启动或接管操作' >&2; return 1; }",
+            "  if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then systemctl reload nginx; return $?; fi",
+            "  if command -v rc-service >/dev/null 2>&1; then rc-service nginx reload; return $?; fi",
+            "  if command -v service >/dev/null 2>&1; then service nginx reload; return $?; fi",
+            "  /usr/sbin/nginx -s reload",
+            "}",
+        ])
+
     def _deploy_route(self, node, route) -> None:
         content = self._render_mapping(route, node)
         target = f"{node['generated_dir']}/{route['public_host']}.conf"
@@ -3848,12 +4116,24 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             ("-r", node["tls_key_file"], f"TLS 私钥不可读：{node['tls_key_file']}"),
             ("-r", node["caddy_config"], f"Nginx 配置不可读：{node['caddy_config']}"),
         ]
+        shared_front = str(node["nginx_mode"] or "isolated") == "shared-front"
+        if shared_front:
+            front_config = str(node["front_nginx_config"] or "").strip()
+            if not SAFE_FRONT_NGINX_CONFIG.fullmatch(front_config):
+                raise PanelError("已有 Nginx 接入配置路径不安全")
+            requirements.append(("-r", front_config, f"前置 Nginx 接入配置不可读：{front_config}"))
         if node["auto_managed"]:
             requirements.append(("-x", "/usr/local/sbin/uniproxy-nginx", "自动 Nginx 控制器不存在"))
         commands = ["set -eu", self._ca_bundle_prepare_script(str(node["ca_bundle_path"]))]
         for test, path, message in requirements:
             commands.append(f"test {test} {shlex.quote(path)} || {{ echo {shlex.quote(message)} >&2; exit 1; }}")
         commands.append(f"/usr/sbin/nginx -t -c {shlex.quote(node['caddy_config'])}")
+        if shared_front:
+            commands.extend([
+                self._existing_nginx_runtime_script(),
+                "nginx_front_running || { echo '前置 Nginx 进程未运行' >&2; exit 1; }",
+                "/usr/sbin/nginx -t",
+            ])
         if node["auto_managed"]:
             commands.append(
                 "/usr/local/sbin/uniproxy-nginx status || "
@@ -3887,7 +4167,8 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             raise PanelError(
                 f"远端 Nginx 和内部 HTTPS 正常，但公网 HTTPS 检查失败（{public_url}）：{str(exc)[-240:]}"
             ) from exc
-        return f"检查通过：SSH、Nginx 配置、进程、内部 HTTPS 和公网 HTTPS 均正常；{public_url}"
+        front_note = "、前置 Nginx 平滑共存" if shared_front else ""
+        return f"检查通过：SSH、Nginx 配置、进程{front_note}、内部 HTTPS 和公网 HTTPS 均正常；{public_url}"
 
     def _check_public_probe(self, node) -> str:
         url = self._public_url(node, node["domain_suffix"]).rstrip("/") + "/__health"
@@ -3970,22 +4251,45 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             progress("部署任务已启动")
             self._raise_if_node_provision_cancelled(cancel_event)
             progress("探测远端现有 Nginx 监听端口")
-            detected_internal_port = await asyncio.to_thread(
-                self._detect_existing_nginx_port,
+            existing_nginx = await asyncio.to_thread(
+                self._detect_existing_nginx_info,
                 candidate,
                 cancel_event,
             )
-            if detected_internal_port is not None:
-                candidate["internal_https_port"] = detected_internal_port
+            detected_front_port = existing_nginx.port if existing_nginx is not None else None
+            if existing_nginx is not None:
+                if detected_front_port == 80:
+                    raise PanelError("检测到远端 Nginx 只监听 HTTP 80，无法安全接入 HTTPS")
+                if not existing_nginx.ssl:
+                    raise PanelError(
+                        f"检测到远端 Nginx 监听端口 {detected_front_port}，但未确认其为 HTTPS，未修改远端配置"
+                    )
+                if not existing_nginx.include_dir:
+                    raise PanelError("检测到远端 Nginx，但未找到可安全接入的 conf.d/include 目录，未修改远端配置")
+                if int(candidate["internal_https_port"]) == detected_front_port:
+                    raise PanelError(
+                        f"项目内部端口不能与已有 Nginx 端口 {detected_front_port} 相同，请改填其他高位端口"
+                    )
+                candidate["nginx_mode"] = "shared-front"
+                candidate["front_nginx_port"] = detected_front_port
+                digest = hashlib.sha256(str(candidate["domain_suffix"]).encode("ascii")).hexdigest()[:16]
+                candidate["front_nginx_config"] = f"{existing_nginx.include_dir}/uniproxy-node-{digest}.conf"
                 if candidate["network_mode"] == "vps":
-                    candidate["public_https_port"] = detected_internal_port
+                    candidate["public_https_port"] = detected_front_port
                     progress(
-                        f"独立 VPS 检测到远端 Nginx 监听端口 {detected_internal_port}，公网和内部均使用该端口"
+                        f"独立 VPS 检测到远端 Nginx 监听端口 {detected_front_port}，保留原服务并接入项目；项目内部使用 {candidate['internal_https_port']}"
                     )
                 else:
-                    progress(f"检测到远端 Nginx 监听端口 {detected_internal_port}")
+                    progress(
+                        f"检测到远端 Nginx 监听端口 {detected_front_port}，保留原服务并作为公网前置；项目内部使用 {candidate['internal_https_port']}"
+                    )
             else:
-                progress(f"使用表单填写的内部 HTTPS 端口 {candidate['internal_https_port']}")
+                candidate["nginx_mode"] = "isolated"
+                candidate["front_nginx_config"] = ""
+                candidate["front_nginx_port"] = 0
+                if candidate["network_mode"] == "vps" and int(candidate["public_https_port"]) != int(candidate["internal_https_port"]):
+                    raise PanelError("未检测到已有 Nginx 时，独立 VPS 的公网端口和内部端口必须一致")
+                progress(f"未检测到已有 Nginx，使用独立 Nginx 端口 {candidate['internal_https_port']}")
             progress("识别节点所在地区")
             country_name, country_code, country_flag = await self._lookup_node_location(candidate["ssh_host"])
             self._raise_if_node_provision_cancelled(cancel_event)
@@ -4003,35 +4307,48 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             with self._connect() as db:
                 if db.execute("SELECT 1 FROM nodes WHERE name=?", (candidate["name"],)).fetchone():
                     raise PanelError("节点名称已存在")
+                node_columns = (
+                    "name", "kind", "ssh_host", "ssh_port", "ssh_user", "ssh_identity",
+                    "ssh_password", "ssh_password_ciphertext", "domain_suffix", "tls_cert_file",
+                    "tls_key_file", "caddy_config", "generated_dir", "public_https_port",
+                    "internal_https_port", "nginx_mode", "front_nginx_config", "front_nginx_port",
+                    "country_name", "country_code", "country_flag", "network_mode", "auto_managed",
+                    "ssh_host_key", "ssh_host_fingerprint", "host_key_verified_at", "dns_record_ids_json",
+                    "cert_mode", "state", "security_policy_version", "created_at", "updated_at",
+                )
+                encrypted_password = (
+                    self.node_credential_cipher.encrypt(candidate["ssh_password"].encode()).decode()
+                    if candidate["ssh_password"] and self.node_credential_cipher else candidate["ssh_password"]
+                )
+                node_values = (
+                    candidate["name"], candidate["kind"], candidate["ssh_host"], candidate["ssh_port"],
+                    candidate["ssh_user"], candidate["ssh_identity"], "", encrypted_password,
+                    candidate["domain_suffix"], candidate["tls_cert_file"], candidate["tls_key_file"],
+                    candidate["caddy_config"], candidate["generated_dir"], candidate["public_https_port"],
+                    candidate["internal_https_port"], candidate["nginx_mode"], candidate["front_nginx_config"],
+                    candidate["front_nginx_port"], country_name, country_code, country_flag,
+                    candidate["network_mode"], 1, candidate["ssh_host_key"], candidate["ssh_host_fingerprint"],
+                    candidate["host_key_verified_at"], json.dumps(dns_records, separators=(",", ":")),
+                    "central", "active", 2, now(), now(),
+                )
                 cursor = db.execute(
-                    "INSERT INTO nodes (name,kind,ssh_host,ssh_port,ssh_user,ssh_identity,ssh_password,ssh_password_ciphertext,domain_suffix,tls_cert_file,tls_key_file,caddy_config,generated_dir,public_https_port,internal_https_port,country_name,country_code,country_flag,network_mode,auto_managed,ssh_host_key,ssh_host_fingerprint,host_key_verified_at,dns_record_ids_json,cert_mode,state,security_policy_version,created_at,updated_at) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?,1,?,?,?,?,'central','active',2,?,?)",
-                    (
-                        candidate["name"], candidate["kind"], candidate["ssh_host"], candidate["ssh_port"],
-                        candidate["ssh_user"], candidate["ssh_identity"], "",
-                        self.node_credential_cipher.encrypt(candidate["ssh_password"].encode()).decode()
-                        if candidate["ssh_password"] and self.node_credential_cipher else candidate["ssh_password"],
-                        candidate["domain_suffix"], candidate["tls_cert_file"], candidate["tls_key_file"],
-                        candidate["caddy_config"], candidate["generated_dir"], candidate["public_https_port"],
-                        candidate["internal_https_port"], country_name, country_code, country_flag,
-                        candidate["network_mode"], candidate["ssh_host_key"], candidate["ssh_host_fingerprint"],
-                        candidate["host_key_verified_at"], json.dumps(dns_records, separators=(",", ":")), now(), now(),
-                    ),
+                    f"INSERT INTO nodes ({','.join(node_columns)}) VALUES ({','.join('?' for _ in node_columns)})",
+                    node_values,
                 )
                 node_id = int(cursor.lastrowid)
             security_notice = (
                 "警告：本次节点部署按管理员设置跳过了 Nginx 出站保护；该节点不应代理不受信任的源站。"
                 if self.allow_unprotected_egress else ""
             )
-            if detected_internal_port is not None and candidate["network_mode"] == "vps":
+            if existing_nginx is not None and candidate["network_mode"] == "vps":
                 port_notice = (
-                    f"最终采用端口：公网 HTTPS {int(public_port)} → 内部 {effective_internal_port}；"
-                    f"独立 VPS 已检测到远端 Nginx 端口并同步使用 {effective_internal_port}。"
+                    f"最终采用端口：公网 HTTPS {int(public_port)} → 项目内部 {effective_internal_port}；"
+                    f"原 Nginx 保留在公网端口 {int(candidate['front_nginx_port'])}，通过平滑 reload 接入。"
                 )
-            elif detected_internal_port is not None:
+            elif existing_nginx is not None:
                 port_notice = (
                     f"最终采用端口：公网 HTTPS {int(public_port)} → 节点内部 {effective_internal_port}；"
-                    f"已检测到远端 Nginx 端口并忽略表单中的内部端口。请确认服务商映射到内部 {effective_internal_port}。"
+                    f"原 Nginx 保留在节点端口 {int(candidate['front_nginx_port'])}，请确认服务商将公网端口映射到该端口。"
                 )
             else:
                 port_notice = (
@@ -4249,8 +4566,18 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
                         # Accept the field name used by the previous NAT form
                         # while browsers still have a cached copy of it.
                         public_value = str(data.get("nat_https_port", "")).strip()
-                    public_port = int(public_value or "443")
-                    internal_port = int(str(data.get("internal_https_port", "443")))
+                    internal_value = str(data.get("internal_https_port", "")).strip()
+                    if network_mode == "vps":
+                        if not public_value and not internal_value:
+                            default_port = self._random_high_port()
+                            public_value = str(default_port)
+                            internal_value = str(default_port)
+                        if not public_value and internal_value:
+                            public_value = internal_value
+                        if not internal_value and public_value:
+                            internal_value = public_value
+                    public_port = int(public_value or str(self._random_high_port()))
+                    internal_port = int(internal_value or str(self._random_high_port()))
                 except ValueError as exc:
                     raise PanelError("服务器 IP、SSH 端口、公网端口或内部 HTTPS 端口格式不正确") from exc
                 if parsed_address.version != 4 or not parsed_address.is_global:
@@ -4261,6 +4588,8 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
                     raise PanelError("公网 HTTPS 端口超出范围")
                 if not 1 <= internal_port <= 65535:
                     raise PanelError("内部 HTTPS 端口超出范围")
+                if internal_port == 80:
+                    raise PanelError("内部 HTTPS 端口不能使用 80，请使用高位端口")
                 ssh_user = self._normalize_ssh_user(data.get("ssh_user", ""))
                 password = str(data.get("ssh_password", ""))
                 if len(password) > 512:
@@ -4284,6 +4613,8 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
                     "tls_key_file": cert_dir + "/key.pem",
                     "caddy_config": "/etc/uniproxy-nginx/nginx.conf",
                     "generated_dir": "/etc/uniproxy-nginx/conf.d", "auto_managed": 1,
+                    "ca_bundle_path": "/etc/uniproxy-nginx/ca-bundle.pem",
+                    "nginx_mode": "isolated", "front_nginx_config": "", "front_nginx_port": 0,
                     "network_mode": network_mode, "public_https_port": public_port,
                     "internal_https_port": internal_port,
                     # Kept as empty compatibility fields for the legacy schema;

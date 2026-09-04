@@ -92,6 +92,8 @@ class RouteSpec:
     redirect: RedirectSpec | None = None
     connect_timeout_seconds: int = 10
     stream_timeout_seconds: int = 3600
+    listen_address: str | None = None
+    include_http_redirect: bool = True
 
 
 def _validated_dns_name(value: str, field: str) -> str:
@@ -225,6 +227,18 @@ def _validated_timeout(value: int, field: str, maximum: int) -> int:
     return timeout
 
 
+def _validated_listen_address(value: str | None) -> str | None:
+    if value is None:
+        return None
+    try:
+        address = ipaddress.ip_address(str(value))
+    except ValueError as exc:
+        raise RendererError("listen address is invalid") from exc
+    if address.version != 4 or not address.is_loopback:
+        raise RendererError("listen address must be an IPv4 loopback address")
+    return address.compressed
+
+
 def _nginx_string(value: str) -> str:
     if any(character in value for character in ("\x00", "\r", "\n")):
         raise RendererError("Nginx value contains a control character")
@@ -327,6 +341,7 @@ def render_route(spec: RouteSpec) -> str:
     upstream_ips = _validated_public_ips(spec.upstream_ips)
     connect_timeout = _validated_timeout(spec.connect_timeout_seconds, "connect timeout", 120)
     stream_timeout = _validated_timeout(spec.stream_timeout_seconds, "stream timeout", 86400)
+    listen_address = _validated_listen_address(spec.listen_address)
     if spec.traffic_log_path is not None:
         traffic_log = _validated_path(spec.traffic_log_path, "traffic log")
         if not _SAFE_LOG_FORMAT.fullmatch(spec.traffic_log_format):
@@ -398,18 +413,26 @@ def render_route(spec: RouteSpec) -> str:
         redirect_prefix = f"/_unirelay_follow_{spec.redirect.token}"
         lines.extend(_backend_lines(redirect_backend_name, redirect_ips, redirect_port))
 
+    listen_prefix = f"{listen_address}:" if listen_address else ""
+    if spec.include_http_redirect:
+        redirect_listen = [f"    listen {listen_prefix}80;"]
+        if listen_address is None:
+            redirect_listen.append("    listen [::]:80;")
+        lines.extend((
+            "server {",
+            *redirect_listen,
+            f"    server_name {public_host};",
+            "    access_log off;",
+            f"    return 308 {public_origin}$request_uri;",
+            "}",
+            "",
+        ))
+    tls_listen = [f"    listen {listen_prefix}{internal_port} ssl;"]
+    if listen_address is None:
+        tls_listen.append(f"    listen [::]:{internal_port} ssl;")
     lines.extend((
         "server {",
-        "    listen 80;",
-        "    listen [::]:80;",
-        f"    server_name {public_host};",
-        "    access_log off;",
-        f"    return 308 {public_origin}$request_uri;",
-        "}",
-        "",
-        "server {",
-        f"    listen {internal_port} ssl;",
-        f"    listen [::]:{internal_port} ssl;",
+        *tls_listen,
         f"    server_name {public_host};",
         f"    ssl_certificate {_nginx_string(cert_file)};",
         f"    ssl_certificate_key {_nginx_string(key_file)};",
