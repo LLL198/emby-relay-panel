@@ -2219,7 +2219,7 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
     <label>服务器公网 IP<input required name='ssh_host' inputmode='decimal' placeholder='162.141.136.85'></label>
     <label>SSH 端口<input required name='ssh_port' value='22' inputmode='numeric'></label>
     <label>公网 HTTPS 端口<input required id='public-port' name='public_https_port' value='443' inputmode='numeric'><span class='muted'>NAT 默认可填服务商分配的端口，例如 30004</span></label>
-    <label>内部 HTTPS 端口<input required name='internal_https_port' value='443' inputmode='numeric'><span class='muted'>Nginx 监听端口；远端已有 Nginx 时自动识别</span></label>
+    <label>内部 HTTPS 端口<input required name='internal_https_port' value='443' inputmode='numeric'><span class='muted'>远端已有 Nginx 时自动识别监听端口</span></label>
     <label>SSH 用户名（留空默认为 root）<input name='ssh_user' autocomplete='username' maxlength='32' placeholder='root'></label>
     <label>SSH 密码（与私钥二选一）<input type='password' name='ssh_password' autocomplete='new-password'></label>
     <label>SSH 私钥文件（与密码二选一）<input type='file' name='ssh_private_key' accept='.pem,.key,text/plain,application/x-pem-file'></label>
@@ -3977,7 +3977,13 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             )
             if detected_internal_port is not None:
                 candidate["internal_https_port"] = detected_internal_port
-                progress(f"检测到远端 Nginx 监听端口 {detected_internal_port}")
+                if candidate["network_mode"] == "vps":
+                    candidate["public_https_port"] = detected_internal_port
+                    progress(
+                        f"独立 VPS 检测到远端 Nginx 监听端口 {detected_internal_port}，公网和内部均使用该端口"
+                    )
+                else:
+                    progress(f"检测到远端 Nginx 监听端口 {detected_internal_port}")
             else:
                 progress(f"使用表单填写的内部 HTTPS 端口 {candidate['internal_https_port']}")
             progress("识别节点所在地区")
@@ -4017,7 +4023,12 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
                 "警告：本次节点部署按管理员设置跳过了 Nginx 出站保护；该节点不应代理不受信任的源站。"
                 if self.allow_unprotected_egress else ""
             )
-            if detected_internal_port is not None:
+            if detected_internal_port is not None and candidate["network_mode"] == "vps":
+                port_notice = (
+                    f"最终采用端口：公网 HTTPS {int(public_port)} → 内部 {effective_internal_port}；"
+                    f"独立 VPS 已检测到远端 Nginx 端口并同步使用 {effective_internal_port}。"
+                )
+            elif detected_internal_port is not None:
                 port_notice = (
                     f"最终采用端口：公网 HTTPS {int(public_port)} → 节点内部 {effective_internal_port}；"
                     f"已检测到远端 Nginx 端口并忽略表单中的内部端口。请确认服务商映射到内部 {effective_internal_port}。"
