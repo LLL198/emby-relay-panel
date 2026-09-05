@@ -25,6 +25,7 @@ from aiohttp import web
 
 
 from nginx_renderer import RendererError, normalize_origin as normalize_route_origin
+from panel import VISUAL_UI_CSS, ui_icon
 
 
 
@@ -769,743 +770,49 @@ async def generator_response(request: web.Request):
 <title>Emby Relay · 媒体中继管理</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E⚡%3C/text%3E%3C/svg%3E">
 <style>
-/* Exact Admin Panel Design System */
-:root {{
-  color-scheme: light;
-  --bg: #f7f7fb;
-  --sidebar: rgba(255,255,255,.9);
-  --surface: rgba(255,255,255,.86);
-  --surface-strong: #ffffff;
-  --surface-soft: #f7f7fc;
-  --ink: #171722;
-  --muted: #697084;
-  --faint: #9298a8;
-  --line: rgba(67,72,92,.13);
-  --line-strong: rgba(124,58,237,.25);
-  --violet: #8b5cf6;
-  --violet-strong: #7c3aed;
-  --cyan: #22d3ee;
-  --success: #15803d;
-  --warning: #d97706;
-  --danger: #be123c;
-  --shadow: 0 18px 55px rgba(55,46,92,.08);
-}}
-
-body[data-theme='dark'] {{
-  color-scheme: dark;
-  --bg: #05060b;
-  --sidebar: rgba(8,10,18,.88);
-  --surface: rgba(13,16,27,.82);
-  --surface-strong: #0d101b;
-  --surface-soft: rgba(21,25,40,.72);
-  --ink: #f7f8ff;
-  --muted: #8e96aa;
-  --faint: #626b80;
-  --line: rgba(148,163,184,.15);
-  --line-strong: rgba(196,181,253,.28);
-  --success: #4ade80;
-  --warning: #fbbf24;
-  --danger: #fb7185;
-  --shadow: 0 24px 72px rgba(0,0,0,.34);
-}}
-
-* {{ box-sizing: border-box; margin: 0; padding: 0; }}
-html {{ min-height: 100%; background: var(--bg); }}
-body {{
-  position: relative;
-  min-height: 100vh;
-  margin: 0;
-  overflow-x: hidden;
-  color: var(--ink);
-  font: 14px/1.6 Inter, "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, -apple-system, sans-serif;
-  background: radial-gradient(circle at 78% -12%, rgba(139,92,246,.09), transparent 31%), radial-gradient(circle at 96% 82%, rgba(34,211,238,.07), transparent 27%), var(--bg);
-}}
-
-body[data-theme='dark'] {{
-  background: radial-gradient(circle at 78% -12%, rgba(99,102,241,.16), transparent 31%), radial-gradient(circle at 96% 82%, rgba(34,211,238,.08), transparent 27%), var(--bg);
-}}
-
-body:before {{
-  content: "";
-  position: fixed;
-  z-index: 0;
-  inset: -50px;
-  pointer-events: none;
-  opacity: .35;
-  background-image: linear-gradient(rgba(99,102,241,.09) 1px, transparent 1px), linear-gradient(90deg, rgba(99,102,241,.09) 1px, transparent 1px);
-  background-size: 44px 44px;
-  mask-image: radial-gradient(ellipse 80% 68% at 68% 35%, #000 15%, transparent 76%);
-  animation: admin-grid 26s linear infinite;
-}}
-body[data-theme='dark']:before {{
-  opacity: .28;
-  background-image: linear-gradient(rgba(148,163,184,.075) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,.075) 1px, transparent 1px);
-}}
-
-body:after {{
-  content: "";
-  position: fixed;
-  z-index: 0;
-  width: 520px;
-  height: 520px;
-  right: -180px;
-  top: 22%;
-  pointer-events: none;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(139,92,246,.12), rgba(34,211,238,.04) 43%, transparent 70%);
-  filter: blur(12px);
-  animation: admin-orb 10s ease-in-out infinite;
-}}
-
-.user-shell {{
-  position: relative;
-  z-index: 1;
-  width: 100%;
-  max-width: 1360px;
-  margin: 0 auto;
-  padding: 24px 28px 64px;
-}}
-
-/* Top Navigation Bar */
-.user-topbar {{
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 24px;
-  padding: 12px 18px;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: var(--surface);
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(18px);
-}}
-
-.brand {{
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  color: var(--ink);
-  text-decoration: none;
-}}
-.brand-symbol {{
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  border: 1px solid rgba(196,181,253,.32);
-  border-radius: 11px;
-  background: linear-gradient(145deg, rgba(139,92,246,.32), rgba(34,211,238,.12));
-  box-shadow: inset 0 1px rgba(255,255,255,.14), 0 0 24px rgba(139,92,246,.16);
-  color: #8b5cf6;
-  font-size: 15px;
-  font-weight: 900;
-}}
-body[data-theme='dark'] .brand-symbol {{ color: #ddd6fe; }}
-
-.brand-copy {{
-  display: grid;
-  line-height: 1.15;
-}}
-.brand-copy strong {{
-  font-size: 14.5px;
-  font-weight: 750;
-  color: var(--ink);
-  letter-spacing: .01em;
-}}
-.brand-copy small {{
-  margin-top: 3px;
-  color: var(--faint);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: .1em;
-  text-transform: uppercase;
-}}
-
-.user-nav-actions {{
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-}}
-.tag {{
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
-  border: 1px solid rgba(139,92,246,.2);
-  border-radius: 999px;
-  background: rgba(139,92,246,.1);
-  color: #7c3aed;
-  font-size: 11.5px;
-  font-weight: 750;
-}}
-body[data-theme='dark'] .tag {{ color: #c4b5fd; }}
-.tag:before {{
-  content: "";
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-  box-shadow: 0 0 8px currentColor;
-}}
-
-.tool-button, .view-site {{
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 36px;
-  padding: 0 12px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--surface-soft);
-  color: var(--muted);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 700;
-  text-decoration: none;
-  cursor: pointer;
-  transition: all .18s ease;
-}}
-.tool-button:hover, .view-site:hover {{
-  border-color: var(--line-strong);
-  background: rgba(139,92,246,.1);
-  color: var(--ink);
-  transform: translateY(-1px);
-}}
-.tool-button.icon-only {{ width: 36px; padding: 0; font-size: 14px; }}
-
-/* Top Hero Dashboard */
-.overview-columns {{
-  display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.95fr);
-  gap: 18px;
-  margin-bottom: 20px;
-}}
-
-section {{
-  position: relative;
-  padding: 22px;
-  border: 1px solid transparent;
-  border-radius: 17px;
-  background: linear-gradient(var(--surface-strong), var(--surface-strong)) padding-box, linear-gradient(125deg, rgba(139,92,246,.3), rgba(148,163,184,.1) 40%, rgba(34,211,238,.18)) border-box;
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(20px);
-}}
-section:before {{
-  content: "";
-  position: absolute;
-  left: 20px;
-  right: 20px;
-  top: 0;
-  height: 1px;
-  pointer-events: none;
-  background: linear-gradient(90deg, transparent, rgba(196,181,253,.45), rgba(103,232,249,.28), transparent);
-}}
-
-.panel-heading {{
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  margin-bottom: 16px;
-}}
-.panel-heading.align-right {{
-  justify-content: flex-end;
-  margin-bottom: 8px;
-}}
-.panel-heading h2 {{
-  margin: 0;
-  color: var(--ink);
-  font-size: 16.5px;
-  letter-spacing: -.02em;
-}}
-
-.overview-live {{
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 5px 10px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--surface-soft);
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 700;
-}}
-.overview-live i {{
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--success);
-  box-shadow: 0 0 0 4px rgba(74,222,128,.1), 0 0 14px rgba(74,222,128,.5);
-  animation: status-pulse 2.4s ease-in-out infinite;
-}}
-
-.globe-stage-wrapper {{
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 195px;
-  margin-top: 4px;
-}}
-#globe-canvas {{
-  width: 240px;
-  height: 240px;
-  max-width: 100%;
-  cursor: grab;
-  touch-action: none;
-}}
-#globe-canvas:active {{
-  cursor: grabbing;
-}}
-
-/* Metrics Grid Stack */
-.overview-metrics-stack {{
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  justify-content: space-between;
-}}
-
-.metric-card {{
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  padding: 20px 22px;
-  border: 1px solid transparent;
-  border-radius: 16px;
-  background: linear-gradient(var(--surface-strong), var(--surface-strong)) padding-box, linear-gradient(125deg, rgba(139,92,246,.42), rgba(148,163,184,.08) 48%, rgba(34,211,238,.25)) border-box;
-  box-shadow: var(--shadow);
-  overflow: hidden;
-  flex: 1;
-}}
-.metric-card header {{
-  position: relative;
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
-}}
-.metric-icon {{
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  background: var(--surface-soft);
-  color: #8b5cf6;
-  font-size: 12px;
-}}
-body[data-theme='dark'] .metric-icon {{ color: #c4b5fd; }}
-.metric-card strong {{
-  position: relative;
-  z-index: 1;
-  display: block;
-  color: var(--ink);
-  font-size: 28px;
-  line-height: 1.1;
-  letter-spacing: -.045em;
-}}
-.metric-card strong small {{
-  display: inline;
-  margin: 0 0 0 4px;
-  font-size: 13px;
-  color: var(--faint);
-  font-weight: 500;
-}}
-
-/* Main Workspace: 3/4 Left Bento Nodes + 1/4 Right Route Form */
-.user-workspace {{
-  display: grid;
-  grid-template-columns: minmax(0, 3fr) minmax(310px, 1.2fr);
-  gap: 18px;
-  margin-bottom: 20px;
-}}
-
-.node-overview-grid {{
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
-  gap: 12px;
-}}
-
-.node-overview {{
-  padding: 14px 16px;
-  border: 1px solid var(--line);
-  border-radius: 13px;
-  background: var(--surface-soft);
-  cursor: pointer;
-  text-align: left;
-  outline: none;
-  transition: border-color .18s ease, transform .18s ease, box-shadow .18s ease;
-}}
-.node-overview:hover {{
-  border-color: var(--line-strong);
-  transform: translateY(-1px);
-}}
-.node-overview.active {{
-  border-color: rgba(139,92,246,.6);
-  background: linear-gradient(90deg, rgba(139,92,246,.12), rgba(34,211,238,.035));
-  box-shadow: inset 3px 0 #8b5cf6, 0 8px 24px rgba(139,92,246,.1);
-}}
-
-.node-overview header {{
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}}
-.node-overview-title {{
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  color: var(--ink);
-  font-size: 12.5px;
-  font-weight: 750;
-  min-width: 0;
-}}
-.node-overview-title .flag {{
-  flex: 0 0 auto;
-}}
-.flag-icon {{
-  display: block;
-  width: 26px;
-  height: 18px;
-  border-radius: 3px;
-}}
-.node-name-text {{
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}}
-
-/* Unified Node State on Header Right */
-.node-state {{
-  flex: 0 0 auto;
-  color: var(--success);
-  font-size: 11px;
-  font-weight: 750;
-  transition: color .18s ease;
-}}
-.node-state.checking {{ color: var(--muted); }}
-.node-state.fast {{ color: var(--success); }}
-.node-state.medium {{ color: var(--warning); }}
-.node-state.slow {{ color: var(--danger); }}
-.node-state.timeout, .node-state.offline {{ color: var(--danger); }}
-
-.node-overview-meta {{
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  margin-top: 10px;
-  color: var(--muted);
-  font-size: 11px;
-}}
-
-.node-progress {{
-  height: 4px;
-  margin-top: 10px;
-  overflow: hidden;
-  border-radius: 99px;
-  background: rgba(148,163,184,.15);
-}}
-.node-progress span {{
-  display: block;
-  width: var(--progress, 100%);
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, #8b5cf6, #22d3ee);
-  box-shadow: 0 0 10px rgba(34,211,238,.3);
-}}
-
-/* Form & Input Controls */
-label {{
-  display: grid;
-  align-content: start;
-  gap: 7px;
-  color: #bac2d3;
-  font-size: 12px;
-  font-weight: 720;
-}}
-body[data-theme='light'] label {{ color: #41475a; }}
-
-input, select, textarea {{
-  width: 100%;
-  min-width: 0;
-  height: 45px;
-  padding: 10px 12px;
-  outline: 0;
-  border: 1px solid var(--line);
-  border-radius: 11px;
-  background: rgba(6,8,15,.66);
-  color: var(--ink);
-  font: inherit;
-  font-size: 12.5px;
-  transition: border-color .18s ease, box-shadow .18s ease, background .18s ease;
-}}
-body[data-theme='light'] input {{
-  background: rgba(255,255,255,.9);
-}}
-input:hover {{ border-color: rgba(196,181,253,.3); }}
-input:focus {{
-  border-color: rgba(139,92,246,.82);
-  box-shadow: 0 0 0 4px rgba(139,92,246,.11), 0 0 20px rgba(34,211,238,.04);
-}}
-
-/* Primary Action Button (with Smooth Light Beam Sweep Shimmer) */
-button.btn-primary {{
-  position: relative;
-  width: 100%;
-  height: 46px;
-  margin-top: 6px;
-  padding: 8px 14px;
-  overflow: hidden;
-  border: 1px solid rgba(196,181,253,.34);
-  border-radius: 11px;
-  background: linear-gradient(105deg, #6d28d9 0%, #7c3aed 36%, #2563eb 70%, #0891b2 100%);
-  background-size: 200% 100%;
-  box-shadow: 0 10px 28px rgba(109,40,217,.22), inset 0 1px rgba(255,255,255,.18);
-  color: #fff;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 800;
-  cursor: pointer;
-  transition: transform .18s ease, box-shadow .18s ease;
-  animation: button-hue 7s ease-in-out infinite;
-}}
-button.btn-primary:before {{
-  content: "";
-  position: absolute;
-  inset: -2px auto -2px -45%;
-  width: 34%;
-  pointer-events: none;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,.45), transparent);
-  transform: skewX(-18deg);
-  animation: shimmer 3.8s ease-in-out infinite;
-}}
-button.btn-primary:hover {{
-  transform: translateY(-1px);
-  box-shadow: 0 14px 36px rgba(109,40,217,.3), 0 0 28px rgba(34,211,238,.08);
-}}
-button.btn-primary:active {{ transform: translateY(0); }}
-
-.selected-node-display {{
-  margin-top: 6px;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: 11px;
-  background: var(--surface-soft);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 12px;
-}}
-.snd-lbl {{ color: var(--faint); font-size: 11px; font-weight: 600; }}
-.snd-val {{ font-weight: 750; color: var(--ink); }}
-
-.user-form-stack {{
-  display: flex;
-  flex-direction: column;
-  gap: 13px;
-  margin-top: 14px;
-}}
-
-/* Table System */
-table {{
-  width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
-}}
-th, td {{
-  padding: 14px 10px;
-  border-bottom: 1px solid var(--line);
-  text-align: left;
-  vertical-align: middle;
-}}
-th {{
-  color: var(--faint);
-  font-size: 11px;
-  font-weight: 820;
-  letter-spacing: .07em;
-  text-transform: uppercase;
-}}
-td {{
-  color: #cbd1df;
-  font-size: 13px;
-}}
-body[data-theme='light'] td {{ color: #41475a; }}
-tbody tr:last-child td {{ border-bottom: 0; }}
-tbody tr {{ transition: background .16s ease; }}
-tbody tr:hover {{ background: rgba(139,92,246,.035); }}
-code {{
-  color: #171722;
-  font: 12px/1.65 ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-weight: 600;
-  word-break: break-all;
-}}
-body[data-theme='dark'] code {{ color: #a5f3fc; font-weight: normal; }}
-
-.copy-control {{
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}}
-.copy-control button.copy-btn {{
-  width: auto;
-  min-height: 45px;
-  padding: 0 18px;
-  margin: 0;
-  flex: 0 0 auto;
-}}
-.copy-control button.secondary, button.secondary {{
-  min-height: 32px;
-  padding: 5px 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface-soft);
-  color: var(--muted);
-  font: inherit;
-  font-size: 11.5px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: all .16s ease;
-}}
-.copy-control button.secondary:hover, button.secondary:hover {{
-  border-color: var(--line-strong);
-  background: rgba(139,92,246,.11);
-  color: var(--ink);
-}}
-
-button.danger {{
-  min-height: 32px;
-  padding: 5px 10px;
-  border: 1px solid rgba(251,113,133,.34);
-  border-radius: 8px;
-  background: rgba(127,29,29,.28);
-  color: #fda4af;
-  font: inherit;
-  font-size: 11.5px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: all .16s ease;
-}}
-body[data-theme='light'] button.danger {{
-  background: #fff1f2;
-  color: #be123c;
-}}
-button.danger:hover {{
-  background: rgba(159,18,57,.38);
-}}
-
-.ok {{ color: var(--success); font-weight: 750; }}
-.off {{ color: var(--warning); font-weight: 750; }}
-.error-sub {{ margin-top: 2px; font-size: 10.5px; color: var(--danger); }}
-
-.col-note {{ min-width: 130px; }}
-.note-view-box {{ display: inline-flex; align-items: center; gap: 6px; }}
-.note-text {{ max-width: 130px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11.5px; }}
-.note-text.empty-note {{ color: var(--faint); }}
-.btn-note-edit {{
-  display: grid;
-  place-items: center;
-  width: 22px; height: 22px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: transparent;
-  color: var(--faint);
-  font-size: 10.5px;
-  cursor: pointer;
-}}
-.btn-note-edit:hover {{ border-color: var(--line-strong); color: var(--ink); }}
-.note-inline-form {{ display: none; align-items: center; gap: 4px; }}
-.note-inline-form.is-open {{ display: flex; }}
-.note-inline-form input {{
-  width: 110px; height: 30px;
-  padding: 0 6px;
-  font-size: 11.5px;
-}}
-.btn-note-save {{
-  height: 30px;
-  padding: 0 8px;
-  border: 1px solid var(--line-strong);
-  border-radius: 6px;
-  background: var(--violet);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 700;
-  cursor: pointer;
-}}
-.btn-note-cancel {{
-  height: 30px;
-  padding: 0 6px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: transparent;
-  color: var(--muted);
-  font-size: 11px;
-  cursor: pointer;
-}}
-
-.notice-card {{
-  margin-bottom: 20px;
-}}
-.result-body-wrap {{
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}}
-.error {{
-  margin-bottom: 18px;
-  padding: 12px 14px;
-  border: 1px solid rgba(251,113,133,.3);
-  border-radius: 12px;
-  background: rgba(127,29,29,.18);
-  color: #fda4af;
-  font-size: 12.5px;
-}}
-body[data-theme='light'] .error {{
-  background: #fff1f2;
-  color: #be123c;
-}}
-
-.table-container {{
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-}}
-.empty-state {{
-  padding: 36px 12px;
-  color: var(--faint);
-  text-align: center;
-  font-size: 12.5px;
-}}
-
-@keyframes admin-grid {{ to {{ transform: translate3d(44px,44px,0); }} }}
-@keyframes admin-orb {{ 0%,100% {{ opacity: .58; transform: scale(.94) translate3d(0,0,0); }} 50% {{ opacity: 1; transform: scale(1.06) translate3d(-24px,18px,0); }} }}
-@keyframes button-hue {{ 0%,100% {{ background-position: 0 50%; }} 50% {{ background-position: 100% 50%; }} }}
-@keyframes shimmer {{ 0%,58% {{ left: -45%; }} 82%,100% {{ left: 125%; }} }}
-@keyframes status-pulse {{ 0%,100% {{ opacity: .7; }} 50% {{ opacity: 1; box-shadow: 0 0 0 6px rgba(74,222,128,.08), 0 0 18px rgba(74,222,128,.62); }} }}
-
-@media (max-width: 960px) {{
-  .overview-columns {{ grid-template-columns: 1fr; }}
-  .user-workspace {{ grid-template-columns: 1fr; }}
-}}
-@media (max-width: 640px) {{
-  .user-shell {{ padding: 14px 12px 48px; }}
-  .user-topbar {{ padding: 10px 12px; }}
-  .node-overview-grid {{ grid-template-columns: repeat(auto-fill, minmax(135px, 1fr)); gap: 8px; }}
-  .node-overview {{ padding: 10px 12px; }}
-  .globe-stage-wrapper {{ height: 160px; }}
-  #globe-canvas {{ width: 200px; height: 200px; }}
-}}
+{VISUAL_UI_CSS}
+.user-shell{{position:relative;z-index:1;width:100%;max-width:1360px;margin:0 auto;padding:25px 28px 60px}}
+.user-topbar{{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:24px;padding:16px 20px;border:1px solid var(--line);border-radius:18px;background:var(--surface);box-shadow:var(--shadow)}}
+.user-nav-actions{{display:flex;align-items:center;flex-wrap:wrap;gap:8px}}.tool-button.icon-only{{width:40px;padding:0;font-size:15px}}
+.overview-columns{{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(300px,.95fr);gap:20px;margin-bottom:22px}}
+.panel-heading.align-right{{justify-content:flex-end;margin-bottom:8px}}
+.globe-stage-wrapper{{position:relative;display:flex;align-items:center;justify-content:center;width:100%;height:206px;margin-top:4px;background:radial-gradient(ellipse at center,rgba(251,146,60,.12),transparent 65%)}}
+.globe-stage-wrapper:before,.globe-stage-wrapper:after{{content:"";position:absolute;inset:18% 12%;border:1px solid var(--line);border-radius:50%;transform:rotate(-15deg);opacity:.55;pointer-events:none}}
+.globe-stage-wrapper:after{{inset:30% 7%;transform:rotate(15deg);opacity:.35}}
+#globe-canvas{{position:relative;z-index:1;width:260px;height:260px;max-width:100%;cursor:grab;touch-action:none}}
+#globe-canvas:active{{cursor:grabbing}}
+.overview-metrics-stack{{display:flex;flex-direction:column;gap:16px;justify-content:space-between}}.overview-metrics-stack .metric-card{{display:flex;flex-direction:column;justify-content:center;flex:1}}
+.user-workspace{{display:grid;grid-template-columns:minmax(0,3fr) minmax(310px,1.2fr);gap:20px;margin-bottom:22px}}
+.user-workspace>section:last-child{{background:linear-gradient(145deg,var(--surface) 35%,var(--surface-soft))}}
+.node-overview-grid{{grid-template-columns:repeat(auto-fill,minmax(210px,1fr))}}
+.user-node-card{{cursor:pointer}}.user-node-card.active{{border-color:var(--accent);background:linear-gradient(120deg,var(--accent-soft),var(--surface));box-shadow:inset 3px 0 var(--accent),0 5px 16px rgba(194,65,12,.07)}}
+.node-name-text{{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}}
+.selected-node-display{{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:6px;padding:12px 13px;border:1px solid var(--line);border-radius:12px;background:var(--accent-soft);font-size:12px}}
+.snd-lbl{{flex:0 0 auto;color:var(--muted);font-size:11px}}.snd-val{{min-width:0;overflow-wrap:anywhere;text-align:right;font-weight:700;color:var(--accent)}}
+.user-form-stack{{display:flex;flex-direction:column;gap:15px;margin-top:19px}}
+button.btn-primary{{width:100%;min-height:46px;margin-top:6px;font-size:13px}}
+.copy-control button.copy-btn{{min-height:45px;padding:0 18px;margin:0}}
+.copy-control button.secondary,button.secondary,button.danger{{min-height:34px;padding:6px 10px;font-size:11px}}
+td{{vertical-align:middle}}.col-origin{{min-width:160px;max-width:260px}}.col-public{{min-width:230px}}.col-node .tag{{white-space:nowrap}}.col-status,.col-action{{white-space:nowrap}}
+.error-sub{{margin-top:3px;max-width:220px;white-space:normal;overflow-wrap:anywhere;font-size:11px;color:var(--danger)}}.col-status>.danger{{color:var(--danger)}}
+.col-note{{min-width:145px}}.note-view-box{{display:inline-flex;align-items:center;gap:7px}}.note-text{{max-width:130px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:12px}}.note-text.empty-note{{color:var(--faint)}}
+.btn-note-edit{{width:28px;min-height:28px;padding:0;border:1px solid var(--line);border-radius:8px;background:var(--surface);box-shadow:none;color:var(--muted);font-size:13px}}
+.btn-note-edit:hover{{border-color:var(--line-strong);color:var(--accent);box-shadow:none}}
+.note-inline-form{{display:none;align-items:center;gap:5px}}.note-inline-form.is-open{{display:flex}}
+.note-inline-form input{{width:110px;height:34px;padding:0 8px;font-size:12px}}
+.btn-note-save,.btn-note-cancel{{min-height:34px;padding:5px 9px;font-size:11px}}
+.btn-note-cancel{{border-color:var(--line);background:var(--surface);box-shadow:none;color:var(--muted)}}
+.notice-card{{margin-bottom:22px}}.result-body-wrap{{display:flex;flex-direction:column;gap:9px}}
+@media(max-width:1100px){{.user-topbar{{align-items:flex-start;flex-wrap:wrap}}.user-nav-actions{{flex:1;justify-content:flex-end}}.user-topbar .brand{{min-height:40px}}}}
+@media(max-width:960px){{.overview-columns,.user-workspace{{grid-template-columns:1fr}}.overview-metrics-stack{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}}}}
+@media(max-width:640px){{
+  .user-shell{{padding:14px 12px 42px}}.user-topbar{{padding:15px;gap:14px}}.user-nav-actions{{justify-content:flex-start;flex-basis:100%;gap:7px}}
+  .user-nav-actions .tag{{font-size:10px}}.user-nav-actions .tool-button,.user-nav-actions .view-site{{min-height:40px;font-size:11px}}
+  .overview-columns,.user-workspace{{gap:14px;margin-bottom:16px}}.overview-metrics-stack{{gap:12px}}.node-overview-grid{{grid-template-columns:1fr}}
+  .globe-stage-wrapper{{height:180px}}#globe-canvas{{width:220px;height:220px}}.panel-heading h2{{font-size:16px}}
+  .result-body-wrap .copy-control{{flex-wrap:wrap}}.result-body-wrap .copy-control input{{flex-basis:100%}}
+}}
+@media(max-width:360px){{.overview-metrics-stack{{grid-template-columns:1fr}}}}
 </style>
 </head>
 <body data-theme="light">
@@ -1522,11 +829,11 @@ body[data-theme='light'] .error {{
     </a>
 
     <div class="user-nav-actions">
-      <span class="tag">👤 {html.escape(user['username'])}</span>
+      <span class="tag">{ui_icon("users")} {html.escape(user['username'])}</span>
       <span class="tag">线路 {used_routes}/{route_quota}</span>
       <span class="tag">{html.escape(expiry_label)}</span>
       <button type="button" class="tool-button icon-only" id="theme-toggle" title="切换主题" aria-label="切换主题">◐</button>
-      <a class="view-site" href="/account">账号安全 ⚙</a>
+      <a class="view-site" href="/account">{ui_icon("shield")} 账号安全</a>
       {admin_link}
       <form method="post" action="/logout" style="margin:0">
         <input type="hidden" name="csrf" value="{html.escape(csrf_token, quote=True)}">
@@ -1551,7 +858,7 @@ body[data-theme='light'] .error {{
       <article class="metric-card">
         <header>
           <span>可用加速节点</span>
-          <span class="metric-icon">⚡</span>
+          <span class="metric-icon">{ui_icon("globe")}</span>
         </header>
         <strong>{nodes_count} <small>Nodes</small></strong>
       </article>
@@ -1559,7 +866,7 @@ body[data-theme='light'] .error {{
       <article class="metric-card">
         <header>
           <span>线路配额使用</span>
-          <span class="metric-icon">⌁</span>
+          <span class="metric-icon">{ui_icon("routes")}</span>
         </header>
         <strong>{used_routes} <small>/ {route_quota}</small></strong>
       </article>
@@ -1571,7 +878,7 @@ body[data-theme='light'] .error {{
     <section>
       <div class="panel-heading">
         <h2>选择加速节点</h2>
-        <button type="button" class="tool-button" id="test-nodes">⚡ 测速</button>
+        <button type="button" class="tool-button" id="test-nodes">{ui_icon("trend")} 测速</button>
       </div>
 
       <div class="node-overview-grid" id="nodes">
@@ -1694,6 +1001,8 @@ const activeNodeGeos = nodes.map(resolveNodeGeo);
 // D3 Full Standalone Spherical Orthographic Projection (100% Complete Horizon Clipping)
 const canvas = document.getElementById('globe-canvas');
 const ctx = canvas ? canvas.getContext('2d') : null;
+const globeMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+let globeFrame = 0;
 
 let centerLng = 114;
 let centerLat = 22;
@@ -1723,13 +1032,18 @@ function renderGlobe() {{
   const isLight = document.body.dataset.theme !== 'dark';
 
   // Smooth rotation
-  if (!isDragging) {{
+  if (!isDragging && !globeMotion.matches) {{
     centerLng -= 0.16;
     if (targetLng !== null) {{
       const diffLng = ((targetLng - centerLng) % 360 + 540) % 360 - 180;
       centerLng += diffLng * 0.04;
       centerLat += (targetLat - centerLat) * 0.04;
     }}
+  }}
+
+  if (globeMotion.matches && !isDragging && targetLng !== null) {{
+    centerLng = targetLng;
+    centerLat = targetLat;
   }}
 
   // Update D3 projection
@@ -1741,7 +1055,7 @@ function renderGlobe() {{
   // 1. Base Ocean Sphere
   ctx.beginPath();
   ctx.arc(cx, cy, globeR, 0, Math.PI * 2);
-  ctx.fillStyle = isLight ? '#ffffff' : '#080a12';
+  ctx.fillStyle = isLight ? '#fffbf7' : '#221c18';
   ctx.fill();
 
   // Clip inside sphere
@@ -1753,7 +1067,7 @@ function renderGlobe() {{
   // 2. Precision Graticule Lines (30 deg parallels & meridians)
   ctx.beginPath();
   ctx.lineWidth = 0.6;
-  ctx.strokeStyle = isLight ? 'rgba(67, 72, 92, 0.08)' : 'rgba(148, 163, 184, 0.1)';
+  ctx.strokeStyle = isLight ? 'rgba(128, 88, 61, 0.08)' : 'rgba(193, 173, 159, 0.1)';
   geoPath(d3.geoGraticule().step([30, 30])());
   ctx.stroke();
 
@@ -1761,10 +1075,10 @@ function renderGlobe() {{
   if (typeof WORLD_GEOJSON !== 'undefined') {{
     ctx.beginPath();
     geoPath(WORLD_GEOJSON);
-    ctx.fillStyle = isLight ? '#f1f1f8' : 'rgba(139, 92, 246, 0.16)';
+    ctx.fillStyle = isLight ? '#ffead6' : 'rgba(251, 146, 60, 0.16)';
     ctx.fill();
     ctx.lineWidth = 1;
-    ctx.strokeStyle = isLight ? 'rgba(124, 58, 237, 0.28)' : 'rgba(196, 181, 253, 0.35)';
+    ctx.strokeStyle = isLight ? 'rgba(194, 65, 12, 0.28)' : 'rgba(253, 186, 116, 0.35)';
     ctx.stroke();
   }}
 
@@ -1774,11 +1088,11 @@ function renderGlobe() {{
   ctx.beginPath();
   ctx.arc(cx, cy, globeR, 0, Math.PI * 2);
   ctx.lineWidth = 1.2;
-  ctx.strokeStyle = isLight ? 'rgba(124, 58, 237, 0.2)' : 'rgba(148, 163, 184, 0.2)';
+  ctx.strokeStyle = isLight ? 'rgba(194, 65, 12, 0.2)' : 'rgba(193, 173, 159, 0.2)';
   ctx.stroke();
 
   // 5. Draw Connected Node Markers
-  const now = Date.now() * 0.003;
+  // A static marker halo avoids flashing while keeping selected nodes legible.
   activeNodeGeos.forEach(nodeGeo => {{
     const d = d3.geoDistance([centerLng, centerLat], [nodeGeo.lng, nodeGeo.lat]);
     if (d >= Math.PI / 2 - 0.02) return;
@@ -1789,10 +1103,10 @@ function renderGlobe() {{
     const isChosen = nodeGeo.id === selected;
 
     // Outer Pulse Ripple
-    const rippleScale = (now % 2) / 2;
+    const rippleScale = isChosen ? 0.55 : 0.25;
     ctx.beginPath();
     ctx.arc(bx, by, 4 + rippleScale * 11, 0, Math.PI * 2);
-    ctx.strokeStyle = isLight ? `rgba(124, 58, 237, ${{(1 - rippleScale) * 0.75}})` : `rgba(139, 92, 246, ${{(1 - rippleScale) * 0.75}})`;
+    ctx.strokeStyle = isLight ? `rgba(194, 65, 12, ${{(1 - rippleScale) * 0.75}})` : `rgba(251, 146, 60, ${{(1 - rippleScale) * 0.75}})`;
     ctx.lineWidth = 1.2;
     ctx.stroke();
 
@@ -1804,14 +1118,14 @@ function renderGlobe() {{
     ctx.beginPath();
     ctx.moveTo(bx, by);
     ctx.lineTo(tx, ty);
-    ctx.strokeStyle = isLight ? '#7c3aed' : '#c4b5fd';
+    ctx.strokeStyle = isLight ? '#c2410c' : '#fdba74';
     ctx.lineWidth = isChosen ? 2.5 : 1.5;
     ctx.stroke();
 
     // Top Dot
     ctx.beginPath();
     ctx.arc(tx, ty, isChosen ? 4.2 : 3.0, 0, Math.PI * 2);
-    ctx.fillStyle = isLight ? '#7c3aed' : '#22d3ee';
+    ctx.fillStyle = isLight ? '#c2410c' : '#fb923c';
     ctx.fill();
 
     // Flag Tag Pill
@@ -1822,22 +1136,29 @@ function renderGlobe() {{
     const tagX = tx + 6;
     const tagY = ty - 6;
 
-    ctx.fillStyle = isLight ? '#ffffff' : '#0d101b';
-    ctx.strokeStyle = isLight ? 'rgba(124, 58, 237, 0.3)' : 'rgba(196, 181, 253, 0.35)';
+    ctx.fillStyle = isLight ? '#fffbf7' : '#2b221c';
+    ctx.strokeStyle = isLight ? 'rgba(194, 65, 12, 0.3)' : 'rgba(253, 186, 116, 0.35)';
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.roundRect ? ctx.roundRect(tagX - 4, tagY - 11, textWidth + 8, 16, 4) : ctx.rect(tagX - 4, tagY - 11, textWidth + 8, 16);
     ctx.fill();
     ctx.stroke();
 
-    ctx.fillStyle = isLight ? '#171722' : '#f7f8ff';
+    ctx.fillStyle = isLight ? '#29231f' : '#faf1e9';
     ctx.fillText(tagText, tagX, tagY + 2);
   }});
 
-  requestAnimationFrame(renderGlobe);
+  if (!globeMotion.matches && !globeFrame) {{
+    globeFrame = requestAnimationFrame(() => {{ globeFrame = 0; renderGlobe(); }});
+  }}
 }}
 
 renderGlobe();
+globeMotion.addEventListener('change', () => {{
+  cancelAnimationFrame(globeFrame);
+  globeFrame = 0;
+  renderGlobe();
+}});
 
 // Mouse Drag Interactions
 canvas?.addEventListener('pointerdown', (e) => {{
@@ -1863,6 +1184,7 @@ window.addEventListener('pointermove', (e) => {{
   centerLng = startCenterLng - dx * 0.45;
   centerLat = Math.max(-60, Math.min(60, startCenterLat + dy * 0.45));
   targetLng = null;
+  if (globeMotion.matches) renderGlobe();
 }});
 
 function pick(id) {{
@@ -1894,6 +1216,7 @@ function pick(id) {{
     targetLng = targetGeo.lng;
     targetLat = targetGeo.lat;
   }}
+  if (globeMotion.matches) renderGlobe();
 }}
 
 document.querySelectorAll('.user-node-card').forEach(card => {{
@@ -1990,6 +1313,7 @@ function applyTheme(theme) {{
     themeToggle.textContent = resolved === 'dark' ? '☼' : '◐';
   }}
   try {{ localStorage.setItem(themeKey, resolved); }} catch (e) {{}}
+  if (globeMotion.matches) renderGlobe();
 }}
 
 applyTheme(savedTheme || 'light');
