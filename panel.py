@@ -2183,8 +2183,7 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             route_page = max(1, int(route_page))
         except (TypeError, ValueError):
             route_page = 1
-        default_vps_port = self._random_high_port()
-        default_nat_port = self._random_high_port()
+        default_port = self._random_high_port()
         with self._connect() as db:
             nodes = db.execute("SELECT * FROM nodes ORDER BY id").fetchall()
             route_counts = {
@@ -2203,7 +2202,6 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             delete_token = csrf_token
             kind = "本机" if node["kind"] == "local" else "SSH"
             if node["kind"] == "ssh":
-                mode = "普通 VPS" if node["network_mode"] == "vps" else "NAT"
                 shared_front = str(node["nginx_mode"] or "isolated") == "shared-front"
                 deploy_mode = "Nginx 共存" if shared_front else "独立 Nginx"
                 port_chain = (
@@ -2211,7 +2209,7 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
                     if shared_front else
                     f"公网 HTTPS {int(node['public_https_port'])} → 内部 {int(node['internal_https_port'])}"
                 )
-                kind += f"<br><span class='muted'>{mode} · {deploy_mode} · {port_chain}</span>"
+                kind += f"<br><span class='muted'>{deploy_mode} · {port_chain}</span>"
             health = self._health_summary(node)
             traffic = self._format_traffic_usage(node_usage.get(node_id))
             location = " ".join(filter(None, (node["country_flag"], node["country_name"], node["country_code"]))) or "未识别"
@@ -2237,14 +2235,13 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
         content = f"""
 <section><h2>节点</h2><table><thead><tr><th>名称</th><th>类型</th><th>地区</th><th>域名后缀</th><th>状态 / 代理用量</th><th>操作</th></tr></thead><tbody>{node_rows}</tbody></table></section>
 <section><h2>新增节点</h2>
-<form id='node-add-form' method='post' enctype='multipart/form-data' action='{ADMIN_PREFIX}/nodes' data-default-vps-port='{default_vps_port}' data-default-nat-port='{default_nat_port}'>
+<form id='node-add-form' method='post' enctype='multipart/form-data' action='{ADMIN_PREFIX}/nodes'>
   <div class='grid'>
     <label>节点名称<input required name='name' placeholder='海创'></label>
-    <label>网络类型<select required name='network_mode' id='network-mode'><option value='vps'>普通 VPS（独立公网 IP）</option><option value='nat'>NAT 机（端口映射）</option></select></label>
     <label>服务器公网 IP<input required name='ssh_host' inputmode='decimal' placeholder='162.141.136.85'></label>
     <label>SSH 端口<input required name='ssh_port' value='22' inputmode='numeric'></label>
-    <label>公网 HTTPS 端口<input id='public-port' name='public_https_port' value='{default_vps_port}' inputmode='numeric' placeholder='留空自动随机'><span class='muted'>默认随机高位端口；NAT 请填服务商映射的公网端口</span></label>
-    <label>内部 HTTPS 端口<input name='internal_https_port' value='{default_vps_port}' inputmode='numeric' placeholder='留空自动随机'><span class='muted'>默认随机高位端口，可手动修改；已有 Nginx 时作为项目内部端口</span></label>
+    <label>公网 HTTPS 端口<input id='public-port' name='public_https_port' value='{default_port}' inputmode='numeric' placeholder='留空自动随机'><span class='muted'>默认随机高位端口；没有端口映射时与内部端口相同，有端口映射时填写外部端口</span></label>
+    <label>内部 HTTPS 端口<input name='internal_https_port' value='{default_port}' inputmode='numeric' placeholder='留空自动随机'><span class='muted'>节点本机实际监听端口，默认随机高位端口，可手动修改</span></label>
     <label>SSH 用户名（留空默认为 root）<input name='ssh_user' autocomplete='username' maxlength='32' placeholder='root'></label>
     <label>SSH 密码（与私钥二选一）<input type='password' name='ssh_password' autocomplete='new-password'></label>
     <label>SSH 私钥文件（与密码二选一）<input type='file' name='ssh_private_key' accept='.pem,.key,text/plain,application/x-pem-file'></label>
@@ -2272,18 +2269,9 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
   const summary = document.getElementById('node-terminal-summary');
   const cancelButton = document.getElementById('node-terminal-cancel');
   const refreshButton = document.getElementById('node-terminal-refresh');
-  const mode = document.getElementById('network-mode');
-  const publicPort = document.getElementById('public-port');
   let activeJobId = '';
   let pollTimer = 0;
   const stateLabels = {pending: '等待', running: '部署中', succeeded: '成功', failed: '失败'};
-  const defaultVpsPort = form?.dataset.defaultVpsPort || '49152';
-  const defaultNatPort = form?.dataset.defaultNatPort || defaultVpsPort;
-  const syncPort = () => {
-    if (mode.value === 'nat' && publicPort.value === defaultVpsPort) publicPort.value = defaultNatPort;
-    if (mode.value === 'vps' && publicPort.value === defaultNatPort) publicPort.value = defaultVpsPort;
-  };
-  mode?.addEventListener('change', syncPort);
   const closeTerminal = () => {
     modal.hidden = true;
     document.body.style.overflow = '';
@@ -2733,8 +2721,16 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             ssh_port = int(str(data.get("ssh_port", "22")))
             public_value = str(data.get("public_https_port", "")).strip()
             internal_value = str(data.get("internal_https_port", "")).strip()
-            public_port = int(public_value or str(self._random_high_port()))
-            internal_port = int(internal_value or str(public_port if data.get("network_mode", "vps") == "vps" else self._random_high_port()))
+            if not public_value and not internal_value:
+                default_port = str(self._random_high_port())
+                public_value = default_port
+                internal_value = default_port
+            elif not public_value:
+                public_value = internal_value
+            elif not internal_value:
+                internal_value = public_value
+            public_port = int(public_value)
+            internal_port = int(internal_value)
         except ValueError as exc:
             raise PanelError("端口必须是数字") from exc
         if not (1 <= ssh_port <= 65535 and 1 <= public_port <= 65535 and 1 <= internal_port <= 65535):
@@ -3109,16 +3105,10 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             )
             if returncode == 0 and output.strip() == "ok":
                 return port
-        if node["network_mode"] == "nat":
-            target_port = int(node["front_nginx_port"]) if str(node["nginx_mode"] or "isolated") == "shared-front" else int(node["internal_https_port"])
-            raise PanelError(
-                f"节点内部配置已完成，但连续探测后公网 TCP {port} 仍无法访问；"
-                f"请确认服务商已将公网 TCP {port} 映射到机器内部 TCP {target_port}"
-            )
         target_port = int(node["front_nginx_port"]) if str(node["nginx_mode"] or "isolated") == "shared-front" else int(node["internal_https_port"])
         raise PanelError(
             f"节点内部配置已完成，但连续探测后公网 TCP {port} 仍无法访问；"
-            f"请检查云平台安全组，并确认服务监听内部 TCP {target_port}"
+            f"请确认公网端口已放行，并映射到节点内部 TCP {target_port}"
         )
 
     @staticmethod
@@ -4274,22 +4264,32 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
                 candidate["front_nginx_port"] = detected_front_port
                 digest = hashlib.sha256(str(candidate["domain_suffix"]).encode("ascii")).hexdigest()[:16]
                 candidate["front_nginx_config"] = f"{existing_nginx.include_dir}/uniproxy-node-{digest}.conf"
-                if candidate["network_mode"] == "vps":
+                # Equal public/internal values mean no explicit external
+                # mapping was requested before front detection. Follow the
+                # detected front listener; differing values preserve the
+                # user-supplied public port.
+                if int(candidate["public_https_port"]) == int(candidate["internal_https_port"]):
                     candidate["public_https_port"] = detected_front_port
-                    progress(
-                        f"独立 VPS 检测到远端 Nginx 监听端口 {detected_front_port}，保留原服务并接入项目；项目内部使用 {candidate['internal_https_port']}"
-                    )
-                else:
-                    progress(
-                        f"检测到远端 Nginx 监听端口 {detected_front_port}，保留原服务并作为公网前置；项目内部使用 {candidate['internal_https_port']}"
-                    )
+                candidate["network_mode"] = (
+                    "vps" if int(candidate["public_https_port"]) == detected_front_port else "nat"
+                )
+                progress(
+                    f"检测到远端 Nginx 监听端口 {detected_front_port}，保留原服务作为公网前置；"
+                    f"公网端口 {candidate['public_https_port']}，项目内部使用 {candidate['internal_https_port']}"
+                )
             else:
                 candidate["nginx_mode"] = "isolated"
                 candidate["front_nginx_config"] = ""
                 candidate["front_nginx_port"] = 0
-                if candidate["network_mode"] == "vps" and int(candidate["public_https_port"]) != int(candidate["internal_https_port"]):
-                    raise PanelError("未检测到已有 Nginx 时，独立 VPS 的公网端口和内部端口必须一致")
-                progress(f"未检测到已有 Nginx，使用独立 Nginx 端口 {candidate['internal_https_port']}")
+                candidate["network_mode"] = (
+                    "vps"
+                    if int(candidate["public_https_port"]) == int(candidate["internal_https_port"])
+                    else "nat"
+                )
+                progress(
+                    f"未检测到已有 Nginx，使用独立 Nginx；公网端口 {candidate['public_https_port']}，"
+                    f"内部端口 {candidate['internal_https_port']}"
+                )
             progress("识别节点所在地区")
             country_name, country_code, country_flag = await self._lookup_node_location(candidate["ssh_host"])
             self._raise_if_node_provision_cancelled(cancel_event)
@@ -4340,20 +4340,15 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
                 "警告：本次节点部署按管理员设置跳过了 Nginx 出站保护；该节点不应代理不受信任的源站。"
                 if self.allow_unprotected_egress else ""
             )
-            if existing_nginx is not None and candidate["network_mode"] == "vps":
+            if existing_nginx is not None:
                 port_notice = (
-                    f"最终采用端口：公网 HTTPS {int(public_port)} → 项目内部 {effective_internal_port}；"
-                    f"原 Nginx 保留在公网端口 {int(candidate['front_nginx_port'])}，通过平滑 reload 接入。"
-                )
-            elif existing_nginx is not None:
-                port_notice = (
-                    f"最终采用端口：公网 HTTPS {int(public_port)} → 节点内部 {effective_internal_port}；"
-                    f"原 Nginx 保留在节点端口 {int(candidate['front_nginx_port'])}，请确认服务商将公网端口映射到该端口。"
+                    f"最终端口链路：公网 HTTPS {int(public_port)} → 前置 Nginx {int(candidate['front_nginx_port'])} "
+                    f"→ 项目内部 {effective_internal_port}；原 Nginx 保留并已平滑 reload。"
                 )
             else:
                 port_notice = (
                     f"最终采用端口：公网 HTTPS {int(public_port)} → 节点内部 {effective_internal_port}；"
-                    "使用表单填写的内部端口，请确认服务商映射正确。"
+                    "如存在端口映射，请确认服务商已正确转发。"
                 )
             location = f"已识别为 {country_flag} {country_name}（{country_code}）；" if country_code else "未能识别地区，可稍后在节点名称中标注地区；"
             probe_url = self._public_url(candidate, candidate["domain_suffix"]).rstrip("/") + "/__health"
@@ -4554,30 +4549,26 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
                 name = str(data.get("name", "")).strip()
                 if not SAFE_NAME.fullmatch(name):
                     raise PanelError("节点名称必须为 1–48 位中文、字母、数字、空格、连字符或下划线")
-                network_mode = str(data.get("network_mode", "vps")).strip().lower()
-                if network_mode not in {"vps", "nat"}:
-                    raise PanelError("网络类型不正确")
                 address = str(data.get("ssh_host", "")).strip()
                 try:
                     parsed_address = ipaddress.ip_address(address)
                     ssh_port = int(str(data.get("ssh_port", "22")))
                     public_value = str(data.get("public_https_port", "")).strip()
-                    if not public_value and network_mode == "nat":
-                        # Accept the field name used by the previous NAT form
-                        # while browsers still have a cached copy of it.
+                    if not public_value:
+                        # Accept the field name used by an older form while
+                        # browsers still have a cached copy of it.
                         public_value = str(data.get("nat_https_port", "")).strip()
                     internal_value = str(data.get("internal_https_port", "")).strip()
-                    if network_mode == "vps":
-                        if not public_value and not internal_value:
-                            default_port = self._random_high_port()
-                            public_value = str(default_port)
-                            internal_value = str(default_port)
-                        if not public_value and internal_value:
-                            public_value = internal_value
-                        if not internal_value and public_value:
-                            internal_value = public_value
-                    public_port = int(public_value or str(self._random_high_port()))
-                    internal_port = int(internal_value or str(self._random_high_port()))
+                    if not public_value and not internal_value:
+                        default_port = str(self._random_high_port())
+                        public_value = default_port
+                        internal_value = default_port
+                    elif not public_value:
+                        public_value = internal_value
+                    elif not internal_value:
+                        internal_value = public_value
+                    public_port = int(public_value)
+                    internal_port = int(internal_value)
                 except ValueError as exc:
                     raise PanelError("服务器 IP、SSH 端口、公网端口或内部 HTTPS 端口格式不正确") from exc
                 if parsed_address.version != 4 or not parsed_address.is_global:
@@ -4615,7 +4606,10 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
                     "generated_dir": "/etc/uniproxy-nginx/conf.d", "auto_managed": 1,
                     "ca_bundle_path": "/etc/uniproxy-nginx/ca-bundle.pem",
                     "nginx_mode": "isolated", "front_nginx_config": "", "front_nginx_port": 0,
-                    "network_mode": network_mode, "public_https_port": public_port,
+                    # Keep the legacy field in sync for older reports and
+                    # migrations; deployment itself uses the two ports.
+                    "network_mode": "vps" if public_port == internal_port else "nat",
+                    "public_https_port": public_port,
                     "internal_https_port": internal_port,
                     # Kept as empty compatibility fields for the legacy schema;
                     # host-key pinning was intentionally removed from the form.
