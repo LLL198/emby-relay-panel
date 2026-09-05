@@ -3223,8 +3223,8 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             )
         except NodeProvisionCancelled:
             raise
-        except (PanelError, subprocess.TimeoutExpired):
-            return None
+        except subprocess.TimeoutExpired as exc:
+            raise PanelError("检测远端已有 Nginx 超时，未修改远端配置") from exc
         if "__UNIPROXY_NGINX_PROBE_FAILED__" in output:
             raise PanelError("检测远端已有 Nginx 配置失败，未修改远端配置")
         if "__UNIPROXY_NGINX_NOT_INSTALLED__" in output:
@@ -3356,7 +3356,7 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
                 "}", "",
             ])
             systemd_unit = "\n".join([
-                "[Unit]", "Description=Uniproxy isolated Nginx", "After=network-online.target",
+                "[Unit]", "Description=Uniproxy sidecar Nginx", "After=network-online.target",
                 "Wants=network-online.target", "",
                 "[Service]", "Type=forking", f"PIDFile={pid_path}",
                 f"ExecStart={controller_path} start", f"ExecReload={controller_path} reload",
