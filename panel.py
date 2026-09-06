@@ -3153,6 +3153,75 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
         info = self._detect_existing_nginx_info(node, cancel_event=cancel_event)
         return info.port if info is not None else None
 
+    def _configure_existing_nginx_mode(self, candidate: dict, existing_nginx: ExistingNginxInfo, progress) -> None:
+        """Select safe shared-front or isolated fallback behavior for an existing Nginx."""
+        detected_front_port = int(existing_nginx.port)
+        public_port = int(candidate["public_https_port"])
+        internal_port = int(candidate["internal_https_port"])
+        if not existing_nginx.ssl:
+            if public_port == detected_front_port:
+                if internal_port != detected_front_port:
+                    raise PanelError(
+                        f"远端 Nginx 监听端口 {detected_front_port} 不是 HTTPS，且公网 HTTPS 端口已占用；"
+                        "请改填其他公网 HTTPS 端口，未修改远端配置"
+                    )
+                excluded = {detected_front_port, public_port, internal_port}
+                fallback_port = self._random_high_port()
+                while fallback_port in excluded:
+                    fallback_port = self._random_high_port()
+                candidate["public_https_port"] = fallback_port
+                candidate["internal_https_port"] = fallback_port
+                public_port = internal_port = fallback_port
+                progress(
+                    f"远端 Nginx 监听端口 {detected_front_port} 不是 HTTPS，原服务保留；"
+                    f"公网和项目内部改用独立高位端口 {fallback_port}"
+                )
+            elif internal_port == detected_front_port:
+                excluded = {detected_front_port, public_port, internal_port}
+                fallback_port = self._random_high_port()
+                while fallback_port in excluded:
+                    fallback_port = self._random_high_port()
+                candidate["internal_https_port"] = fallback_port
+                internal_port = fallback_port
+                progress(
+                    f"远端 Nginx 监听端口 {detected_front_port} 不是 HTTPS，原服务保留；"
+                    f"项目内部端口改用独立高位端口 {fallback_port}"
+                )
+            candidate["nginx_mode"] = "isolated"
+            candidate["front_nginx_config"] = ""
+            candidate["front_nginx_port"] = 0
+            candidate["network_mode"] = "vps" if public_port == internal_port else "nat"
+            progress(
+                f"保留远端现有 Nginx，使用独立 Nginx；公网 HTTPS {candidate['public_https_port']}，"
+                f"项目内部 {candidate['internal_https_port']}"
+            )
+            return
+
+        if detected_front_port == 80:
+            raise PanelError("检测到远端 Nginx 只监听 HTTP 80，无法安全接入 HTTPS")
+        if not existing_nginx.include_dir:
+            raise PanelError("检测到远端 Nginx，但未找到可安全接入的 conf.d/include 目录，未修改远端配置")
+        if internal_port == detected_front_port:
+            raise PanelError(
+                f"项目内部端口不能与已有 Nginx 端口 {detected_front_port} 相同，请改填其他高位端口"
+            )
+        candidate["nginx_mode"] = "shared-front"
+        candidate["front_nginx_port"] = detected_front_port
+        digest = hashlib.sha256(str(candidate["domain_suffix"]).encode("ascii")).hexdigest()[:16]
+        candidate["front_nginx_config"] = f"{existing_nginx.include_dir}/uniproxy-node-{digest}.conf"
+        # Equal public/internal values mean no explicit external mapping was
+        # requested before front detection. Follow the detected front listener;
+        # differing values preserve the user-supplied public port.
+        if public_port == internal_port:
+            candidate["public_https_port"] = detected_front_port
+        candidate["network_mode"] = (
+            "vps" if int(candidate["public_https_port"]) == detected_front_port else "nat"
+        )
+        progress(
+            f"检测到远端 Nginx HTTPS 监听端口 {detected_front_port}，保留原服务作为公网前置；"
+            f"公网端口 {candidate['public_https_port']}，项目内部使用 {candidate['internal_https_port']}"
+        )
+
     def _provision_auto_node(
         self,
         node,
@@ -4162,37 +4231,8 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
                 candidate,
                 cancel_event,
             )
-            detected_front_port = existing_nginx.port if existing_nginx is not None else None
             if existing_nginx is not None:
-                if detected_front_port == 80:
-                    raise PanelError("检测到远端 Nginx 只监听 HTTP 80，无法安全接入 HTTPS")
-                if not existing_nginx.ssl:
-                    raise PanelError(
-                        f"检测到远端 Nginx 监听端口 {detected_front_port}，但未确认其为 HTTPS，未修改远端配置"
-                    )
-                if not existing_nginx.include_dir:
-                    raise PanelError("检测到远端 Nginx，但未找到可安全接入的 conf.d/include 目录，未修改远端配置")
-                if int(candidate["internal_https_port"]) == detected_front_port:
-                    raise PanelError(
-                        f"项目内部端口不能与已有 Nginx 端口 {detected_front_port} 相同，请改填其他高位端口"
-                    )
-                candidate["nginx_mode"] = "shared-front"
-                candidate["front_nginx_port"] = detected_front_port
-                digest = hashlib.sha256(str(candidate["domain_suffix"]).encode("ascii")).hexdigest()[:16]
-                candidate["front_nginx_config"] = f"{existing_nginx.include_dir}/uniproxy-node-{digest}.conf"
-                # Equal public/internal values mean no explicit external
-                # mapping was requested before front detection. Follow the
-                # detected front listener; differing values preserve the
-                # user-supplied public port.
-                if int(candidate["public_https_port"]) == int(candidate["internal_https_port"]):
-                    candidate["public_https_port"] = detected_front_port
-                candidate["network_mode"] = (
-                    "vps" if int(candidate["public_https_port"]) == detected_front_port else "nat"
-                )
-                progress(
-                    f"检测到远端 Nginx 监听端口 {detected_front_port}，保留原服务作为公网前置；"
-                    f"公网端口 {candidate['public_https_port']}，项目内部使用 {candidate['internal_https_port']}"
-                )
+                self._configure_existing_nginx_mode(candidate, existing_nginx, progress)
             else:
                 candidate["nginx_mode"] = "isolated"
                 candidate["front_nginx_config"] = ""
