@@ -37,6 +37,7 @@
 - `py_compile`、`git diff --check` 通过；现代 `listen ... ssl`、旧式 server/http 级 `ssl on`、IPv6 高位端口、80 与高位端口并存及纯 HTTP 配置回归通过。
 - 主控面板已备份后部署，线上 `uniproxy`/`nginx` active，`nginx -t` 成功，`https://fandai.dremby.com/login` 最终返回 200，部署后服务错误日志无新增记录。
 - 线上备份：`/opt/uniproxy/.deploy-backup-20260906040742-orange`。未使用节点凭据，未触发节点新增、删除或部署。
+- HTTP-only 回退逻辑已再次部署到主控；线上备份：`/opt/uniproxy/.deploy-backup-20260906042001-orange`，新版面板文件 SHA-256 已与本地一致。
 
 ## 后续回归
 
