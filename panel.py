@@ -2980,40 +2980,81 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
         )
 
     @staticmethod
-    def _select_existing_nginx_port(output: str) -> int | None:
-        """Choose an existing Nginx listener for the isolated HTTPS service.
+    def _parse_nginx_listen_line(raw_line: str) -> tuple[int, bool] | None:
+        """Parse a listen directive and return ``(port, explicit_ssl)``."""
+        match = re.match(r"^\s*listen\s+([^;]+);", str(raw_line or ""), re.IGNORECASE)
+        if not match:
+            return None
+        tokens = match.group(1).split()
+        if not tokens:
+            return None
+        endpoint = tokens[0].strip()
+        port_text = endpoint
+        if endpoint.startswith("[") and "]" in endpoint:
+            port_text = endpoint.rsplit(":", 1)[-1]
+        elif ":" in endpoint and endpoint.count(":") == 1:
+            port_text = endpoint.rsplit(":", 1)[-1]
+        if not port_text.isdigit():
+            return None
+        port = int(port_text)
+        if not 1 <= port <= 65535:
+            return None
+        return port, any(token.lower() == "ssl" for token in tokens[1:])
 
-        The remote probe is deliberately limited to ``listen`` directives;
-        it never trusts an arbitrary process port. Prefer an explicit SSL
-        listener, then prefer 443. Port 80 remains a valid diagnostic result;
-        provisioning rejects it because the shared front must terminate HTTPS.
+    @staticmethod
+    def _nginx_brace_delta(raw_line: str) -> int:
+        """Count structural braces while ignoring quoted values/comments."""
+        line = re.sub(r'"(?:\\.|[^"\\])*"', "", str(raw_line or ""))
+        line = re.sub(r"'(?:\\.|[^'\\])*'", "", line)
+        return line.split("#", 1)[0].count("{") - line.split("#", 1)[0].count("}")
+
+    @classmethod
+    def _parse_existing_nginx_server_blocks(cls, output: str) -> tuple[list[list[str]], bool]:
+        """Return server blocks and whether legacy ``ssl on`` is inherited globally."""
+        blocks: list[list[str]] = []
+        global_ssl_on = False
+        current: list[str] | None = None
+        depth = 0
+        for raw_line in str(output or "").splitlines():
+            stripped = raw_line.strip()
+            if current is None:
+                if re.match(r"^server\s*\{", stripped, re.IGNORECASE):
+                    current = [raw_line]
+                    depth = cls._nginx_brace_delta(raw_line)
+                    if depth <= 0:
+                        blocks.append(current)
+                        current = None
+                    continue
+                if re.match(r"^ssl\s+on\s*;", stripped, re.IGNORECASE):
+                    global_ssl_on = True
+                continue
+            current.append(raw_line)
+            depth += cls._nginx_brace_delta(raw_line)
+            if depth <= 0:
+                blocks.append(current)
+                current = None
+        if current:
+            blocks.append(current)
+        return blocks, global_ssl_on
+
+    @classmethod
+    def _select_existing_nginx_port(cls, output: str) -> int | None:
+        """Choose an existing Nginx listener for the shared HTTPS front.
+
+        Nginx versions before 1.15 commonly used ``ssl on;`` in a server or
+        http block while leaving ``ssl`` off the ``listen`` line. The listener
+        selection and HTTPS check therefore share the same legacy-aware parser.
         """
-        ssl_ports: set[int] = set()
+        ssl_ports = cls._select_existing_nginx_ssl_ports(output)
         other_ports: set[int] = set()
         for raw_line in str(output or "").splitlines():
-            match = re.match(r"^\s*listen\s+([^;]+);", raw_line, re.IGNORECASE)
-            if not match:
-                continue
-            tokens = match.group(1).split()
-            if not tokens:
-                continue
-            endpoint = tokens[0].strip()
-            port_text = endpoint
-            if endpoint.startswith("[") and "]" in endpoint:
-                port_text = endpoint.rsplit(":", 1)[-1]
-            elif ":" in endpoint and endpoint.count(":") == 1:
-                port_text = endpoint.rsplit(":", 1)[-1]
-            if not port_text.isdigit():
-                continue
-            port = int(port_text)
-            if not 1 <= port <= 65535:
-                continue
-            if any(token.lower() == "ssl" for token in tokens[1:]):
-                ssl_ports.add(port)
-            else:
-                other_ports.add(port)
+            parsed = cls._parse_nginx_listen_line(raw_line)
+            if parsed is not None:
+                other_ports.add(parsed[0])
         if ssl_ports:
-            return min(ssl_ports, key=lambda port: (port != 443, port))
+            non_http_ports = {port for port in ssl_ports if port != 80}
+            candidates = non_http_ports or ssl_ports
+            return min(candidates, key=lambda port: (port != 443, port))
         if other_ports:
             non_http_ports = {port for port in other_ports if port != 80}
             candidates = non_http_ports or other_ports
@@ -3037,24 +3078,31 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
                 return preferred
         return None
 
-    @staticmethod
-    def _select_existing_nginx_ssl_ports(output: str) -> set[int]:
+    @classmethod
+    def _select_existing_nginx_ssl_ports(cls, output: str) -> set[int]:
+        """Find listeners serving HTTPS, including legacy ``ssl on`` contexts."""
         ports: set[int] = set()
+        all_listeners: list[tuple[int, bool]] = []
         for raw_line in str(output or "").splitlines():
-            match = re.match(r"^\s*listen\s+([^;]+);", raw_line, re.IGNORECASE)
-            if not match:
-                continue
-            tokens = match.group(1).split()
-            if not tokens or not any(token.lower() == "ssl" for token in tokens[1:]):
-                continue
-            endpoint = tokens[0].strip()
-            port_text = endpoint
-            if endpoint.startswith("[") and "]" in endpoint:
-                port_text = endpoint.rsplit(":", 1)[-1]
-            elif ":" in endpoint and endpoint.count(":") == 1:
-                port_text = endpoint.rsplit(":", 1)[-1]
-            if port_text.isdigit() and 1 <= int(port_text) <= 65535:
-                ports.add(int(port_text))
+            parsed = cls._parse_nginx_listen_line(raw_line)
+            if parsed is not None:
+                all_listeners.append(parsed)
+                if parsed[1]:
+                    ports.add(parsed[0])
+
+        blocks, global_ssl_on = cls._parse_existing_nginx_server_blocks(output)
+        if global_ssl_on:
+            ports.update(port for port, _explicit_ssl in all_listeners)
+        for block in blocks:
+            block_listeners = [
+                parsed
+                for raw_line in block
+                for parsed in [cls._parse_nginx_listen_line(raw_line)]
+                if parsed is not None
+            ]
+            legacy_ssl = any(re.match(r"^\s*ssl\s+on\s*;", raw_line, re.IGNORECASE) for raw_line in block)
+            if legacy_ssl:
+                ports.update(port for port, _explicit_ssl in block_listeners)
         return ports
 
     def _detect_existing_nginx_info(
@@ -3069,7 +3117,7 @@ document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventLis
             "elif ! nginx_dump=$(nginx -T 2>/dev/null); then "
             "  echo '__UNIPROXY_NGINX_PROBE_FAILED__'; "
             "else "
-            "  printf '%s\\n' \"$nginx_dump\" | grep -E '^[[:space:]]*(include|listen)[[:space:]]+[^;]+;' | head -n 400 || true; "
+            "  printf '%s\\n' \"$nginx_dump\" | grep -E '^[[:space:]]*(include|server_name|listen|ssl([[:space:]]|_))|[{}]' | head -n 1200 || true; "
             "fi"
         )
         try:
